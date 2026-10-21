@@ -81,10 +81,10 @@ describe('a tool seats on a host link', () => {
   })
 
   it('seats only close to the link in plan, and not by being dropped over the host', () => {
-    // the flange stands at (11, 2, 5) in plan: a drop 0.2 m from it seats, 0.4 m from it does not
-    const near = findSnap(plate([11.2, 0, 5]), { position: [11.2, 0, 5], rotationY: 0 }, [arm()])
+    // the flange stands at (11, 2, 5) in plan: a drop 0.4 m from it seats, 0.6 m from it does not
+    const near = findSnap(plate([11.4, 0, 5]), { position: [11.4, 0, 5], rotationY: 0 }, [arm()])
     expect(near?.via).toBe('mount -> link:flange')
-    expect(findSnap(plate([11.4, 0, 5]), { position: [11.4, 0, 5], rotationY: 0 }, [arm()])).toBeNull()
+    expect(findSnap(plate([11.6, 0, 5]), { position: [11.6, 0, 5], rotationY: 0 }, [arm()])).toBeNull()
     // over the host's footprint but away from the flange: no seat
     expect(findSnap(plate([9.4, 0, 5]), { position: [9.4, 0, 5], rotationY: 0 }, [arm()])).toBeNull()
     expect(findSnap(plate([0, 0, 0]), { position: [0, 0, 0], rotationY: 0 }, [arm()])).toBeNull()

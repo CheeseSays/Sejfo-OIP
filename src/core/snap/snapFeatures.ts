@@ -1226,7 +1226,7 @@ function snapFaceMount(
 }
 
 /** how far (m, in plan) a tool dragged beside a host's link still seats on it */
-const LINK_SEAT_REACH = 0.25
+const LINK_SEAT_REACH = 0.5
 
 /**
  * A tool seats on a link of the host's rig (`geometry.mount`): its origin goes to that link at the pose the host rests

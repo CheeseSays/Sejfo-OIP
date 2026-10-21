@@ -88,7 +88,7 @@ export function getPackage(id: string): PartPackage | undefined {
 }
 
 /** the catalog's tabs, in order */
-export const PART_CATEGORIES: readonly PartDef['category'][] = ['Equipment', 'Devices', 'Products', 'Structure']
+export const PART_CATEGORIES: readonly PartDef['category'][] = ['Equipment', 'Devices', 'Products', 'Structure', 'Robot Tools']
 
 /**
  * The section a package files under: its declared category when it names one (case-insensitively, since

@@ -1,7 +1,7 @@
 {
   "id": "oip.vacuum-tool",
   "name": "Vacuum Tool",
-  "category": "Equipment",
+  "category": "Robot Tools",
   "geometry": {
     "kind": "rig",
     "links": [

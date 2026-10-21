@@ -40,6 +40,7 @@ const M = defineMessages('catalog', {
   catDevices: 'Devices',
   catProducts: 'Products',
   catStructure: 'Structure',
+  catRobotTools: 'Robot Tools',
   shelfTitle: 'Parts kept outside any project, for every project to place and update from',
   shelf: 'Shelf',
   placingTouch: 'Tap the viewport to place · tap the card again to finish',
@@ -73,13 +74,14 @@ const CatalogShelf = lazy(() => import('./CatalogShelf').then((m) => ({ default:
 
 type Category = PartDef['category']
 // catalog tab order; tabs with nothing to show are hidden (see `tabs` in Catalog)
-const CATEGORIES: Category[] = ['Equipment', 'Devices', 'Products', 'Structure']
+const CATEGORIES: Category[] = ['Equipment', 'Devices', 'Products', 'Structure', 'Robot Tools']
 // each tab's heading; the category itself is a key parts match on
 const CATEGORY_LABEL: Record<Category, MessageId> = {
   Equipment: M.catEquipment,
   Devices: M.catDevices,
   Products: M.catProducts,
   Structure: M.catStructure,
+  'Robot Tools': M.catRobotTools,
 }
 
 // Tablets show the catalog but have no Alt/Esc/wheel - word the placing hint for touch.

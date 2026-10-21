@@ -57,7 +57,7 @@ const place = (page, id, cx, cy) =>
     c.endCatalogPlace(cx, cy, false)
   }, { id, cx, cy })
 
-// drop a tool where the cursor ray meets the floor under the robot's flange: the snap seats within 0.25 m of it in plan
+// drop a tool where the cursor ray meets the floor under the robot's flange: the snap seats within 0.5 m of it in plan
 const placeOnFlange = async (page, id) => {
   const at = await page.evaluate(() => {
     const st = window.__oip.store.getState()

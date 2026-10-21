@@ -356,7 +356,7 @@ export interface PartDef {
   type: PartType
   label: string
   /** catalog section */
-  category: 'Equipment' | 'Devices' | 'Products' | 'Structure'
+  category: 'Equipment' | 'Devices' | 'Products' | 'Structure' | 'Robot Tools'
   /** placement height of the part origin when dropped on the ground plane */
   defaultY: number
   /** which viewport resize handles the part offers (y = vertical height handle) */

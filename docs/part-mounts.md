@@ -41,7 +41,7 @@ scene tree shows the tool under the arm.
 
 Dropping a tool near a host seats it: the snap engine solves a `linkSeat` plug
 ([part-snap-connectors.md](part-snap-connectors.md)) against every host link of that name. The tool goes to the link at
-the pose the host rests in (its idle `pose`, its `scale`, its yaw) when the drag is within 0.25 m of it in plan, and the
+the pose the host rests in (its idle `pose`, its `scale`, its yaw) when the drag is within 0.5 m of it in plan, and the
 commit soft-parents it. The link is metres above the floor, so the height of the drag does not matter: drop the tool
 under the flange. A link that already carries a tool refuses another, and a tool never hosts one. The headless
 `snap-part --write` and the agent's `snap_part` commit the same way. `check-layout` reports a tool that has no host.

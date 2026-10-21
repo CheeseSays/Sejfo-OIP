@@ -261,6 +261,10 @@ const GATES = [
     why: "a posable rig's pose gizmo is up exactly when the editor targets it - including a rig inside a grouped subtree, which a viewport click reaches only via the double-click drill-in",
   },
   {
+    script: 'verify-tool-mount.mjs',
+    why: "a tool is a part of its own that rides the arm: dropped on the robot's flange it seats (a snap) and hangs under the flange link, follows every joint pose and the arm's scale, survives a robot rebuild and an undo, takes the robot's vacuum lamp, and carries its own resize dots with it. A tool drawn at the part's own stale position, or parented under a link group a rebuild has discarded, passes every unit test and is simply not on the arm",
+  },
+  {
     script: 'verify-shape-part.mjs',
     why: "the Shape primitives are solid as what they LOOK like: collision:'staticHull' colliders hull the mesh (cargo over a cylinder's AABB corner falls, a ramp carries at its wedge height), and the vertical resize dot drives height",
   },

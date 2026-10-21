@@ -80,7 +80,7 @@ try {
   check('selecting the robot draws its gizmo', h0.shown)
   const rings = await page.evaluate(() => [0, 1, 2, 3, 4, 5, 6].filter((i) => window.__oip.view.rigGizmoOverlay.ringPoints(i, 4).length > 0).length)
   check('six joint rings (J6, the tool roll, included)', rings === 6, `${rings}`)
-  check('the end-effector and the two tool-size dots', ['ee', 'size:toolSizeX', 'size:toolSizeZ'].every((n) => names.includes(n)), names.join(' '))
+  check('the end-effector, and no tool-size dots (the tool is a part of its own)', names.includes('ee') && !names.some((n) => n.startsWith('size:')), names.join(' '))
   // no two drawn dots sit on each other: one that would is hidden, and its ring is grabbed instead
   const crowd = h0.list.filter((h) => h.handle === 'ee' || /^j\d$/.test(h.handle))
   let closest = Infinity

@@ -1,4 +1,5 @@
 import type { SnapChain, SnapEdgeMount, SnapMount, SnapSpec, SnapTile, SnapTrack } from '../parts/partApi'
+import type { PartPackage, RigMount } from '../parts/partPackage'
 
 /**
  * The connector model: what a part's `snap` declaration means to the snap engine (docs/part-snap-connectors.md).
@@ -36,6 +37,9 @@ export type Plug =
   /** a part seating on a host deck edge: along it (a barrier on a platform rim) or into it (a flight, fitted to
    *  the deck's height when it stands on the floor) */
   | { shape: 'edgeSeat'; label: 'edgeMount'; edgeMount: SnapEdgeMount }
+  /** a tool seating on a link of a host rig, at the pose the host rests in (the rig's own `geometry.mount`, not a
+   *  `snap` declaration) */
+  | { shape: 'linkSeat'; label: 'mount'; mount: RigMount }
 
 /** the reserved mount kind for "any part's footprint face" (SnapMount.accepts) */
 export const FACE_KIND = 'face'
@@ -59,6 +63,23 @@ export function plugsOf(snap: SnapSpec | undefined): readonly Plug[] {
   snap.mounts?.forEach((mount, i) => out.push({ shape: 'mount', label: `mounts[${i}]`, mount }))
   if (snap.flush === true) out.push({ shape: 'footprint', label: 'flush' })
   compiled.set(snap, out)
+  return out
+}
+
+const compiledPackages = new WeakMap<PartPackage, readonly Plug[]>()
+
+/**
+ * The plugs of a package: its compiled `snap` declaration, plus the link seat of a rig that declares a `mount` (a tool
+ * is seated by what its geometry says, so a tool needs no `snap` block of its own).
+ */
+export function plugsOfPackage(pkg: PartPackage | undefined): readonly Plug[] {
+  if (!pkg) return NONE
+  const mount = pkg.geometry.kind === 'rig' ? pkg.geometry.mount : undefined
+  if (!mount) return plugsOf(pkg.snap)
+  const hit = compiledPackages.get(pkg)
+  if (hit) return hit
+  const out: readonly Plug[] = [...plugsOf(pkg.snap), { shape: 'linkSeat', label: 'mount', mount }]
+  compiledPackages.set(pkg, out)
   return out
 }
 

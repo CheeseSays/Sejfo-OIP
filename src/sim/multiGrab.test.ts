@@ -97,6 +97,73 @@ function run(w: SimWorld, ticks: number): void {
   for (let i = 0; i < ticks; i++) w.step()
 }
 
+// The volume can come from a tool part riding the hand (core/scene/sceneMounts.ts): the hand declares only a 2 cm box,
+// and a tool seated on it brings the plate. The tool is a part of its own in the scene, with its own size params.
+const TOOL_PKG = 'test.multigrab.plate'
+function setupWithTool(tool: boolean): SimWorld {
+  registerPackage(
+    buildPackage(
+      {
+        id: PKG,
+        name: 'MultiGrab',
+        geometry: {
+          kind: 'rig',
+          links: [
+            { name: 'base', shape: { kind: 'frame' }, offset: [0, 0, 0] },
+            { name: 'hand', parent: 'base', shape: { kind: 'frame' }, offset: [0, HAND_Y, 0], grip: { zone: { size: [0.02, 0.02, 0.02] } } },
+          ],
+          joints: [{ name: 'lift', link: 'hand', type: 'prismatic', axis: [0, 1, 0], min: 0, max: 2 }],
+        },
+      },
+      GRAB_AND_LIFT,
+    ),
+  )
+  registerPackage(
+    buildPackage(
+      {
+        id: TOOL_PKG,
+        name: 'Plate',
+        geometry: {
+          kind: 'rig',
+          links: [{ name: 'face', shape: { kind: 'frame' }, offset: [0, 0, 0] }],
+          joints: [],
+          mount: { link: 'hand', grip: { link: 'hand', zone: { size: [0.3, 0.4, 1.2], sizeParams: [{ axis: 0, param: 'plateX' }] } } },
+        },
+      },
+      "definePart({ params: { plateX: { type: 'number', default: 0.3, min: 0.1, max: 3, step: 0.1, label: 'Plate X' } }, step() {} })",
+    ),
+  )
+  const parts: SdkPart[] = [{ id: 'g', type: 'part', packageId: PKG, position: [0, 0, 0], rotationY: 0, params: {} } as SdkPart]
+  if (tool) parts.push({ id: 'plate', type: 'part', packageId: TOOL_PKG, position: [0, HAND_Y, 0], rotationY: 0, params: { plateX: 1.4 }, parent: 'g' } as SdkPart)
+  return new SimWorld(Jolt, { version: SCENE_VERSION, parts } as SceneJSON)
+}
+
+describe('a tool seated on the hand gives it its pickup volume', () => {
+  let world: SimWorld | null = null
+  afterEach(() => {
+    world?.dispose()
+    world = null
+    unregisterPackage(PKG)
+    unregisterPackage(TOOL_PKG)
+  })
+
+  it('lifts the layer the tool spans, sized by the tool part own params', () => {
+    const w = (world = setupWithTool(true))
+    spawnLayerPlusStray(w)
+    run(w, 40)
+    const ys = boxYs(w)
+    for (const y of ys.slice(0, 5)) expect(y).toBeGreaterThan(HAND_Y + 0.5)
+    expect(ys[5] as number).toBeLessThan(HAND_Y) // beside the plate: never caught
+  })
+
+  it('picks nothing with no tool on the hand', () => {
+    const w = (world = setupWithTool(false))
+    spawnLayerPlusStray(w)
+    run(w, 40)
+    for (const y of boxYs(w)) expect(y).toBeLessThan(HAND_Y)
+  })
+})
+
 describe('C-multigrab - a gripper holds every cargo body in its volume', () => {
   let world: SimWorld | null = null
   afterEach(() => {

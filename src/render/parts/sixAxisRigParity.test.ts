@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { arrayInstanceDeltas, qApply, resolvedGrabZone, rigWorldPoses } from '../../core/rig/rigPose'
+import { qApply, resolvedGrabZone, rigWorldPoses } from '../../core/rig/rigPose'
 import { evalPartGeometry } from '../../core/geometry/geometryEval'
 import type { MeshPart } from '../../core/parts/partApi'
 import { PACKAGE_FORMAT, validatePartPackage } from '../../core/parts/partPackage'
@@ -16,28 +16,8 @@ const { geometry: SIX_AXIS_RIG, materials: SIX_AXIS_MATERIALS, assets: SIX_AXIS_
 
 const geo = SIX_AXIS_RIG
 
-// the EOAT, as the behavior's geometry() draws it, and the box round every submesh of one material
-const P = (over: Record<string, number | boolean> = {}): Record<string, number | boolean> => ({
-  toolSizeX: 0.5, toolSizeZ: 0.5, cupPitchX: 0.1, cupPitchZ: 0.1, cupMarginX: 0.05, cupMarginZ: 0.05, cupsEnabled: true, ...over,
-})
-const eoat = (p: Record<string, number | boolean>): MeshPart[] => evalPartGeometry(SIX_AXIS_BEHAVIOR, p) ?? []
-/** the suction-cup bed: the instanced submesh */
-const cupBed = (p: Record<string, number | boolean>): MeshPart | undefined => eoat(p).find((m) => m.material === 'eoatCup' && m.instances !== undefined)
-const box = (parts: readonly MeshPart[], material: string): { min: number[]; max: number[] } => {
-  const min = [Infinity, Infinity, Infinity]
-  const max = [-Infinity, -Infinity, -Infinity]
-  for (const m of parts) {
-    if (m.material !== material) continue
-    const pos = m.desc.positions
-    for (let i = 0; i < pos.length; i += 3) {
-      for (let a = 0; a < 3; a++) {
-        min[a] = Math.min(min[a]!, pos[i + a]!)
-        max[a] = Math.max(max[a]!, pos[i + a]!)
-      }
-    }
-  }
-  return { min, max }
-}
+// the geometry() the robot draws itself: the flange's vacuum status lamp, and nothing else
+const drawn = (): MeshPart[] => evalPartGeometry(SIX_AXIS_BEHAVIOR, {}) ?? []
 const D2R = Math.PI / 180
 const valuesOf = (deg: number[]): Record<string, number> => ({
   j1: deg[0]! * D2R, j2: deg[1]! * D2R, j3: deg[2]! * D2R, j4: deg[3]! * D2R, j5: deg[4]! * D2R, j6: deg[5]! * D2R,
@@ -72,46 +52,21 @@ describe('Six-Axis custom-part rig - kinematic parity with the built-in robot', 
     expect(grip.pos[2]).toBeCloseTo(ref.gripper.z, 4)
   })
 
-  // Grip + indicator surface: the pickup volume is the plate itself (the zone below; a sphere beside it
-  // would never be read), and the at-a-glance indicator is a vacuum-status LED on the plate (a real vacuum
-  // switch's lamp), leaving the cups physical: they compress off that LED's signal (squash.lamp) instead
-  // of glowing.
-  it('declares the pickup volume + a vacuum-status LED driving cup compression (not glowing cups)', () => {
+  // The tool is not the robot's: it is a Vacuum Tool seated on the flange (vacuumToolPart.test.ts), and it gives the
+  // gripper the pickup volume. Alone, the robot's gripper has a 2 cm volume no case's centre is ever inside, so a bare
+  // flange picks nothing. The robot's one lamp is a status lamp on the flange, driven by the same vacuum signal the
+  // tool's cups compress off.
+  it('declares a bare flange that picks nothing, and a vacuum-status lamp on the flange', () => {
     const gripper = geo.links.find((l) => l.name === 'gripper')!
     expect([gripper.grip?.radius, gripper.grip?.radiusParams]).toEqual([undefined, undefined])
-    // C-multigrab: the pickup volume, whose footprint is the plate 1:1 - that is what makes "everything under the
-    // plate, nothing beside it" true. It also decides how many cases the tool takes, with no mode to set:
-    // sized to the layer it lifts the whole formed layer in one grip, sized to one case it picks one.
-    expect(resolvedGrabZone(gripper, { toolSizeX: 1.2, toolSizeZ: 1.0 })?.half).toEqual([0.6, 0.35, 0.5])
-    expect(resolvedGrabZone(gripper, { toolSizeX: 0.5, toolSizeZ: 0.5 })?.half).toEqual([0.25, 0.35, 0.25])
-    // the vacuum indicator is a green LED on the tool, driven by the grip state. It is drawn, not a box link,
-    // so it is no collider riding the arm (a box link would be a 35 mm solid cube cargo could strike)
-    const led = eoat(P()).find((m) => m.lamps?.[0]?.name === 'vacuumLamp')!
-    const ledLit = led.lamps![0]!.emissive
-    expect(ledLit[1]).toBeGreaterThan(ledLit[0]) // green-dominant
+    expect(resolvedGrabZone(gripper, {})?.half).toEqual([0.01, 0.01, 0.01])
+    // the lamp is drawn, not a box link, so it is no collider riding the arm
+    const lamp = drawn().find((m) => m.lamps?.[0]?.name === 'vacuumLamp')!
+    const lit = lamp.lamps![0]!.emissive
+    expect(lit[1]).toBeGreaterThan(lit[0]) // green-dominant
+    expect(lamp.link).toBe('tool')
     expect(geo.links.some((l) => l.name === 'vacuumLamp')).toBe(false)
     expect(SIX_AXIS_BEHAVIOR).toContain('ctx.lamps.vacuumLamp = gripClosed')
-    // the cups do not glow - they physically compress 15% along their axis, off the LED's signal
-    const cups = cupBed(P())!
-    expect(cups.lamps).toBeUndefined()
-    expect(cups.squash).toEqual({ amount: 0.15, lamp: 'vacuumLamp' })
-  })
-
-  // The LED sits at the +X/+Z plate corner, 0.07 m in, so a resized tool tracks it instead of stranding it off the
-  // enlarged plate: seated on the back face, inside the frame and clear of the adapter at every size.
-  it.each([[0.5, 0.5], [1.5, 0.75], [3, 3]] as const)('seats the vacuum LED on the plate, inside the frame - %s x %s m', (sx, sz) => {
-    const parts = eoat(P({ toolSizeX: sx, toolSizeZ: sz }))
-    const bezel = box(parts, 'eoatPlastic')
-    expect(bezel.min[1]).toBeCloseTo(-0.0517, 6) // on the back face
-    expect((bezel.min[0]! + bezel.max[0]!) / 2).toBeCloseTo(sx / 2 - 0.07, 3) // tracks the corner
-    expect((bezel.min[2]! + bezel.max[2]!) / 2).toBeCloseTo(sz / 2 - 0.07, 3)
-    expect(bezel.max[0]).toBeLessThan(sx / 2 - 0.012) // short of the rails' inner faces
-    expect(bezel.max[2]).toBeLessThan(sz / 2 - 0.012)
-    expect(bezel.min[0]! > 0.096 || bezel.min[2]! > 0.159).toBe(true) // clear of the 192 x 318 mm adapter plate
-    // the lens sits in the bezel
-    const lens = box(parts, 'eoatLens')
-    expect(lens.min[1]).toBeCloseTo(bezel.max[1]!, 6)
-    expect(lens.max[0]! - lens.min[0]!).toBeLessThan(bezel.max[0]! - bezel.min[0]!)
   })
 
   it('places every linkage mesh under a driven pivot (no orphaned links)', () => {
@@ -122,76 +77,24 @@ describe('Six-Axis custom-part rig - kinematic parity with the built-in robot', 
     expect(geo.joints).toHaveLength(6)
   })
 
-  // The EOAT (mounted flipped 180°-about-Z at the tool pivot + 0.009 on the robot) is the behavior's geometry(),
-  // built at the size the params ask for: the plate and frame grow with toolSizeX/Z while the rail section and the
-  // caps keep their size, the cup grid regenerates, and the vacuum pickup grows with the plate.
-  describe('EOAT resizes (toolSizeX/Z, cup grid, cupsEnabled)', () => {
+  // The tool flange (mounted flipped 180°-about-Z at the tool pivot + 0.009 on the robot) is the frame a tool part
+  // seats on. The tool itself is vacuumToolPart.test.ts's.
+  describe('tool flange', () => {
     const link = (name: string) => geo.links.find((l) => l.name === name)!
 
-    it('mounts the tool flipped 180° about Z at the tool pivot + (0, 0.009, 0) - the EOAT mount transform', () => {
+    it('mounts the flange flipped 180° about Z at the tool pivot + (0, 0.009, 0) - the EOAT mount transform', () => {
       const eoatLink = link('eoat')
       expect(eoatLink.parent).toBe('tool')
       expect(eoatLink.offset).toEqual([0, 0.009, 0])
       expect(eoatLink.quat).toEqual([0, 0, 1, 0])
-      // every piece of the tool rides that link, and none of it needs a model or a texture
-      for (const m of eoat(P())) expect(m.link).toBe('eoat')
+      expect(eoatLink.shape.kind).toBe('frame')
+      // what the robot draws itself rides the tool link, and none of it needs a model or a texture
+      for (const m of drawn()) expect(m.link).toBe('tool')
       expect(SIX_AXIS_ASSETS.map((a) => a.id)).toEqual(['glb', 'albedo', 'orm'])
     })
 
-    it('declares the resize gizmo (rigSize handles riding the eoat link at EOAT_FRAME_Y)', () => {
-      // the robot gizmo's orange tool-size drag dots - declared on the params, drawn by the rig gizmo
-      expect(SIX_AXIS_BEHAVIOR).toContain("handle: { kind: 'rigSize', link: 'eoat', axis: 'x', frameY: -0.075 }")
-      expect(SIX_AXIS_BEHAVIOR).toContain("handle: { kind: 'rigSize', link: 'eoat', axis: 'z', frameY: -0.075 }")
-    })
-
-    it("frames the plate at its size: rails 3 mm outside ±size/2, centred on the handles' frameY", () => {
-      for (const [sx, sz] of [[0.5, 0.5], [1.5, 0.75], [3, 2.5]] as const) {
-        const parts = eoat(P({ toolSizeX: sx, toolSizeZ: sz }))
-        const rails = box(parts, 'eoatRail')
-        expect(rails.min[0]).toBeCloseTo(-sx / 2 - 0.003, 6)
-        expect(rails.max[0]).toBeCloseTo(sx / 2 + 0.003, 6)
-        expect(rails.min[2]).toBeCloseTo(-sz / 2 - 0.003, 6)
-        expect(rails.max[2]).toBeCloseTo(sz / 2 + 0.003, 6)
-        expect((rails.min[1]! + rails.max[1]!) / 2).toBeCloseTo(-0.075, 6)
-        // the plate and its corner caps (2 mm proud of the rails), and the plate's back face the LED sits on
-        const paint = box(parts, 'eoatPaint')
-        expect(paint.max[0]).toBeCloseTo(sx / 2 + 0.005, 6)
-        expect(paint.max[2]).toBeCloseTo(sz / 2 + 0.005, 6)
-      }
-    })
-
-    it('keeps the rail section at its own size, however big the plate (no stretching)', () => {
-      const small = eoat(P()).find((m) => m.material === 'eoatRail')!
-      const big = eoat(P({ toolSizeX: 3, toolSizeZ: 3 })).find((m) => m.material === 'eoatRail')!
-      // the same extrusions, longer: the vertex count is the section's, not the length's
-      expect(big.desc.positions.length).toBe(small.desc.positions.length)
-      const b = box([big], 'eoatRail')
-      expect(b.max[1]! - b.min[1]!).toBeCloseTo(0.059, 6)
-    })
-
-    it('regenerates the cup grid by the host grid rule: floor(usable/pitch)+1 per axis, edge-to-edge', () => {
-      const cupsAt = (p: Record<string, number | boolean>): number[][] => (cupBed(p)?.instances ?? []).map((i) => [...i.position])
-      // default: usable = 0.5 − 2·0.05 = 0.4 → 5×5 cups from −0.2 to +0.2, mounted under the plate
-      const cups = cupsAt(P())
-      expect(cups).toHaveLength(25)
-      const xs = [...new Set(cups.map((d) => d[0]!.toFixed(6)))].map(Number).sort((a, b) => a - b)
-      expect(xs).toEqual([-0.2, -0.1, 0, 0.1, 0.2])
-      for (const c of cups) expect(c[1]).toBeCloseTo(-0.1035, 10)
-      // the same cells the rig's `grid` array lays, its 256-cup thinning included, so a bed reads the same whichever drew it
-      const grid = {
-        x: { sizeParam: 'toolSizeX', pitchParam: 'cupPitchX', marginParam: 'cupMarginX' },
-        z: { sizeParam: 'toolSizeZ', pitchParam: 'cupPitchZ', marginParam: 'cupMarginZ' },
-      }
-      const key = (v: number[]): string => v.map((n) => n.toFixed(6)).join(',')
-      const cases: Record<string, number>[] = [{}, { toolSizeX: 1.9 }, { toolSizeX: 2.2, toolSizeZ: 1.3, cupPitchX: 0.07, cupMarginZ: 0.12 }, { cupMarginX: 0.3 }, { toolSizeX: 3, toolSizeZ: 3 }]
-      for (const over of cases) {
-        const host = arrayInstanceDeltas({ grid }, P(over)).map((d) => [d[0], d[2]])
-        const drawn = cupsAt(P(over)).map((c) => [c[0]!, c[2]!])
-        expect(drawn.length).toBe(host.length)
-        expect(new Set(drawn.map(key))).toEqual(new Set(host.map(key)))
-      }
-      // cupsEnabled=false → no cups
-      expect(cupsAt(P({ cupsEnabled: false }))).toHaveLength(0)
+    it('has no tool params: the tool is a part of its own', () => {
+      for (const k of ['toolSizeX', 'toolSizeZ', 'cupPitchX', 'cupPitchZ', 'cupMarginX', 'cupMarginZ', 'cupsEnabled']) expect(SIX_AXIS_BEHAVIOR).not.toContain(`${k}:`)
     })
   })
 

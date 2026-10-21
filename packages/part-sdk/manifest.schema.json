@@ -150,6 +150,10 @@
             "$ref": "#/$defs/RigJoint"
           }
         },
+        "mount": {
+          "description": "Makes the rig a part that rides a link of its parent ({@link RigMount}). Omitted = it stands where it is placed.",
+          "$ref": "#/$defs/RigMount"
+        },
         "posable": {
           "description": "Opts the rig into the in-scene teach-by-pose gizmo (joint rings + IK end-effector handle, shown whenever the\nplaced part is selected: pose the arm, then Inspector → Capture Pose). Set it only for manipulators you\nhand-teach (robot / gantry / AGV lift). Leave it off for parts whose joints are driven by the sim/PLC (safety\ngate, diverter, blade-stop, turntable); an interactive pose gizmo there is a false affordance. Omitted/false\n= no in-scene pose gizmo (the joints still articulate; FK/sim are unaffected).",
           "type": "boolean"
@@ -1228,6 +1232,55 @@
       "required": [
         "maxVelocity",
         "maxAccel"
+      ]
+    },
+    "RigMount": {
+      "description": "A rig that rides a link of the part it is soft-parented under, and moves with that link (a tool on a robot's\nflange). It is seated when its parent has a rig link of this name (docs/part-mounts.md). The mounted part's origin\nsits on the link's frame, so the link carries any offset or rotation of the interface.",
+      "type": "object",
+      "properties": {
+        "link": {
+          "description": "the host link this part rides, by name",
+          "type": "string"
+        },
+        "grip": {
+          "description": "The pickup volume this part gives the host's gripper: a box in the frame of the host link `link`, resized by\nthis part's own params. A host gripper with a mounted tool picks inside it, and with none picks nothing.",
+          "type": "object",
+          "properties": {
+            "link": {
+              "type": "string"
+            },
+            "zone": {
+              "type": "object",
+              "properties": {
+                "size": {
+                  "$ref": "#/$defs/Vec3Tuple"
+                },
+                "offset": {
+                  "$ref": "#/$defs/Vec3Tuple"
+                },
+                "sizeParams": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/SizeParamRef"
+                  }
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "size"
+              ]
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "link",
+            "zone"
+          ]
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "link"
       ]
     },
     "PartBounds": {

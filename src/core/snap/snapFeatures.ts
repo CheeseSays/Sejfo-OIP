@@ -28,8 +28,10 @@ import { beltHorizontalExtent, beltXToS, buildBeltPath, sampleBeltPath } from '.
 import { getPackage } from '../parts/partRegistry'
 import { resolveRollerGrids, rollerBedPitch, rollerStations } from '../conveyor/rollerGrid'
 import type { RollerGrid } from '../conveyor/rollerGrid'
-import { edgeMountContact, FACE_KIND, plugsOf } from './snapConnectors'
+import { edgeMountContact, FACE_KIND, plugsOfPackage } from './snapConnectors'
 import type { Plug } from './snapConnectors'
+import type { RigMount } from '../parts/partPackage'
+import { computeSceneMounts, restLinkWorld } from '../scene/sceneMounts'
 
 // Single source of truth for the world-pitch roller grid lives in rollerGrid.ts;
 // re-exported here so the track-snapping engine and its callers keep one import.
@@ -64,6 +66,11 @@ export interface SnapOptions {
    * the engage distance, so the preview holds through an overshoot or a nudge.
    */
   hold?: { via?: string; join?: string }
+  /**
+   * Host links that already carry a tool, as `<hostId>/<link>`: a tool does not seat on one of these. {@link findSnap}
+   * fills it from the scene it is given, leaving out the mover itself, so re-seating a tool never counts its own seat.
+   */
+  occupiedLinks?: ReadonlySet<string>
 }
 
 export interface SnapCandidate {
@@ -260,6 +267,14 @@ export function findSnap(
   // anchors, butt seams). Resolve once so the snap uses the same rollers the
   // renderer draws; otherwise the part anchors to a phantom grid and sits on a roller.
   const grids = moverPlugs(moving).some((p) => p.shape === 'track') ? resolveRollerGrids(others) : undefined
+  // a tool seats only on a link no other tool is on
+  if (moverPlugs(moving).some((p) => p.shape === 'linkSeat')) {
+    const occupied = new Set<string>()
+    for (const [hostId, tools] of computeSceneMounts(others.filter((p) => p.id !== moving.id)).hosts) {
+      for (const t of tools) occupied.add(`${hostId}/${t.link}`)
+    }
+    opts = { ...opts, occupiedLinks: occupied }
+  }
   let best: SnapCandidate | null = null
   let bestRot = Infinity
   for (const target of others) {
@@ -349,9 +364,9 @@ function evalAgainst(
   return best
 }
 
-/** the mover-side connectors of a part - its compiled snap declaration (snapConnectors.ts) */
+/** the mover-side connectors of a part - its compiled snap declaration, and the link seat of a tool (snapConnectors.ts) */
 function moverPlugs(part: PartInstance): readonly Plug[] {
-  return part.type === 'part' ? plugsOf(getPackage(part.packageId)?.snap) : []
+  return part.type === 'part' ? plugsOfPackage(getPackage(part.packageId)) : []
 }
 
 /** a host's declared snap block, where its declared sockets live (undefined for a non-part or no block) */
@@ -409,6 +424,10 @@ function solvePlug(
       for (const rail of railSocketsOf(target, plug.mount.accepts)) {
         offer(seatOnRail(moving, proposed, target, plug.mount, rail), `${plug.label} -> ${rail.label}`)
       }
+      return
+    case 'linkSeat':
+      // a tool on a link of the host's rig, at the pose the host rests in
+      offer(snapLinkSeat(moving, proposed, target, plug.mount, opts?.occupiedLinks), `${plug.label} -> link:${plug.mount.link}`)
       return
     case 'footprint':
       // Ambient face-flush, declared and never inferred: only a part whose package states `snap: { flush: true }`
@@ -1203,6 +1222,31 @@ function snapFaceMount(
     junction: { x: cx, y: contactY, z: cz },
     override,
     ...(mount.attach ? { attach: true } : {}),
+  }
+}
+
+/** how far (m, in plan) a tool dragged beside a host's link still seats on it */
+const LINK_SEAT_REACH = 0.25
+
+/**
+ * A tool seats on a link of the host's rig (`geometry.mount`): its origin goes to that link at the pose the host rests
+ * in, and the commit soft-parents it under the host, which is what makes it ride the link (docs/part-mounts.md). The
+ * seat is where the drag is, in plan: a flange is metres above the floor, so the height of the drag does not gate it.
+ * A link that already carries a tool takes no second one.
+ */
+function snapLinkSeat(moving: PartInstance, proposed: SnapPose, target: PartInstance, mount: RigMount, occupied: ReadonlySet<string> | undefined): SnapCandidate | null {
+  if (target.type !== 'part') return null
+  if (occupied?.has(`${target.id}/${mount.link}`)) return null
+  const at = restLinkWorld(target, mount.link)
+  if (!at) return null
+  const plan = Math.hypot(proposed.position[0] - at.x, proposed.position[2] - at.z)
+  if (plan > LINK_SEAT_REACH) return null
+  return {
+    pose: { position: [at.x, at.y, at.z], rotationY: target.rotationY },
+    targetId: target.id,
+    cost: plan + SNAP_HEIGHT_COST_WEIGHT * Math.abs(proposed.position[1] - at.y),
+    junction: { x: at.x, y: at.y, z: at.z },
+    attach: true,
   }
 }
 

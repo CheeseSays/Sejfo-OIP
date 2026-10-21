@@ -16,7 +16,8 @@ import { computeGuardRuns, guardRunsKey } from '../guards/guardRuns'
 import type { GuardRun } from '../guards/guardRuns'
 import { computeSceneGuardHoles, guardHolesKey } from '../guards/guardHoles'
 import type { GuardHoles } from '../guards/guardHoles'
-
+import { computeSceneMounts, hostMountsKey, toolMountKey } from './sceneMounts'
+import type { MountedOn, MountedTool } from './sceneMounts'
 /**
  * One per-part bundle of every host-computed, neighbour-derived input a part's geometry consumes at scene-edit
  * time (docs/seam-resolvers.md). The roller-grid / guard-opening / spur-extent /
@@ -50,6 +51,11 @@ export interface ResolvedContext {
   /** sensor-beam holes through this bed's side guards (render only - beams aren't physical, so the collider
    *  stays whole; core/guards/guardHoles.ts) */
   holes?: GuardHoles
+  /** the tools riding this part's links, with the grip volume each gives it (sim only: render draws a tool as its
+   *  own part under the host link, so the host has nothing to change; core/scene/sceneMounts.ts) */
+  mounts?: readonly MountedTool[]
+  /** where this tool rides (render only: the sim builds a tool no bodies, so it has nothing to place) */
+  mountedOn?: MountedOn
 }
 
 /**
@@ -92,6 +98,10 @@ export function resolveScene(parts: readonly PartInstance[], consumer: ResolveCo
   // stair) so their ctx is non-empty and the change-signature picks the cut up. Others slice to '' anyway.
   for (const id of structConn.platform.keys()) patch(id, (c) => { c.structConn = structConn })
   for (const id of structConn.stairTopConnected.keys()) patch(id, (c) => { c.structConn = structConn })
+  // a scene with no tool resolves to the shared empty result, so this costs one pass over the parts' packages
+  const mounts = computeSceneMounts(parts)
+  if (render) for (const [id, on] of mounts.tools) patch(id, (c) => { c.mountedOn = on })
+  if (sim) for (const [id, tools] of mounts.hosts) patch(id, (c) => { c.mounts = tools })
   return out
 }
 
@@ -105,11 +115,12 @@ export function renderResolvedKey(partId: string, ctx: ResolvedContext | undefin
   const s = structureCutKey(partId, ctx.structConn)
   const l = legRestsKey(ctx.legRests)
   const h = guardHolesKey(ctx.holes)
-  return g || o || e || s || l || h ? `${g}|${o}|${e}|${s}|${l}|${h}` : ''
+  const m = toolMountKey(ctx.mountedOn)
+  return g || o || e || s || l || h || m ? `${g}|${o}|${e}|${s}|${l}|${h}|${m}` : ''
 }
 
 /** Sim's change-signature: the fields the physics body build depends on (no roller grid - sim rollers are
  *  position-derived; plus the deck-merge cluster render ignores). Folded into partSignature. */
 export function simResolvedKey(partId: string, ctx: ResolvedContext | undefined): string {
-  return `${openingsKey(ctx?.openings)}|${extentsKey(ctx?.extents)}|${deckClusterKey(ctx?.cluster)}|${structureCutKey(partId, ctx?.structConn)}|${guardRunsKey(ctx?.guardRun)}`
+  return `${openingsKey(ctx?.openings)}|${extentsKey(ctx?.extents)}|${deckClusterKey(ctx?.cluster)}|${structureCutKey(partId, ctx?.structConn)}|${guardRunsKey(ctx?.guardRun)}|${hostMountsKey(ctx?.mounts)}`
 }

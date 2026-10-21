@@ -24,6 +24,8 @@ import type { DeckCluster } from '../core/deckClusters'
 import type { GuardRun } from '../core/guards/guardRuns'
 import { resolveScene, simResolvedKey } from '../core/scene/sceneResolve'
 import type { ResolvedContext } from '../core/scene/sceneResolve'
+import { withMountedGrips } from '../core/scene/sceneMounts'
+import type { MountedTool } from '../core/scene/sceneMounts'
 import { beltDeckSubsLocal, conveyorDeckSubs, worldSub } from '../core/geometry/collisionShapes'
 import type { ConveyorEntry, ConveyorSubShape } from '../core/geometry/collisionShapes'
 import type { BeltSegmentSpec } from '../core/types'
@@ -126,7 +128,7 @@ export class SimWorld implements SimCore<BoxFrame> {
    */
   private static readonly partBuilders = new Map<PartType, PartBuilder>([
     ['building', (w, p) => w.addBuilding(p as BuildingPart)],
-    ['part', (w, p, c) => w.addSdkPart(p as SdkPart, c.ctx?.cluster, c.ctx?.openings, c.ctx?.extents, c.ctx?.structConn, c.ctx?.guardRun)],
+    ['part', (w, p, c) => w.addSdkPart(p as SdkPart, c.ctx?.cluster, c.ctx?.openings, c.ctx?.extents, c.ctx?.structConn, c.ctx?.guardRun, c.ctx?.mounts)],
   ])
 
   private readonly J: JoltModule
@@ -883,7 +885,7 @@ export class SimWorld implements SimCore<BoxFrame> {
    * still renders as a fallback deck (createCustomVisual), it just won't simulate. Keyed hot-reload of
    * live scene instances is a later phase; this is anonymous like the other scene builders.
    */
-  private addSdkPart(part: SdkPart, cluster?: DeckCluster, openings?: GuardOpenings, extents?: GuardExtents, structConn?: StructureConnections, guardRun?: GuardRun): void {
+  private addSdkPart(part: SdkPart, cluster?: DeckCluster, openings?: GuardOpenings, extents?: GuardExtents, structConn?: StructureConnections, guardRun?: GuardRun, mounts?: readonly MountedTool[]): void {
     const pkg = getPackage(part.packageId)
     if (!pkg) return
     // a (re)build starts this part's runtime diagnostics fresh - anything still wrong re-reports
@@ -995,7 +997,9 @@ export class SimWorld implements SimCore<BoxFrame> {
         // per-instance cut geometry: a platform with a snapped stair opens its railing + carves its deck; a
         // top-connected stair retracts its top handrail. Colliders build from the same cut links the renderer
         // rebuilds its meshes from (structureCutGeo), so the physical footprint can't drift from the visual.
-        const geo = structConn ? structureCutGeo(pkg.geometry, part.id, part.params as unknown as Record<string, unknown>, structConn) : pkg.geometry
+        const cutGeo = structConn ? structureCutGeo(pkg.geometry, part.id, part.params as unknown as Record<string, unknown>, structConn) : pkg.geometry
+        // a tool on one of its links gives its gripper the tool's pickup volume (core/scene/sceneMounts.ts)
+        const geo = withMountedGrips(cutGeo, mounts)
         const scale = typeof part.params.scale === 'number' && part.params.scale > 0 ? part.params.scale : 1
         const inclineRad = rigInclineRad(geo, part.params as unknown as Record<string, unknown>)
         const bodies = this.buildRigBodies(geo, part.position, part.rotationY, scale, part.params as RigParams, pkg.params, inclineRad, openings, extents, guardRun)

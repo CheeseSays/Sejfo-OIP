@@ -706,11 +706,33 @@ export interface CargoSize {
     height: number;
 }
 
+/**
+ * A rig that rides a link of the part it is soft-parented under, and moves with that link (a tool on a robot's
+ * flange). It is seated when its parent has a rig link of this name (docs/part-mounts.md). The mounted part's origin
+ * sits on the link's frame, so the link carries any offset or rotation of the interface.
+ */
+export interface RigMount {
+    /** the host link this part rides, by name */
+    link: string;
+    /** The pickup volume this part gives the host's gripper: a box in the frame of the host link `link`, resized by
+     *  this part's own params. A host gripper with a mounted tool picks inside it, and with none picks nothing. */
+    grip?: {
+        link: string;
+        zone: {
+            size: Vec3Tuple;
+            offset?: Vec3Tuple;
+            sizeParams?: SizeParamRef[];
+        };
+    };
+}
+
 /** A multi-body rig: a tree of links + kinematic joints (robots, gates, AGVs, imported devices). */
 export interface RigGeometry {
     kind: 'rig';
     links: RigLink[];
     joints: RigJoint[];
+    /** Makes the rig a part that rides a link of its parent ({@link RigMount}). Omitted = it stands where it is placed. */
+    mount?: RigMount;
     /** Opts the rig into the in-scene teach-by-pose gizmo (joint rings + IK end-effector handle, shown whenever the
      *  placed part is selected: pose the arm, then Inspector → Capture Pose). Set it only for manipulators you
      *  hand-teach (robot / gantry / AGV lift). Leave it off for parts whose joints are driven by the sim/PLC (safety

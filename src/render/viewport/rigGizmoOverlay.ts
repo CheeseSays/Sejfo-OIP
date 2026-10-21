@@ -178,7 +178,7 @@ export class RigGizmoOverlay {
     const out: { handle: RobotHandle; pos: Vector3 }[] = []
     if (!this.layoutNow) return out
     this.rings.forEach((r, i) => { if (r.dot.visible) out.push({ handle: `j${i}` as RobotHandle, pos: r.dot.position }) })
-    out.push({ handle: 'ee', pos: this.ee.position })
+    if (this.ee.visible) out.push({ handle: 'ee', pos: this.ee.position })
     for (const [handle, dot] of this.sizeDots) out.push({ handle: handle as RobotHandle, pos: dot.position })
     return out
   }
@@ -232,9 +232,12 @@ export class RigGizmoOverlay {
       slot.ring.material = lit ? this.hoverMat : this.jointMat
       slot.dot.material = lit ? this.dotMats.hover : this.dotMats.joint
     })
-    this.ee.position.copy(layout.ee)
-    this.ee.scale.setScalar(EE_DOT_PX * wpp(layout.ee))
-    this.ee.material = active === 'ee' ? this.dotMats.hover : this.dotMats.ee
+    this.ee.visible = layout.ee !== null
+    if (layout.ee) {
+      this.ee.position.copy(layout.ee)
+      this.ee.scale.setScalar(EE_DOT_PX * wpp(layout.ee))
+      this.ee.material = active === 'ee' ? this.dotMats.hover : this.dotMats.ee
+    }
     // hide a joint dot sitting on the end-effector's or on an earlier joint's (on screen, in px)
     const halfH = viewportHeight / 2
     const halfW = halfH * camera.aspect
@@ -242,7 +245,7 @@ export class RigGizmoOverlay {
       const v = p.clone().project(camera)
       return v.set(v.x * halfW, v.y * halfH, v.z)
     }
-    const taken: Vector3[] = [screen(this.ee.position)]
+    const taken: Vector3[] = layout.ee ? [screen(this.ee.position)] : []
     for (const slot of this.rings) {
       const sp = screen(slot.dot.position)
       slot.dot.visible = !taken.some((t) => Math.hypot(t.x - sp.x, t.y - sp.y) < DOT_CLEAR_PX)

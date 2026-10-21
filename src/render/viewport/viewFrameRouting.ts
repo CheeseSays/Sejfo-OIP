@@ -44,6 +44,7 @@ export type FrameRoutingHost = Pick<
   | 'entries'
   | 'lastBeamHits'
   | 'lastFrameSimTime'
+  | 'mounts'
   | 'poolRebuild'
   | 'routing'
   | 'simHasFrame'
@@ -65,6 +66,25 @@ function sameVec3(a: readonly number[] | undefined, b: readonly number[] | undef
   if (a === b) return true
   if (!a || !b) return false
   return a[0] === b[0] && a[1] === b[1] && a[2] === b[2]
+}
+
+/**
+ * A host's commanded lamps also go to the tools riding it, which draw some of them (a vacuum tool's cups squash on the
+ * host's vacuum lamp). Gated per tool applier like the host's own, so a tool built after the lamps last changed still
+ * gets its first paint.
+ */
+function routeLampsToTools(view: FrameRoutingHost, hostId: string, lamps: Record<string, boolean>): void {
+  const tools = view.mounts.byHost.get(hostId)
+  if (!tools) return
+  for (const id of tools) {
+    const apply = view.entries.get(id)?.visual.object.userData.applyLamps as ((l: Record<string, boolean>) => void) | undefined
+    if (!apply) continue
+    const prev = view.routing.lastRoutedLamps.get(apply)
+    if (prev && sameFlatValues(prev, lamps)) continue
+    apply(lamps)
+    markBundleDirtyPart(id)
+    view.routing.lastRoutedLamps.set(apply, lamps)
+  }
 }
 
 /** same link names, each with the same position + rotation */
@@ -140,6 +160,8 @@ export function applyBoxFrame(view: FrameRoutingHost, frame: BoxFrame): void {
   }
   if (frame.lamps) {
     for (const partId in frame.lamps) {
+      const lamps = frame.lamps[partId]!
+      routeLampsToTools(view, partId, lamps)
       const applyLamps = view.entries.get(partId)?.visual.object.userData.applyLamps as ((l: Record<string, boolean>) => void) | undefined
       if (applyLamps) {
         // behaviors re-command lamps every tick, so route + mark only when the commanded map
@@ -148,7 +170,6 @@ export function applyBoxFrame(view: FrameRoutingHost, frame: BoxFrame): void {
         // unconditionally and sets squash targets. Skipping an unchanged map leaves both at their
         // correct values (the squash ease reads targets per frame either way). The bundle mark
         // happens only with a paint, so lamp parts aren't re-walked every running frame.
-        const lamps = frame.lamps[partId]!
         const prev = view.routing.lastRoutedLamps.get(applyLamps)
         if (!prev || !sameFlatValues(prev, lamps)) {
           applyLamps(lamps)

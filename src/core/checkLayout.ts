@@ -34,6 +34,7 @@ import { bedOf, conveyorEndsOf, isConveyorLike, partFootprint, toLocalXZ, toWorl
 import { commsOn } from './conveyor/conveyorDirection'
 import { INTERIOR_COLUMN_SIZE, interiorColumnHeight, interiorColumns } from './building/buildingColumns'
 import { cargoView } from './frame'
+import { unseatedTools } from './scene/sceneMounts'
 import type { PartInstance } from './types'
 
 /**
@@ -239,9 +240,26 @@ export function checkLayout(parts: readonly PartInstance[], options: LayoutCheck
     })
   }
   findings.push(...columnFindings(parts))
+  findings.push(...toolFindings(parts))
   findings.push(...spurSideFindings(parts))
   if (options.drivenTags) findings.push(...feedFindings(parts, options.drivenTags, options.feedRunsWithoutBelt))
   return findings.sort((a, b) => a.partId.localeCompare(b.partId) || a.kind.localeCompare(b.kind))
+}
+
+/**
+ * A tool (a rig whose package declares `geometry.mount`) that is not on its host: with no parent, or a parent without
+ * the link it rides. A tool that rides nothing hangs at the spot it was dropped and the robot picks nothing, so it is an
+ * error like any other guest with no host (docs/part-mounts.md).
+ */
+function toolFindings(parts: readonly PartInstance[]): LayoutFinding[] {
+  return unseatedTools(parts).map(({ part, link }) => ({
+    partId: part.id,
+    ...(typeof part.name === 'string' && part.name !== '' ? { partName: part.name } : {}),
+    packageId: part.packageId,
+    kind: 'unseated' as const,
+    severity: 'error' as const,
+    detail: `a tool that rides the "${link}" link of the part it is parented to, but it is not parented to a part with that link`,
+  }))
 }
 
 /** a part must clear a column face by more than this to be reported; touching is not standing in it */

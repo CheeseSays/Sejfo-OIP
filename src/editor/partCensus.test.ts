@@ -26,7 +26,7 @@ import { clearPackages, registerPackage } from '../core/parts/partRegistry'
 import { rigFrameSide, rigGuardSide } from '../core/guards/guardOpenings'
 import { rigGuardWallLink, rigLinkEmitsBody } from '../core/rig/rigGuards'
 import { createSdkPart } from '../core/scene/scene'
-import { plugsOf } from '../core/snap/snapConnectors'
+import { plugsOfPackage } from '../core/snap/snapConnectors'
 import { platformDeck } from '../core/structureConnections'
 import type { PartInstance } from '../core/types'
 import { buildPackage } from '../sim/buildPackage'
@@ -133,7 +133,7 @@ function census(pkg: PartPackage): string[] {
   )
   lines.push(`footprint ${fmt(partFootprint(part))}`)
   // the census's word for the tiling plug predates format 4 ('edges')
-  lines.push(`plugs ${fmt(plugsOf(pkg.snap).map((p) => (p.label === 'tile' ? 'edges' : p.label)))}`)
+  lines.push(`plugs ${fmt(plugsOfPackage(pkg).map((p) => (p.label === 'tile' ? 'edges' : p.label)))}`)
   const reservedParams = ['speed', 'enableComms'].filter((k) => k in pkg.params)
   const tags = Object.entries(pkg.params).filter(([, s]) => s.type === 'tag').map(([k, s]) => `${k}:${s.dir ?? '?'}:${s.stType ?? '?'}`)
   lines.push(`params reserved=${fmt(reservedParams)} tags=${fmt(tags)}`)

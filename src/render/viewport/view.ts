@@ -104,6 +104,7 @@ import { SceneConsumers, drawsSensorBeam } from './viewSceneConsumers'
 import * as viewPool from './viewPool'
 import { POOL_MOVED_QUIET_MS, ViewPoolState } from './viewPool'
 import * as viewMatrices from './viewMatrices'
+import { isMounted, rehomeMounts, ViewMountState } from './viewMounts'
 import { ViewMatrixState } from './viewMatrices'
 import * as viewBundles from './viewBundles'
 import { ViewBundleState } from './viewBundles'
@@ -832,6 +833,8 @@ export class RenderView implements IRenderView, IRenderViewTestSurface {
         this.ensureFreshPose(entry)
       }
     }
+    // a rebuilt host replaced its link groups, so the tools riding them are re-seated before the pool bakes
+    rehomeMounts(this)
     // the rebuild swapped in fresh hardware meshes; re-pool so stale (disposed) sources aren't left baked
     this.poolRebuild()
     // force: selection/rig/structure are unchanged, but the rebuilt link meshes the rig-highlight
@@ -1311,7 +1314,8 @@ export class RenderView implements IRenderView, IRenderViewTestSurface {
    * (internal - public for viewport modules: vertexSnapPick's broad-phase reads it)
    */
   boundsOf(entry: Entry): Box3 {
-    if (entry.boundsDirty) {
+    // a tool hangs under its host's link, so it moves with the arm without a sync of its own
+    if (entry.boundsDirty || isMounted(entry)) {
       entry.boundsDirty = false
       this.refreshBounds(entry)
     }
@@ -1349,6 +1353,9 @@ export class RenderView implements IRenderView, IRenderViewTestSurface {
 
   /** internal - the owned matrix walk's own state (viewMatrices.ts) */
   readonly matrices = new ViewMatrixState()
+
+  /** internal - the tools each host carries this sync (viewMounts.ts) */
+  readonly mounts = new ViewMountState()
 
   private updateWorldMatrices(): void {
     viewMatrices.updateWorldMatrices(this)

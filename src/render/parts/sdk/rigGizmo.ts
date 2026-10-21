@@ -39,6 +39,97 @@ export interface RigGizmo {
   setSizes?(params: Record<string, ParamValue>): void
 }
 
+/**
+ * The tool-size handles (rigSize param handles - the vacuum tool's resize dots): one per declared axis, in the
+ * named link's frame so it rides the posed arm, at local `value/2` along the axis. Links with any handle also get the
+ * tool's outline rectangle at the current x/z sizes. `refreshWorld` brings the rig's world matrices up to date before a read.
+ */
+function toolSizes(linkGroups: Map<string, Group>, paramSpecs: PartPackage['params'], refreshWorld: () => void): {
+  any: boolean
+  setSizes?: (params: Record<string, ParamValue>) => void
+  layout: () => Pick<RobotGizmoLayout, 'sizes' | 'toolOutlines'>
+  sizeInfo: (param: string) => { origin: Vector3; dir: Vector3; unit: number } | null
+} {
+  const sizeHandles: { key: string; link: string; axis: 'x' | 'z'; frameY: number; value: number }[] = []
+  const sizeRects: { link: string; frameY: number; x: number; z: number }[] = []
+  for (const [key, spec] of Object.entries(paramSpecs)) {
+    const h = spec.handle
+    if (h?.kind !== 'rigSize' || !linkGroups.has(h.link)) continue
+    const frameY = h.frameY ?? 0
+    sizeHandles.push({ key, link: h.link, axis: h.axis, frameY, value: 0 })
+    if (!sizeRects.some((r) => r.link === h.link)) sizeRects.push({ link: h.link, frameY, x: 0, z: 0 })
+  }
+  const setSizes = sizeHandles.length
+    ? (params: Record<string, ParamValue>): void => {
+        const val = (key: string | undefined): number | null => {
+          const v = key !== undefined ? params[key] : undefined
+          return typeof v === 'number' && Number.isFinite(v) ? v : null
+        }
+        for (const sh of sizeHandles) sh.value = val(sh.key) ?? 0
+        for (const r of sizeRects) {
+          // each axis extent from its own handle's param; a single-axis tool draws a square of that size
+          const vx = val(sizeHandles.find((s) => s.link === r.link && s.axis === 'x')?.key)
+          const vz = val(sizeHandles.find((s) => s.link === r.link && s.axis === 'z')?.key)
+          r.x = vx ?? vz ?? 0
+          r.z = vz ?? vx ?? 0
+        }
+      }
+    : undefined
+  return {
+    any: sizeHandles.length > 0,
+    ...(setSizes ? { setSizes } : {}),
+    layout: () => ({
+      sizes: sizeHandles.map((sh) => ({
+        handle: `size:${sh.key}` as const,
+        pos: new Vector3(sh.axis === 'x' ? sh.value / 2 : 0, sh.frameY, sh.axis === 'z' ? sh.value / 2 : 0).applyMatrix4(linkGroups.get(sh.link)!.matrixWorld),
+      })),
+      toolOutlines: sizeRects
+        .filter((r) => r.x > 0 && r.z > 0)
+        .map((r) => {
+          const m = linkGroups.get(r.link)!.matrixWorld
+          return [[-1, -1], [1, -1], [1, 1], [-1, 1]].map(([sx, sz]) => new Vector3((sx! * r.x) / 2, r.frameY, (sz! * r.z) / 2).applyMatrix4(m))
+        }),
+    }),
+    // a `size:<param>` handle's drag line: the tool frame origin + world axis dir, and the world length of
+    // one link-local unit (a scaled rig's drag distance converts back to local metres)
+    sizeInfo(param: string): { origin: Vector3; dir: Vector3; unit: number } | null {
+      const sh = sizeHandles.find((s) => s.key === param)
+      const g = sh && linkGroups.get(sh.link)
+      if (!sh || !g) return null
+      refreshWorld()
+      const origin = new Vector3(0, sh.frameY, 0).applyMatrix4(g.matrixWorld)
+      const dir = new Vector3(sh.axis === 'x' ? 1 : 0, sh.frameY, sh.axis === 'z' ? 1 : 0).applyMatrix4(g.matrixWorld).sub(origin)
+      const unit = dir.length()
+      if (unit < 1e-6) return null
+      return { origin, dir: dir.multiplyScalar(1 / unit), unit }
+    },
+  }
+}
+
+/**
+ * The gizmo of a rig with tool-size handles and nothing to pose (a tool part): the resize dots and the outline, no
+ * joint rings and no end-effector. It rides whatever carries the rig, so a tool seated on an arm is resized in whatever
+ * pose the arm is in.
+ */
+function buildToolSizeGizmo(root: Object3D, linkGroups: Map<string, Group>, paramSpecs: PartPackage['params']): RigGizmo | null {
+  const refreshWorld = (): void => {
+    root.traverse((o) => o.updateMatrix())
+    root.updateWorldMatrix(true, true)
+  }
+  const sizes = toolSizes(linkGroups, paramSpecs, refreshWorld)
+  if (!sizes.any) return null
+  const api: RobotGizmoApi = {
+    rig: true,
+    layout: () => {
+      refreshWorld()
+      return { joints: [], ee: null, ...sizes.layout() }
+    },
+    sizeInfo: sizes.sizeInfo,
+    solveIK: () => [],
+  }
+  return { api, ...(sizes.setSizes ? { setSizes: sizes.setSizes } : {}), applyIdle: () => {} }
+}
+
 /** a unit vector perpendicular to `a` (the ring's angle-0 reference in the link's frame) */
 function perpendicular(a: Vector3): Vector3 {
   const ref = Math.abs(a.y) < 0.9 ? new Vector3(0, 1, 0) : new Vector3(1, 0, 0)
@@ -55,13 +146,11 @@ export function buildRigGizmo(
   // opt-in: the in-scene teach-by-pose gizmo shows only for rigs that declare `posable` (manipulators you hand-
   // teach - robot / gantry / AGV lift). A rig whose joints are sim/PLC-driven (safety gate, diverter, blade-stop,
   // turntable) leaves it off, so selecting the placed part doesn't draw an interactive joint/IK gizmo it can't use.
-  if (geo.posable !== true) return null
-  // cosmetic joints (self-driven dressing - wheels, ratio pistons) are not author-posable: no ring, never the EE
-  const posable = posableJoints(geo)
-  if (posable.length === 0) return null
+  // Such a rig, or one with nothing to pose, still gets its tool-size dots when it declares rigSize handles.
+  const posable = geo.posable === true ? posableJoints(geo) : []
+  const eeGroup = posable.length > 0 ? linkGroups.get(posable[posable.length - 1]!.link) : undefined
+  if (!eeGroup) return buildToolSizeGizmo(root, linkGroups, paramSpecs)
   const shown = posable.slice(0, GIZMO_MAX)
-  const eeGroup = linkGroups.get(posable[posable.length - 1]!.link)
-  if (!eeGroup) return null
   // A three-joint revolute wrist at the end of a longer arm (a six-axis robot's J4-J6) lets an end-effector drag keep
   // the tool's orientation: the joints before it place the wrist centre, the pivot of the wrist's middle joint, and
   // the wrist turns the tool. Anything else (a gantry, an AGV lift) drags the tool point alone.
@@ -92,35 +181,9 @@ export function buildRigGizmo(
   // each shown joint's angle-0 direction in its own link frame (the handle rides it round the ring)
   const localPerp = shown.map((j) => perpendicular(new Vector3(j.axis[0], j.axis[1], j.axis[2]).normalize()))
 
-  // tool-size handles (rigSize param handles - the six-axis EOAT resize dots): one per declared axis, in the
-  // named link's frame so it rides the posed arm, at local `value/2` along the axis. Links with any handle also
-  // get the tool's outline rectangle at the current x/z sizes.
-  const sizeHandles: { key: string; link: string; axis: 'x' | 'z'; frameY: number; value: number }[] = []
-  const sizeRects: { link: string; frameY: number; x: number; z: number }[] = []
-  for (const [key, spec] of Object.entries(paramSpecs)) {
-    const h = spec.handle
-    if (h?.kind !== 'rigSize' || !linkGroups.has(h.link)) continue
-    const frameY = h.frameY ?? 0
-    sizeHandles.push({ key, link: h.link, axis: h.axis, frameY, value: 0 })
-    if (!sizeRects.some((r) => r.link === h.link)) sizeRects.push({ link: h.link, frameY, x: 0, z: 0 })
-  }
-  const setSizes = sizeHandles.length
-    ? (params: Record<string, ParamValue>): void => {
-        const val = (key: string | undefined): number | null => {
-          const v = key !== undefined ? params[key] : undefined
-          return typeof v === 'number' && Number.isFinite(v) ? v : null
-        }
-        for (const sh of sizeHandles) sh.value = val(sh.key) ?? 0
-        for (const r of sizeRects) {
-          // each axis extent from its own handle's param; a single-axis tool draws a square of that size
-          const vx = val(sizeHandles.find((s) => s.link === r.link && s.axis === 'x')?.key)
-          const vz = val(sizeHandles.find((s) => s.link === r.link && s.axis === 'z')?.key)
-          r.x = vx ?? vz ?? 0
-          r.z = vz ?? vx ?? 0
-        }
-      }
-    : undefined
-
+  // tool-size handles (rigSize param handles - the vacuum tool's resize dots): see toolSizes
+  const sizes = toolSizes(linkGroups, paramSpecs, refreshWorld)
+  const setSizes = sizes.setSizes
   let dragged = false // once the gizmo poses the rig, the authored idle pose no longer reseeds it...
   let idleKey: string | null = null // ...until that idle pose changes
   let idlePose: Record<string, number> = {} // the authored idle pose last applied: what Reset returns to
@@ -261,35 +324,13 @@ export function buildRigGizmo(
       }
       joints.push({ label: `J${i + 1}`, center, axis, handleDir, zeroDir, angle, min: j.min, max: j.max, revolute })
     })
-    const sizes = sizeHandles.map((sh) => ({
-      handle: `size:${sh.key}` as const,
-      pos: new Vector3(sh.axis === 'x' ? sh.value / 2 : 0, sh.frameY, sh.axis === 'z' ? sh.value / 2 : 0).applyMatrix4(linkGroups.get(sh.link)!.matrixWorld),
-    }))
-    const toolOutlines = sizeRects
-      .filter((r) => r.x > 0 && r.z > 0)
-      .map((r) => {
-        const m = linkGroups.get(r.link)!.matrixWorld
-        return [[-1, -1], [1, -1], [1, 1], [-1, 1]].map(([sx, sz]) => new Vector3((sx! * r.x) / 2, r.frameY, (sz! * r.z) / 2).applyMatrix4(m))
-      })
-    return { joints, ee, sizes, toolOutlines }
+    return { joints, ee, ...sizes.layout() }
   }
 
   const api: RobotGizmoApi = {
     rig: true,
     layout,
-    // a `size:<param>` handle's drag line: the tool frame origin + world axis dir, and the world length of
-    // one link-local unit (a scaled rig's drag distance converts back to local metres)
-    sizeInfo(param: string): { origin: Vector3; dir: Vector3; unit: number } | null {
-      const sh = sizeHandles.find((s) => s.key === param)
-      const g = sh && linkGroups.get(sh.link)
-      if (!sh || !g) return null
-      refreshWorld()
-      const origin = new Vector3(0, sh.frameY, 0).applyMatrix4(g.matrixWorld)
-      const dir = new Vector3(sh.axis === 'x' ? 1 : 0, sh.frameY, sh.axis === 'z' ? 1 : 0).applyMatrix4(g.matrixWorld).sub(origin)
-      const unit = dir.length()
-      if (unit < 1e-6) return null
-      return { origin, dir: dir.multiplyScalar(1 / unit), unit }
-    },
+    sizeInfo: sizes.sizeInfo,
     beginIK,
     solveIK,
     setJointAngle,

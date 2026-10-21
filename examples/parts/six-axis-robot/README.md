@@ -19,20 +19,20 @@ joint pose.
   [src/sim/sixAxisRobotJobs.test.ts](../../../src/sim/sixAxisRobotJobs.test.ts) pins the job contract, and
   [src/editor/palletizerCell.test.ts](../../../src/editor/palletizerCell.test.ts) runs the demo's jobs against it.
 - **`rig.json`** is the rig: a tree of 21 links (12 transform-only `frame` pivots and 9 per-node `mesh` links) and
-  6 revolute joints, plus the ORM material `sixaxis` for the arm and four plain finishes for the end-of-arm
-  tooling. The pivot positions, the shoulder and elbow frames, and each linkage's mesh-local placement come from
+  6 revolute joints, plus the ORM material `sixaxis` for the arm and two plain finishes for the flange's vacuum
+  status lamp. The pivot positions, the shoulder and elbow frames, and each linkage's mesh-local placement come from
   the project's own robot model. Placements are quaternions, because they are CAD axis permutations that Euler
   angles can't express cleanly.
-- **The EOAT** (end-of-arm tooling) is drawn by `geometry()` in `part.js`, on the `eoat` frame: a resizable
-  suction tool built at the size its params ask for (a painted plate framed by slotted rails and corner caps, the
-  adapter the wrist flange bolts to, the vacuum LED, and a pitch/margin grid of turned cups that `squash` off that
-  LED). The arm keeps its model and baked textures. The tool is engineered hardware, so it is code (see
-  [Code or a model?](../../../docs/part-authoring-guide.md#code-or-a-model-decide-first) in the part authoring
-  guide).
+- **The tool** is not the robot's. The `eoat` frame on the wrist flange is where a tool part seats, and the robot
+  draws only a vacuum status lamp on the flange. The [Vacuum Tool](../vacuum-tool/part.js) is the first-party tool: a
+  resizable suction plate that is dropped on the flange, rides it through every joint move, and gives the robot's
+  `gripper` link the pickup volume (its plate). A robot with no tool picks nothing. The robot's vacuum lamp reaches
+  the tool, so the cups close with the vacuum. See [part-mounts.md](../../../docs/part-mounts.md) and the
+  [part authoring guide](../../../docs/part-authoring-guide.md#riding-a-hosts-link-mount-a-tool).
 
 ## How it's built
 
-`part.js` is the source: the kinematics, the rig (`rig()`), the EOAT `geometry()` and the controller.
+`part.js` is the source: the kinematics, the rig (`rig()`), the flange lamp `geometry()` and the controller.
 `rig.json` + `behavior.ts` are **built** from it, so edit `part.js`, not the output. The committed `rig.json`
 names its GLB + textures as URL assets (`/models/SixAxisRobot.glb` and `/models/sixaxis/…`, served from
 `public/models/`), so it loads on its own in the app. The multi-MB model files are not committed in this folder.

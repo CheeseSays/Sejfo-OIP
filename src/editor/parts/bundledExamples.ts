@@ -60,6 +60,7 @@ export function bundledBehaviors(): Map<string, string> {
 // in bundledPartData's stable alphabetical order, so dropping a new part folder just works. Exported for the test.
 export const ORDER: string[] = [
   'oip.six-axis-robot',
+  'oip.vacuum-tool',
   'oip.diverter',
   'oip.blade-stop',
   'oip.safety-gate',

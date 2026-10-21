@@ -1,5 +1,5 @@
 # golden.edge-mount-rail: 168 snapped probes
-# golden.two-mount-sensor: 9776 snapped probes
+# golden.two-mount-sensor: 9868 snapped probes
 # oip.belt-conveyor: 244 snapped probes
 # oip.belt-conveyor~incline: 244 snapped probes
 # oip.blade-stop: 368 snapped probes
@@ -20,7 +20,7 @@
 # oip.laser-sensor: 944 snapped probes
 # oip.platform: 180 snapped probes
 # oip.platform~tall: 184 snapped probes
-# oip.push-button: 9773 snapped probes
+# oip.push-button: 9865 snapped probes
 # oip.rack: 3720 snapped probes
 # oip.roller-conveyor: 180 snapped probes
 # oip.roller-conveyor~short-narrow: 444 snapped probes
@@ -88,6 +88,7 @@ golden.two-mount-sensor onto oip.stretch-wrapper: 184 5a725d3cd5ae120c
 golden.two-mount-sensor onto oip.turntable-conveyor: 184 023d1e4bc17428df
 golden.two-mount-sensor onto oip.turntable-conveyor~turned: 184 fb366aad2cd62ede
 golden.two-mount-sensor onto oip.unit-load: 184 9248f527411c1f09
+golden.two-mount-sensor onto oip.vacuum-tool: 92 324a5f40a7f10f20
 oip.belt-conveyor onto oip.belt-conveyor: 32 e72cc1424ccd3037
 oip.belt-conveyor onto oip.belt-conveyor~incline: 32 04089900ef9f4b74
 oip.belt-conveyor onto oip.curved-roller-conveyor: 2 3e1bf99dd2fd8c0b
@@ -252,6 +253,7 @@ oip.push-button onto oip.stretch-wrapper: 184 fa33523196675a4c
 oip.push-button onto oip.turntable-conveyor: 184 166d8e895506f27b
 oip.push-button onto oip.turntable-conveyor~turned: 184 6ec20a1405254233
 oip.push-button onto oip.unit-load: 184 f4366fe58c478c2e
+oip.push-button onto oip.vacuum-tool: 92 094e048a210573be
 oip.rack onto golden.edge-mount-rail: 92 b701e53d067a61d8
 oip.rack onto golden.guard-stand: 80 c01c8b185cb4899d
 oip.rack onto golden.two-mount-sensor: 92 de947669dfa9d689

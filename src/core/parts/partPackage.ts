@@ -800,11 +800,26 @@ export interface CargoSize {
   height: number
 }
 
+/**
+ * A rig that rides a link of the part it is soft-parented under, and moves with that link (a tool on a robot's
+ * flange). It is seated when its parent has a rig link of this name (docs/part-mounts.md). The mounted part's origin
+ * sits on the link's frame, so the link carries any offset or rotation of the interface.
+ */
+export interface RigMount {
+  /** the host link this part rides, by name */
+  link: string
+  /** The pickup volume this part gives the host's gripper: a box in the frame of the host link `link`, resized by
+   *  this part's own params. A host gripper with a mounted tool picks inside it, and with none picks nothing. */
+  grip?: { link: string; zone: { size: Vec3Tuple; offset?: Vec3Tuple; sizeParams?: SizeParamRef[] } }
+}
+
 /** A multi-body rig: a tree of links + kinematic joints (robots, gates, AGVs, imported devices). */
 export interface RigGeometry {
   kind: 'rig'
   links: RigLink[]
   joints: RigJoint[]
+  /** Makes the rig a part that rides a link of its parent ({@link RigMount}). Omitted = it stands where it is placed. */
+  mount?: RigMount
   /** Opts the rig into the in-scene teach-by-pose gizmo (joint rings + IK end-effector handle, shown whenever the
    *  placed part is selected: pose the arm, then Inspector → Capture Pose). Set it only for manipulators you
    *  hand-teach (robot / gantry / AGV lift). Leave it off for parts whose joints are driven by the sim/PLC (safety
@@ -1793,6 +1808,31 @@ function isVec4(v: unknown): v is Vec4Tuple {
   return Array.isArray(v) && v.length === 4 && v.every(isFiniteNum)
 }
 
+/** Validate a rig's `mount` (see RigMount): the host link it rides and the optional grip volume it gives that host. */
+function validateMount(mount: unknown, add: (field: string, message: string) => void): void {
+  const m = mount as { link?: unknown; grip?: { link?: unknown; zone?: { size?: unknown; offset?: unknown; sizeParams?: unknown } } } | null
+  if (typeof m !== 'object' || m === null || Array.isArray(m)) {
+    add('geometry.mount', 'mount must be an object: { link, grip? }')
+    return
+  }
+  if (typeof m.link !== 'string' || m.link === '') add('geometry.mount.link', 'mount.link must name the host rig link this part rides')
+  const grip = m.grip
+  if (grip === undefined) return
+  if (typeof grip !== 'object' || grip === null) {
+    add('geometry.mount.grip', 'mount.grip must be an object: { link, zone }')
+    return
+  }
+  if (typeof grip.link !== 'string' || grip.link === '') add('geometry.mount.grip.link', 'mount.grip.link must name the host gripper link that takes the volume')
+  const zone = grip.zone
+  if (typeof zone !== 'object' || zone === null) {
+    add('geometry.mount.grip.zone', 'mount.grip.zone must be an object: { size, offset?, sizeParams? }')
+    return
+  }
+  if (!isVec3(zone.size) || zone.size.some((n) => n <= 0)) add('geometry.mount.grip.zone.size', 'mount.grip.zone.size must be 3 positive numbers')
+  if (zone.offset !== undefined && !isVec3(zone.offset)) add('geometry.mount.grip.zone.offset', 'mount.grip.zone.offset must be 3 finite numbers (host-link metres)')
+  validateSizeParams(zone.sizeParams, 'geometry.mount.grip.zone.sizeParams', add)
+}
+
 /** Validate a box's optional param-driven size overrides (C-paramgeo). */
 function validateSizeParams(sizeParams: unknown, at: string, add: (field: string, message: string) => void): void {
   if (sizeParams === undefined) return
@@ -2682,11 +2722,12 @@ function validateLinkLamps(l: { name?: unknown; shape?: { kind?: unknown; materi
   }
 }
 
-function validateRig(g: { links?: unknown; joints?: unknown; posable?: unknown }, problems: PackageProblem[], assetIds: Set<string>, materialIds: Set<string>): void {
+function validateRig(g: { links?: unknown; joints?: unknown; posable?: unknown; mount?: unknown }, problems: PackageProblem[], assetIds: Set<string>, materialIds: Set<string>): void {
   const add = (field: string, message: string): void => {
     problems.push({ field, message })
   }
   if (g.posable !== undefined && typeof g.posable !== 'boolean') add('geometry.posable', 'posable must be a boolean')
+  if (g.mount !== undefined) validateMount(g.mount, add)
   const links = g.links
   if (!Array.isArray(links) || links.length === 0) {
     add('geometry.links', 'rig must have a non-empty links array')

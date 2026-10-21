@@ -240,7 +240,9 @@ try {
   const own = new Set(existing ? subtreeIds(sceneParts, [existing.id]) : [])
   const candidates = host ? [host] : sceneParts.filter((p) => !own.has(p.id))
   const snapDecl = moverPkg.snap ?? {}
-  const declared = Object.keys(snapDecl).filter((k) => snapDecl[k] !== undefined && snapDecl[k] !== false)
+  const declared = Object.keys(snapDecl).filter((k) => snapDecl[k] !== undefined && snapDecl[k] !== false).map((k) => `snap.${k}`)
+  // a tool seats by what its rig says it rides, not by a snap block
+  if (moverPkg.geometry?.mount) declared.push('geometry.mount')
   const conveyor = isConveyorLike(mover)
 
   const c = findSnap(mover, { position: proposedPos, rotationY }, candidates)
@@ -266,7 +268,7 @@ try {
     if (!conveyor && declared.length === 0) reason = `${moverPkg.id} declares no snap feature (no \`snap\` block, not conveyor-like) - the editor places it by the floor/surface rest resolvers only; hold-B Face mode is the explicit way to seat it${host && isConveyorLike(host) ? '. To feed this conveyor, give it a position above the belt (add-part --scaffold puts a source over the infeed of a line)' : ''}`
     else if (conveyor && host && !isConveyorLike(host)) reason = `${moverPkg.id} is conveyor-like and snaps only to conveyors; ${hostName} is not one`
     else {
-      reason = `${moverPkg.id} declares ${conveyor ? 'conveyor ends' : declared.map((k) => `snap.${k}`).join(', ')}, but nothing on ${hostName} engages from the proposed pose (wrong host kind, or outside the engage/height/facing gates)`
+      reason = `${moverPkg.id} declares ${conveyor ? 'conveyor ends' : declared.join(', ')}, but nothing on ${hostName} engages from the proposed pose (wrong host kind, or outside the engage/height/facing gates)`
       // A facing gate is the common miss (an out-facing mount whose drop yaw points the wrong way): say which
       // quarter-turn WOULD engage from the same spot, so the caller's next try is not a guess.
       const yaws = [0, 90, 180, 270].filter((d) => Math.abs(((d - rotDeg) % 360 + 360) % 360) > 1e-6)

@@ -9,6 +9,7 @@ import { visualStructureEpoch } from '../parts/structureRev'
 import { visualPoseEpoch } from '../parts/poseRev'
 import type { Entry } from './viewTypes'
 import type { RenderView } from './view'
+import { markMountedDirty, mountLinkGroup } from './viewMounts'
 
 /** the owned matrix walk's own state (`view.matrices`) */
 export class ViewMatrixState {
@@ -27,8 +28,10 @@ export type MatrixHost = Pick<
   RenderView,
   | 'ensureFreshPose'
   | 'entries'
+  | 'lastResolved'
   | 'livePartsGroup'
   | 'matrices'
+  | 'mounts'
   | 'partContainer'
   | 'partsGroup'
   | 'pool'
@@ -87,6 +90,10 @@ export function isRuntimeMovablePart(part: PartInstance): boolean {
  * dock-door tick marks the part on motion), stays in the bundle-capable partsGroup.
  */
 export function partContainer(view: MatrixHost, part: PartInstance): Group {
+  // a tool hangs under its host's link group (viewMounts.ts), whatever the bundle and drag state; until the host is
+  // built it waits in the parts group, and the sync's re-seat moves it
+  const link = mountLinkGroup(view, part.id)
+  if (link) return link
   // a structural drag (resize/scale/guard-opening) regenerates the part's geometry every
   // frame, a draw-list change the bundle would otherwise re-record in full per frame (the
   // "resizing a conveyor spikes draw calls" bug). The dragged parts render from the unbundled
@@ -132,7 +139,7 @@ export function syncMatrixFreeze(view: MatrixHost, entry: Entry): void {
   // move without a syncScene (jointed/aimed/subPose'd rigs, GLB-link rigs) must refresh on every
   // active replay frame. The sdkPart appliers (applyJoints/applySubPoses) exist on every rig, inert
   // or not, so applier presence can't tell them apart; this predicate tells a fence from a diverter.
-  obj.userData.runtimeMovable = isRuntimeMovablePart(entry.part)
+  obj.userData.runtimeMovable = isRuntimeMovablePart(entry.part) || obj.userData.mountedOn === true // a mounted tool moves with its host's joints
   // Freeze-ness keys on the drag seam, not selection (measured: 100 selected-and-unfrozen
   // subtrees re-entering three's per-frame matrix walk cost ~2.5ms/frame). A frozen part's
   // pose edits still apply via poseRev self-invalidation (ensureFreshPose). Only a live pointer
@@ -186,6 +193,7 @@ export function ensureFreshPose(view: MatrixHost, entry: Entry): void {
   // squash relax, beam stretch. Extra marks from off-frame callers are harmless (a re-bake
   // means matrices changed, so refreshing those draws is correct whenever it happens).
   markBundleDirtyPart(entry.part.id)
+  markMountedDirty(view, entry.part.id)
   // clamp while baking: late-attached children (async GLB/roller/chain arrivals, a fresh flow
   // arrow) arrive with matrixAutoUpdate=true inside the frozen subtree. The owned walk never
   // visits frozen subtrees, so a live straggler would otherwise keep an identity matrixWorld

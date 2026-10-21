@@ -109,6 +109,37 @@ describe('what is deliberately never reported', () => {
   })
 })
 
+describe('a tool that rides a host link', () => {
+  const TOOL = 'acme.tool'
+  const ARM = 'acme.arm'
+  beforeEach(() => {
+    registerPackage({
+      ...pkg(TOOL),
+      geometry: { kind: 'rig', links: [{ name: 'face', shape: { kind: 'frame' }, offset: [0, 0, 0] }], joints: [], mount: { link: 'flange' }, bounds: { length: 1, width: 1, top: 0 } } as never,
+    })
+    registerPackage({
+      ...pkg(ARM),
+      geometry: { kind: 'rig', links: [{ name: 'flange', shape: { kind: 'frame' }, offset: [0, 1, 0] }], joints: [], bounds: { length: 1, width: 1, top: 2 } } as never,
+    })
+  })
+  const seated = (parent: string | undefined): PartInstance => ({ ...(at('t', TOOL, 0, 1) as object), ...(parent ? { parent } : {}) }) as unknown as PartInstance
+
+  it('passes a tool parented to a part with the link', () => {
+    expect(checkLayout([at('arm', ARM, 0), seated('arm')])).toEqual([])
+  })
+
+  it('reports a tool left on the floor, however close its host is', () => {
+    const found = checkLayout([at('arm', ARM, 0), seated(undefined)])
+    expect(found).toHaveLength(1)
+    expect(found[0]!).toMatchObject({ partId: 't', kind: 'unseated', severity: 'error' })
+    expect(found[0]!.detail).toContain('"flange"')
+  })
+
+  it('reports a tool parented to a part without the link', () => {
+    expect(checkLayout([at('block', PLAIN, 0), seated('block')]).map((f) => f.partId)).toEqual(['t'])
+  })
+})
+
 describe('the report', () => {
   it('names the part the way a human labelled it', () => {
     const named = { ...(at('g', GUEST, 0) as object), name: 'Release eye' } as unknown as PartInstance

@@ -17,6 +17,7 @@ import type { EditorController } from '../controller'
 import type { LiveSetpoints } from '../controller/setpoints'
 import { BoolRow, DisplayUnitsContext, GuardOpeningsModeContext, LiveEditContext, RevertSlot, TextField } from './inspector/fields'
 import { sceneUnits } from '../../core/scene/sceneUnits'
+import { isSeatedTool } from '../../core/scene/sceneMounts'
 import type { LiveEditGate } from './inspector/fields'
 import { ContextMenu, menuItemsFor } from './inspector/menu'
 import type { OpenCtx, PropMenuState } from './inspector/menu'
@@ -509,7 +510,8 @@ function InspectorBody({ store, state, controller, packageThumbnails }: Inspecto
           store={store}
           committed={part}
           type={type}
-          disabled={false}
+          // a tool on an arm takes its pose from the arm's link
+          disabled={isSeatedTool(allParts, part)}
           effCollapsed={effCollapsed}
           toggle={toggle}
           openCtx={openCtx}

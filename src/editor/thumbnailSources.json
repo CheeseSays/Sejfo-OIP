@@ -32,12 +32,13 @@
   "public/thumbnails/pkg/oip.roller-conveyor.webp": "004cd18d974964e2",
   "public/thumbnails/pkg/oip.safety-gate.webp": "9f0f4f8588a7af9f",
   "public/thumbnails/pkg/oip.shape.webp": "f4805f84758d7259",
-  "public/thumbnails/pkg/oip.six-axis-robot.webp": "ac8ea99f0b38ab03",
+  "public/thumbnails/pkg/oip.six-axis-robot.webp": "0af6d74717a4429e",
   "public/thumbnails/pkg/oip.spur-conveyor.webp": "10c0aaf1e6530d7f",
   "public/thumbnails/pkg/oip.spur-roller-conveyor.webp": "f0b22760ea6e2b9e",
   "public/thumbnails/pkg/oip.stack-light.webp": "c1f1a7d00c48b991",
   "public/thumbnails/pkg/oip.stairs.webp": "d07ae6690a2ffd2e",
   "public/thumbnails/pkg/oip.stretch-wrapper.webp": "13304d5b9b1a43d8",
   "public/thumbnails/pkg/oip.turntable-conveyor.webp": "7f1e3d8f7d745be3",
-  "public/thumbnails/pkg/oip.unit-load.webp": "ef80a28e055c0494"
+  "public/thumbnails/pkg/oip.unit-load.webp": "ef80a28e055c0494",
+  "public/thumbnails/pkg/oip.vacuum-tool.webp": "961bcb60b9bbaf74"
 }

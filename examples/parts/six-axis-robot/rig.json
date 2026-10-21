@@ -333,21 +333,9 @@
         "grip": {
           "zone": {
             "size": [
-              0.5,
-              0.7,
-              0.5
-            ],
-            "sizeParams": [
-              {
-                "axis": 0,
-                "param": "toolSizeX",
-                "scale": 1
-              },
-              {
-                "axis": 2,
-                "param": "toolSizeZ",
-                "scale": 1
-              }
+              0.02,
+              0.02,
+              0.02
             ]
           }
         }
@@ -459,47 +447,7 @@
       "orm": "orm"
     },
     {
-      "id": "eoatPaint",
-      "color": [
-        0.639,
-        0.116,
-        0.0066
-      ],
-      "metalness": 0,
-      "roughness": 0.55
-    },
-    {
-      "id": "eoatRail",
-      "color": [
-        0.04,
-        0.04,
-        0.045
-      ],
-      "metalness": 0.7,
-      "roughness": 0.35
-    },
-    {
-      "id": "eoatSteel",
-      "color": [
-        0.18,
-        0.18,
-        0.19
-      ],
-      "metalness": 0.85,
-      "roughness": 0.45
-    },
-    {
-      "id": "eoatCup",
-      "color": [
-        0.024,
-        0.104,
-        0.4
-      ],
-      "metalness": 0,
-      "roughness": 0.75
-    },
-    {
-      "id": "eoatPlastic",
+      "id": "lampBezel",
       "color": [
         0.02,
         0.02,
@@ -509,7 +457,7 @@
       "roughness": 0.5
     },
     {
-      "id": "eoatLens",
+      "id": "lampLens",
       "color": [
         0.03,
         0.06,

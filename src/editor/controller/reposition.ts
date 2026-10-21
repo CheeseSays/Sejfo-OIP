@@ -5,6 +5,7 @@
 
 import { normalizeAngle } from '../../core/math'
 import { subtreeIds } from '../../core/scene/hierarchy'
+import { isSeatedTool } from '../../core/scene/sceneMounts'
 import { rotateXZ } from '../../core/transforms'
 import { surfaceAlignPose } from '../../core/snap/snapFeatures'
 import type { SnapPose } from '../../core/snap/snapFeatures'
@@ -31,7 +32,7 @@ export function beginReposition(r: RepositionState, ec: EditorController, s: Edi
   if (r.active || ec.drag || s.mode === 'placing') return
   if (s.selectedIds.length === 0 || !ec.lastPointer) return
   // a locked part anywhere in the selection blocks the gesture (skip locked nodes)
-  if (ec.selectedParts(s).some((p) => p.locked)) return
+  if (ec.selectedParts(s).some((p) => p.locked || isSeatedTool(s.scene.parts, p))) return
   // active node: the last-selected part drives the collision raycast; everything
   // else (the rest of the selection and every subtree) moves rigidly with it.
   const id = s.selectedIds[s.selectedIds.length - 1]!

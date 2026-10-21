@@ -1,7 +1,7 @@
 import { Box3, BufferGeometry, CanvasTexture, Color, ConeGeometry, CylinderGeometry, DoubleSide, EdgesGeometry, Float32BufferAttribute, Group, LineBasicMaterial, LineSegments, Matrix4, Mesh, MeshBasicMaterial, MeshStandardMaterial, PlaneGeometry, Quaternion, RepeatWrapping, SRGBColorSpace, Vector3 } from 'three'
 import type { InstancedMesh, Material, Object3D, Texture } from 'three'
 import { getPackage } from '../../../core/parts/partRegistry'
-import { arrayInstanceDeltas, legFrameDepth, MAX_DISTRIBUTE_INSTANCES, POSE_STRIDE, resolvedBoxSize, resolvedCylinder, resolvedMeshScale, resolvedOffset, rigLinkLocalPoseInto, rigPoseBuffer, rigWorldPosesInto, restQuatOf } from '../../../core/rig/rigPose'
+import { arrayInstanceDeltas, idleJointValues, legFrameDepth, MAX_DISTRIBUTE_INSTANCES, POSE_STRIDE, resolvedBoxSize, resolvedCylinder, resolvedMeshScale, resolvedOffset, rigLinkLocalPoseInto, rigPoseBuffer, rigWorldPosesInto, restQuatOf } from '../../../core/rig/rigPose'
 import { reportPartDiagnostic } from '../../../core/parts/partDiagnostics'
 import type { SeamContext } from '../../../core/rig/rigPose'
 import type { RollerGrid } from '../../../core/conveyor/rollerGrid'
@@ -76,7 +76,7 @@ import { markLazyColliderBVH } from '../../bvh'
 import { advanceBankSpins, bankSpinSign, spinUniformOf } from './bankSpin'
 import type { BankSpin } from './bankSpin'
 import { bumpPoseRev as bumpVisualPoseRev } from '../poseRev'
-import { buildRigGizmo, posableJoints } from './rigGizmo'
+import { buildRigGizmo } from './rigGizmo'
 
 // ---- rig -----------------------------------------------------------------
 
@@ -1260,10 +1260,7 @@ export function buildRig(geo: Extract<PartPackage['geometry'], { kind: 'rig' }>,
   // matching the numberList grid the Inspector edits; a legacy JSON string is ignored.
   const applyIdlePose = gizmo
     ? (poseParam: unknown): void => {
-        const idle: Record<string, number> = {}
-        const row = Array.isArray(poseParam) && Array.isArray(poseParam[0]) ? (poseParam[0] as unknown[]) : undefined
-        if (row) posableJoints(geo).forEach((j, i) => { const d = row[i]; if (typeof d === 'number') idle[j.name] = (d * Math.PI) / 180 })
-        gizmo.applyIdle(idle)
+        gizmo.applyIdle(idleJointValues(geo, poseParam))
       }
     : undefined
 
@@ -1980,6 +1977,7 @@ export function buildRig(geo: Extract<PartPackage['geometry'], { kind: 'rig' }>,
     // speed: a chain transfer's deck runs across its chains while raised, so frame.conveyorSpeeds reads 0 exactly then
     ...(procTick ? { applyValues: (v: Record<string, number | boolean>): void => { liveValues = v } } : {}),
     ...(probeTick ? { probeTick } : {}),
+    linkGroup: (name: string) => linkGroups.get(name),
     ...(gizmo ? { gizmo: gizmo.api, applyIdlePose } : {}),
     dispose: () => {
       for (const m of allMaterials) m.dispose() // textures are module-cached/shared, like meshCache - not disposed

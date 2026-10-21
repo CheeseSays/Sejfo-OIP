@@ -6,6 +6,7 @@ import { isCargoPart } from '../../core/frame'
 import { curvedGizmoOf, flexPathOf, effectiveResize, isConveyorLike, partFootprint, toWorldXZ } from '../../core/parts/partGeometry'
 import type { PartInstance } from '../../core/types'
 import { junctionOpeningRows } from '../../core/junctionOpeningRows'
+import { isSeatedTool } from '../../core/scene/sceneMounts'
 import type { ResizeHandle } from '../../render/api'
 import { guardOpeningsTarget } from '../store/store'
 import type { EditorState } from '../store/store'
@@ -73,6 +74,8 @@ export function gizmoVisible(ec: EditorController, s: EditorState): boolean {
   // skip locked nodes when building the gizmo: a
   // selection holding a locked part shows no gizmo, so it can't be dragged
   if (ec.selectedParts(s).some((p) => p.locked)) return false
+  // a tool seated on an arm takes its pose from the arm's link, so there is nothing to drag
+  if (ec.selectedParts(s).some((p) => isSeatedTool(s.scene.parts, p))) return false
   // select draws no gizmo; the face handles (pushResizeHandles) still show there, so it doubles as resizing
   return s.tool === 'transform' || s.tool === 'move' || s.tool === 'rotate'
 }

@@ -1,6 +1,6 @@
 // The shared Content contract every SDK geometry builder (deck / cargo / mesh / function / rig)
 // implements and the factory in sdkPart.ts consumes.
-import type { Material } from 'three'
+import type { Group, Material } from 'three'
 import type { SubPose } from '../../../core/rig/rigPose'
 import type { RollerGrid } from '../../../core/conveyor/rollerGrid'
 import type { GuardOpenings } from '../../../core/guards/guardOpenings'
@@ -74,5 +74,7 @@ export interface Content {
   /** rig only: reflow each link group to the current rest pose (offset + rest rotation) from a fresh geometry,
    *  without rebuilding - the fast path for an author-mode node-offset drag/undo (see geomSignature) */
   applyRestPose?: (geo: Extract<PartPackage['geometry'], { kind: 'rig' }>) => void
+  /** rig only: the scene group of a link, where a mounted tool is parented (core/scene/sceneMounts.ts) */
+  linkGroup?: (name: string) => Group | undefined
   dispose(): void
 }

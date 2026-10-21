@@ -230,8 +230,8 @@ export interface RobotGizmoJoint {
 /** where everything the robot gizmo draws sits right now, in world space */
 export interface RobotGizmoLayout {
   joints: RobotGizmoJoint[]
-  /** the end-effector handle */
-  ee: Vector3
+  /** the end-effector handle; null for a rig with nothing to pose (a tool: only its size dots) */
+  ee: Vector3 | null
   sizes: { handle: `size:${string}`; pos: Vector3 }[]
   /** each tool outline's four corners, a closed loop */
   toolOutlines: Vector3[][]

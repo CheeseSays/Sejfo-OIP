@@ -595,6 +595,22 @@ function composeInto(out: Float64Array, t: RigTables, values: Record<string, num
 }
 
 /**
+ * The joint values (radians) of a rig at its authored idle pose: the first row of its `pose` list, degrees, in the
+ * order of the non-cosmetic joints (a cosmetic, self-driven joint is not in the row). Joints the row leaves out are
+ * absent, so FK rests them at 0. Only an array of rows is valid, as the Inspector's list edits it.
+ */
+export function idleJointValues(geo: RigGeometry, poseParam: unknown): Record<string, number> {
+  const out: Record<string, number> = {}
+  const row = Array.isArray(poseParam) && Array.isArray(poseParam[0]) ? (poseParam[0] as unknown[]) : undefined
+  if (!row) return out
+  geo.joints.filter((j) => !j.cosmetic).forEach((j, i) => {
+    const d = row[i]
+    if (typeof d === 'number') out[j.name] = (d * Math.PI) / 180
+  })
+  return out
+}
+
+/**
  * {@link rigWorldPoses} into a caller-owned buffer from {@link rigPoseBuffer} - the allocation-free form
  * for the per-step sim path. Returns `out`.
  */

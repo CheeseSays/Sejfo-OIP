@@ -11,6 +11,7 @@ import { linkFinishKey, resolveLinkFinishes } from '../../core/rig/rigFinish'
 import type { PartPackage } from '../../core/parts/partPackage'
 import type { SdkPart, PartInstance } from '../../core/types'
 import type { ResolvedContext } from '../../core/scene/sceneResolve'
+import type { MountedOn } from '../../core/scene/sceneMounts'
 import { applyPartRotation, setSelectedMaterials } from './common'
 import { bumpStructureVersion } from './structureRev'
 import { bumpPoseRev } from './poseRev'
@@ -93,6 +94,7 @@ export function createCustomVisual(part: PartInstance): PartVisual {
     group.userData.tick = content.tick // per-frame animation (the conveying mesh bed scrolls its belt fabric)
     group.userData.applyConveyorSpeed = content.applyConveyorSpeed // the view routes frame.conveyorSpeeds here
     group.userData.applyValues = content.applyValues // ...and frame.values (the behavior's reported params) here
+    group.userData.linkGroup = content.linkGroup // where a mounted tool is parented (viewMounts.ts)
     group.userData.probeTick = content.probeTick // sensor-beam probe (rig beam links), like the built-in sensors
     // every full rebuild (signature change, package edit/hot-reload) replaces the subtree, so bump the
     // structural counter the view polls (render bundles re-record, as for the async loads).
@@ -101,12 +103,21 @@ export function createCustomVisual(part: PartInstance): PartVisual {
     bumpStructureVersion(group)
   }
 
-  const apply = (p: SdkPart, openings?: GuardOpenings, grid?: RollerGrid, extents?: GuardExtents, structConn?: StructureConnections, legRests?: LegRestRows, holes?: GuardHoles): void => {
-    group.position.set(p.position[0], p.position[1], p.position[2])
-    applyPartRotation(group, p)
+  const apply = (p: SdkPart, openings?: GuardOpenings, grid?: RollerGrid, extents?: GuardExtents, structConn?: StructureConnections, legRests?: LegRestRows, holes?: GuardHoles, mountedOn?: MountedOn): void => {
+    if (mountedOn) {
+      // a tool rides its host link: it sits at that link's frame, and the link's own pose and scale carry it
+      group.userData.mountedOn = true
+      group.position.set(0, 0, 0)
+      group.rotation.set(0, 0, 0)
+      group.scale.setScalar(1)
+    } else {
+      group.userData.mountedOn = false
+      group.position.set(p.position[0], p.position[1], p.position[2])
+      applyPartRotation(group, p)
+    }
     // uniform rig scale (the `scale` param convention; matches the sim's rigWorldPoses scale so the grab point
     // tracks the scaled gripper). A deck/no-scale part keeps scale 1.
-    const scale = typeof p.params.scale === 'number' && p.params.scale > 0 ? p.params.scale : 1
+    const scale = !mountedOn && typeof p.params.scale === 'number' && p.params.scale > 0 ? p.params.scale : 1
     group.scale.setScalar(scale)
     const pkg = getPackage(p.packageId)
     // A connected stair's whole-flight lift rewrites link offsets/foot boxes. It is rare (it only changes on a
@@ -150,7 +161,7 @@ export function createCustomVisual(part: PartInstance): PartVisual {
       // world-phase anchor a butted neighbour/curve set gives this bed and which of its ends abut one at all
       // (nudgeLo/nudgeHi). The rig needs both, so the whole grid is forwarded, not just the anchor
       // (seam resolver).
-      if (p.type === 'part') apply(p, ctx?.openings, ctx?.grid, ctx?.extents, ctx?.structConn, ctx?.legRests, ctx?.holes)
+      if (p.type === 'part') apply(p, ctx?.openings, ctx?.grid, ctx?.extents, ctx?.structConn, ctx?.legRests, ctx?.holes, ctx?.mountedOn)
     },
     setSelected(on: boolean): void {
       setSelectedMaterials(content?.materials ?? [], on)

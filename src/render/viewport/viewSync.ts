@@ -20,6 +20,7 @@ import type { RenderView } from './view'
 import { wantsSwapCompile, REVEAL_BUDGET_POINTS, revealCostOf } from './viewWarmFlags'
 import { partKindKey } from './viewWarm'
 import { poseChanged } from './viewPool'
+import { indexMounts, rehomeMounts } from './viewMounts'
 
 /** what the scene diff reaches on the view */
 export type SyncHost = Pick<
@@ -38,6 +39,7 @@ export type SyncHost = Pick<
   | 'intendedVisible'
   | 'lastResolved'
   | 'lastScene'
+  | 'mounts'
   | 'partContainer'
   | 'pool'
   | 'poolExempt'
@@ -77,6 +79,7 @@ export function syncScene(view: SyncHost, scene: SceneJSON, opts?: { load?: bool
   // cut) into a per-part bundle threaded through visual.update - see docs/seam-resolvers.md
   const resolved = resolveScene(scene.parts, 'render')
   view.lastResolved = resolved
+  indexMounts(view)
   const seen = view.seen
   seen.clear()
   // tracks whether the parent structure / part set changed this sync, so refreshOutline's
@@ -322,6 +325,8 @@ export function syncScene(view: SyncHost, scene: SceneJSON, opts?: { load?: bool
     for (const { entry } of view.held.values()) entry.visual.dispose()
     view.held.clear()
   }
+  // a tool seats under its host's link once both are built; a host rebuilt this sync replaced those link groups
+  if (rehomeMounts(view)) structureChanged = true
   // moved-stream bookkeeping: forget one-shot movers (no move for two syncs) and departed parts.
   // poolMovedAt (the actually-ejected set) expires on wall-clock quiet in tick() instead, so a
   // stream that stalls across syncs (a scrub pause) doesn't re-pool mid-interaction.

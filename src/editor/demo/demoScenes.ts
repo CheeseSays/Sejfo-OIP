@@ -36,6 +36,7 @@ import { dockOpenings, PERSONNEL_DOOR_AT, personnelDoors } from '../../core/buil
 import { getPackage, registerPackage } from '../../core/parts/partRegistry'
 import { uniqueName } from '../../core/parts/partDisplayName'
 import { reseatContainers } from '../../core/scene/hierarchy'
+import { restLinkWorld } from '../../core/scene/sceneMounts'
 import { holdPositions, holdsOf } from '../../core/heldStock'
 import type { PartPackage } from '../../core/parts/partPackage'
 import { buildPackage } from '../../sim/buildPackage'
@@ -2316,13 +2317,6 @@ export function createPlcDemoScene(): SceneJSON {
   // anything standing beside the table behind.
   const palletizer = placeSdk('oip.six-axis-robot', P.robotPosition, P.robotRotationY, 'Palletizer', {
     scale: P.robotScale,
-    toolSizeX: P.toolSizeX,
-    toolSizeZ: P.toolSizeZ,
-    // Coarse cups, as a layer head really has: big pads on a wide pitch, not the dense little grid a
-    // single-case tool uses. The cup bed is a param-driven grid (count = floor(usable/pitch)+1 per axis), so on a
-    // 1.2 x 1.0 m plate the stock 0.1 m pitch lays down ~120 cups, enough on its own to break the demo's draw budget.
-    cupPitchX: 0.2,
-    cupPitchZ: 0.2,
     enableComms: true,
     commandTag: 'ArmCmd',
     executeTag: 'ArmExec',
@@ -2336,6 +2330,19 @@ export function createPlcDemoScene(): SceneJSON {
     jobNames: PALLETIZER_JOB_NAMES.join('\n'),
     pose: [P.home],
   })
+  // The layer plate: a vacuum tool seated on the arm's tool flange, the arm's child as a snap onto it would make it. It
+  // rides the flange, so it takes the arm's scale with it, and its footprint is the pickup volume. The pad grid is
+  // coarse, as a layer head really has: big pads on a wide pitch, not the dense little grid a single-case tool uses.
+  // The cup bed is a param-driven grid (count = floor(usable/pitch)+1 per axis), so on a 1.2 x 1.0 m plate the stock
+  // 0.1 m pitch lays down ~120 cups, enough on its own to break the demo's draw budget.
+  const flange = restLinkWorld(palletizer, 'eoat')
+  const layerPlate = placeSdk('oip.vacuum-tool', flange ? [flange.x, flange.y, flange.z] : P.robotPosition, P.robotRotationY, 'Layer plate', {
+    toolSizeX: P.toolSizeX,
+    toolSizeZ: P.toolSizeZ,
+    cupPitchX: 0.2,
+    cupPitchZ: 0.2,
+  })
+  under(palletizer, layerPlate)
   // The riser the arm stands on. See PALLETIZER.robotPosition: it gives the wrist enough pitch travel to hold the
   // plate flat over the top course, so the poses depend on it. Built to pedestalHeight exactly: an oip.shape
   // cylinder grows from y = 0, so its top face is where the base sits.

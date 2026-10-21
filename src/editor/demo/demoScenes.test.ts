@@ -1270,13 +1270,18 @@ describe('PLC demo scene', () => {
   })
 
   it('includes a palletizer with a layer head: a plate sized to the layer, which is its pickup volume', () => {
-    const arm = byPkg(createPlcDemoScene().parts, 'oip.six-axis-robot')[0]!
+    const parts = createPlcDemoScene().parts
+    const arm = byPkg(parts, 'oip.six-axis-robot')[0]!
     const prm = paramsOf(arm)
+    // The plate is a tool of its own, seated on the arm's flange: the arm's child, riding its eoat link
+    const plate = byPkg(parts, 'oip.vacuum-tool')[0]!
+    expect(plate.parent).toBe(arm.id)
+    const tool = paramsOf(plate)
     // C-multigrab: the plate footprint is the pickup volume 1:1, so a plate sized under the layer is what makes the
     // arm take all five cases at once. Shrink it and the cell stalls with cases left standing on the table.
     // authored in the arm's own units, so the drawn plate is these times robotScale - the layer, 1.2 x 1.0
-    expect((prm.toolSizeX as number) * (prm.scale as number)).toBeCloseTo(1.2, 6)
-    expect((prm.toolSizeZ as number) * (prm.scale as number)).toBeCloseTo(1.0, 6)
+    expect((tool.toolSizeX as number) * (prm.scale as number)).toBeCloseTo(1.2, 6)
+    expect((tool.toolSizeZ as number) * (prm.scale as number)).toBeCloseTo(1.0, 6)
     // home + 6 trained poses (apex/pick over the table, apex + three courses over the pallet)
     const waypoints = prm.waypoints as number[][]
     expect(waypoints).toHaveLength(7)

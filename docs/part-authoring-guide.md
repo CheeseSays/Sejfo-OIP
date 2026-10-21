@@ -506,7 +506,7 @@ Every field is data the host reads; no field changes what another means.
 | Lamps | |
 |---|---|
 | `lamps` | `[{ emissive, offColor?, name?, material?, opacity?, param? }]`, each a `ctx.lamps` entry. `emissive` is lit, `offColor` dark (default: the host's dark neutral on a primitive, the material's own colour on a mesh). `name` defaults to the link's and is unique across the rig. A primitive link carries at most one, as its own material, so it takes no `color`. On a mesh link each names the remapped GLB `material` it lights. `opacity` makes the lit state a translucent lens; `param` names a boolean that lights it at rest |
-| `squash` | `{ amount, lamp? }`: a mesh link compresses along its local Y while `lamp` is lit, anchored at its rim (suction cups collapsing as the vacuum grips). A `geometry()` submesh uses `MeshPart.squash`, as the six-axis EOAT's cups do |
+| `squash` | `{ amount, lamp? }`: a mesh link compresses along its local Y while `lamp` is lit, anchored at its rim (suction cups collapsing as the vacuum grips). A `geometry()` submesh uses `MeshPart.squash`, as the Vacuum Tool's cups do |
 
 | Layout and motion | |
 |---|---|
@@ -775,6 +775,16 @@ The manifest's `snap` declares how the part connects to others:
 that ranks them (a part declaring several uses whichever fits the drop best), and the golden table any engine
 change must keep unchanged.
 
+### Riding a host's link: `mount` (a tool)
+
+A rig that is the end-of-arm tool of another part (a vacuum plate, a gripper) declares `geometry.mount` instead of a
+`snap` block: `mount: { link: 'eoat', grip?: { link: 'gripper', zone } }` returned from `rig()`. Dropped near a host
+that has a link of that name, it seats there, is soft-parented under the host, and rides the link through every joint
+move. `grip` is the pickup volume it gives the host's gripper link, sized by the tool's own params. The host declares
+nothing but the link. The [Vacuum Tool](../examples/parts/vacuum-tool/part.js) and the
+[Six-Axis Robot](../examples/parts/six-axis-robot/part.js)'s `eoat` frame are the reference; how it works end to end is in
+[part-mounts.md](part-mounts.md). A tool with `rigSize` param handles gets its resize dots on the tool itself.
+
 **`flush: true`** is ambient face-flush for parts that get tiled: dragged near another part, the footprint seats
 flush against that part's nearest face (90°-stepped orientation, slide and corner-flush along the face, height
 untouched). With Shift-drag duplicate it makes rows fast; see
@@ -1035,7 +1045,8 @@ Every first-party part documents every visible param, enforced by `bundledPackag
     ends extend past the arc, to match the stub you draw) or `endGapParam: { param, scale?, add? }`.
 - `{ kind: 'rigSize', link, axis, frameY? }` puts an orange size dot on a rig link's frame. It follows the posed
   arm (unlike a `face` dot on the static footprint) and drags the param along that link axis, with a tool
-  outline when an `'x'` and a `'z'` handle share the link (the six-axis EOAT resize).
+  outline when an `'x'` and a `'z'` handle share the link (the [Vacuum Tool](../examples/parts/vacuum-tool/part.js)'s
+  resize, which rides the arm it is seated on; see [part-mounts.md](part-mounts.md)).
 - `{ kind: 'flexPath', lengthParam, sections, maxHingeDeg?, infeedBrakeParam?, dischargeBrakeParam?, scissor? }`
   on a `numberList` of `[x, z]` control points is the flex conveyor's bed of hinged sections, dragged point by
   point ([flex-conveyor](../examples/parts/flex-conveyor/part.js) and the type's docs in `index.d.ts`).

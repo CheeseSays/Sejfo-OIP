@@ -587,7 +587,7 @@ class {}
 footprint {hx:0.9400,hz:0.4150,y0:0,y1:3.4900}
 plugs []
 params reserved=[speed,enableComms] tags=[commandTag:in:INT,executeTag:in:BOOL,doneTag:out:BOOL,enableTag:in:BOOL,gripperTag:in:BOOL,in1Tag:in:BOOL,in2Tag:in:BOOL,in3Tag:in:BOOL,in4Tag:in:BOOL,out1Tag:out:BOOL,out2Tag:out:BOOL,out3Tag:out:BOOL,out4Tag:out:BOOL]
-lamps [vacuumLamp] animates=true
+lamps [vacuumLamp] animates=false
   link base {shape:mesh}
   link basePivot {shape:frame}
   link linkage1 {shape:mesh}
@@ -609,13 +609,8 @@ lamps [vacuumLamp] animates=true
   link toolSuction {shape:mesh}
   link gripper {gripZone:true,shape:frame}
   link eoat {shape:frame}
-  drawn[0] {material:eoatPaint,rides:eoat}
-  drawn[1] {material:eoatRail,rides:eoat}
-  drawn[2] {material:eoatSteel,rides:eoat}
-  drawn[3] {look:bolt,rides:eoat}
-  drawn[4] {material:eoatPlastic,rides:eoat}
-  drawn[5] {lamp:vacuumLamp,material:eoatLens,rides:eoat}
-  drawn[6] {instances:25.0000,material:eoatCup,rides:eoat}
+  drawn[0] {material:lampBezel,rides:tool}
+  drawn[1] {lamp:vacuumLamp,material:lampLens,rides:tool}
 
 ## oip.spur-conveyor (function)
 class {conveyor:true,spur:true,straight:{length:2.0000,width:1.5240},tailOrigin:false}
@@ -815,3 +810,18 @@ plugs []
 params reserved=[] tags=[]
 lamps [] animates=false
   link origin {shape:frame}
+
+## oip.vacuum-tool (rig)
+class {}
+footprint {hx:0.2500,hz:0.2500,y0:-0.1567,y1:0}
+plugs [mount]
+params reserved=[] tags=[]
+lamps [vacuumLamp] animates=true
+  link eoat {shape:frame}
+  drawn[0] {material:eoatPaint,rides:eoat}
+  drawn[1] {material:eoatRail,rides:eoat}
+  drawn[2] {material:eoatSteel,rides:eoat}
+  drawn[3] {look:bolt,rides:eoat}
+  drawn[4] {material:eoatPlastic,rides:eoat}
+  drawn[5] {lamp:vacuumLamp,material:eoatLens,rides:eoat}
+  drawn[6] {instances:25.0000,material:eoatCup,rides:eoat}

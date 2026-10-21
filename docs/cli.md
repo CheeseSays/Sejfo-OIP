@@ -130,7 +130,8 @@ Never hand-edit scene.json; these go through the same checks the editor does.
   they make, and each error is reported at its own file and line.
 - **`npm run check-wiring -- <path>`** - tags connect. The project's tests count, so a tag a test checks is read and
   one a test input drives is written; `--strict` fails on warnings.
-- **`npm run check-layout -- <path>`** - parts that declare they seat on something actually do. It reports
+- **`npm run check-layout -- <path>`** - parts that declare they seat on something actually do, and a tool (a rig with
+  `geometry.mount`) is parented to a part that has the link it rides. It reports
   disconnection, not collision: a naive overlap test flags 303 pairs on the correct demo scene (src/core/checkLayout.ts
   explains). Its one collision check is a part standing in an interior building column (src/core/building/buildingColumns.ts).
   It also warns, and `--strict` fails, when a conveyor's end meets a spur's side (a spur takes end joins only, so its

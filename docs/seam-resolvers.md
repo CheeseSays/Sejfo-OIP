@@ -18,6 +18,7 @@ time, not the part in isolation. Every case has the same shape:
 | Per-leg footing | [`core/legRests.ts`](../src/core/legRests.ts) `computeSceneLegRests` | `[x0, x1, dy]` rows (part-local X) where the surface under a legged bed differs from its own floor plane: a platform deck crossing under it (feet stand on the deck), or the warehouse floor past the deck it stands on (overhanging feet reach the ground). Render only, because legs have no colliders. Function belts get it through the `legRests` param fold (`withLegRests`), rig beds directly in `rig.ts`'s leg-station layout. Straight beds only: a curved bed's legs get no footing rows |
 | Butted guard runs | [`core/guards/guardRuns.ts`](../src/core/guards/guardRuns.ts) `computeGuardRuns` | merged side-guard span overrides for butted collinear guards. Sim only: the merge is a collision concern, and two butted guards already draw as one continuous wall |
 | Sensor-beam guard holes | [`core/guards/guardHoles.ts`](../src/core/guards/guardHoles.ts) `computeSceneGuardHoles` | holes through a bed's side guards where a sensor beam crosses them. Render only: beams aren't physical, so the collider stays whole |
+| Tool mounts | [`core/scene/sceneMounts.ts`](../src/core/scene/sceneMounts.ts) `computeSceneMounts` | for a tool (a rig that declares `geometry.mount`) the host link it rides (render), and for the host the tools on its links with each one's grip volume resolved against the tool's params (sim). See [part-mounts.md](part-mounts.md) |
 
 Every one is: **read all parts → compute a small per-instance struct → feed it to the
 geometry evaluator.** The resolvers act on SDK parts through what the packages declare (a
@@ -39,7 +40,7 @@ effect means adding a field, a resolver and a key contribution. Threading each e
 five files, and missing one ships a fully implemented effect wired to nothing.
 
 **The `consumer` argument is a performance contract.** Render reads grid, openings, extents, structConn,
-legRests and holes. Sim reads openings, extents, cluster, structConn and guardRun. Under *streamed* motion (a gizmo
+legRests, holes and mountedOn. Sim reads openings, extents, cluster, structConn, guardRun and mounts. Under *streamed* motion (a gizmo
 drag, a collab peer's drag, an Inspector scrub) every frame is a change, so every resolver wired to a consumer runs
 60 times a second. Running the other side's resolvers would spend most of render's frame on deck clusters and
 guard runs it never reads, which slows a peer's drag on every other client. Pinned by

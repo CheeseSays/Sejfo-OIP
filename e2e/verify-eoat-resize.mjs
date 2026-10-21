@@ -1,5 +1,5 @@
-// Focused check: the Six-Axis robot's EOAT (end-of-arm tooling) resizes in the real app:
-// placing the bundled robot draws the resizable vacuum plate (the behavior's geometry() on the `eoat` link:
+// Focused check: the Vacuum Tool's resize works in the real app, seated on the Six-Axis robot's flange:
+// placing the tool draws the resizable vacuum plate (the behavior's geometry() on its `eoat` link:
 // plate, rails, corner caps, adapter) with its 5×5 suction-cup bed; editing toolSizeX/Z rebuilds the frame at
 // the new size and regenerates the cup grid; cupsEnabled=false empties the bed; the tool's LED lights green
 // with the vacuum, and the cups compress off the same signal instead of glowing.
@@ -22,12 +22,12 @@ const check = (name, ok, detail = '') => {
   console.log(`  ${ok ? '✓' : '✗'} ${name}${detail ? ` - ${detail}` : ''}`)
 }
 
-// Inspect the placed robot's EOAT: the cup bank (the one InstancedMesh on the `eoat` link), the frame's outer
+// Inspect the placed tool's EOAT: the cup bank (the one InstancedMesh on the `eoat` link), the frame's outer
 // extent in the eoat frame (the corner caps, 5 mm outside ±size/2), and the cups' colour.
 const inspect = (page) =>
   page.evaluate(() => {
     const state = window.__oip.store.getState()
-    const rid = state.scene.parts.find((p) => p.type === 'part')?.id
+    const rid = state.scene.parts.find((p) => p.packageId === 'oip.vacuum-tool')?.id
     const entry = rid && window.__oip.view.entries.get(rid)
     if (!entry) return { rid: null }
     const root = entry.visual.object
@@ -68,7 +68,7 @@ const setParams = (page, over) =>
   page.evaluate((patch) => {
     const store = window.__oip.store
     const s = store.getState()
-    const rid = s.scene.parts.find((p) => p.type === 'part').id
+    const rid = s.scene.parts.find((p) => p.packageId === 'oip.vacuum-tool').id
     store.commit('Edit EOAT params', {
       ...s.scene,
       parts: s.scene.parts.map((p) => (p.id === rid ? { ...p, params: { ...p.params, ...patch } } : p)),
@@ -82,17 +82,33 @@ async function main() {
   try {
     await page.goto(URL)
     await page.waitForFunction(() => !!(window.__oip && window.__oip.store && window.__oip.controller && window.__oip.view), { timeout: 30000 })
-    // bundled catalog card → place at the viewport centre (the sixaxis smoke script's flow)
+    // bundled catalog cards → the robot at the viewport centre (the sixaxis smoke script's flow), then the tool dropped
+    // over it, which seats it on the flange
     const card = page.locator('[data-package-id="oip.six-axis-robot"]')
     await card.waitFor({ timeout: 15000 })
     const vp = await page.locator('.viewport').boundingBox()
-    await page.evaluate(({ cx, cy }) => {
-      // a card drag that drops at (cx, cy): one-shot, so placing mode exits (the verify-rig-gizmo idiom)
-      const c = window.__oip.controller
-      c.beginCatalogPlace('part', cx - 40, cy - 20, 'oip.six-axis-robot')
-      c.catalogPlaceMove(cx, cy, false)
-      c.endCatalogPlace(cx, cy, false)
-    }, { cx: vp.x + vp.width / 2, cy: vp.y + vp.height / 2 })
+    const drop = async (id, at) => {
+      await page.evaluate(({ cx, cy, id }) => {
+        // a card drag that drops at (cx, cy): one-shot, so placing mode exits (the verify-rig-gizmo idiom)
+        const c = window.__oip.controller
+        c.beginCatalogPlace('part', cx - 40, cy - 20, id)
+        c.catalogPlaceMove(cx, cy, false)
+        c.endCatalogPlace(cx, cy, false)
+      }, { cx: at?.x ?? vp.x + vp.width / 2, cy: at?.y ?? vp.y + vp.height / 2, id })
+    }
+    await drop('oip.six-axis-robot')
+    await page.waitForFunction(() => window.__oip.store.getState().scene.parts.some((p) => p.packageId === 'oip.six-axis-robot'), { timeout: 15000 })
+    await page.waitForTimeout(500)
+    // the tool goes under the robot's flange: the snap seats within 0.25 m of it in plan
+    const flange = await page.evaluate(() => {
+      const st = window.__oip.store.getState()
+      const arm = st.scene.parts.find((p) => p.packageId === 'oip.six-axis-robot')
+      const link = window.__oip.view.entries.get(arm.id).visual.object.userData.linkGroup('eoat')
+      link.updateWorldMatrix(true, false)
+      const e = link.matrixWorld.elements
+      return window.__oip.view.worldToScreen(e[12], 0, e[14])
+    })
+    await drop('oip.vacuum-tool', flange)
 
     // the part lands async → poll until the cup grid materializes
     let s = { cupCount: -1 }
@@ -101,7 +117,7 @@ async function main() {
       s = await inspect(page)
     }
     await page.screenshot({ path: join(SHOTS, 'eoat-default.png') })
-    check('robot placed with the EOAT drawn on its link (plate, rails, adapter, bolts, LED bezel and lens, cups)', s.eoat && s.meshes === 7, `${s.meshes} meshes`)
+    check('tool placed with the EOAT drawn on its link (plate, rails, adapter, bolts, LED bezel and lens, cups)', s.eoat && s.meshes === 7, `${s.meshes} meshes`)
     check('default 0.5 m tool grows a 5×5 cup bed', s.cupCount === 25, `${s.cupCount} cups`)
     check('cups span ±0.2 (usable/2)', !!s.cupXsSpread && Math.abs(s.cupXsSpread[0] + 0.2) < 1e-3 && Math.abs(s.cupXsSpread[1] - 0.2) < 1e-3, JSON.stringify(s.cupXsSpread))
     check('frame reaches ±0.255 (the caps, 5 mm outside the 0.5 m plate)', !!s.frame && s.frame[0] === 0.255 && s.frame[1] === 0.255, JSON.stringify(s.frame))
@@ -129,7 +145,7 @@ async function main() {
     // it is found as the one mesh on the tool that turns green, after checking none is green before.
     const lamp = await page.evaluate(() => {
       const state = window.__oip.store.getState()
-      const rid = state.scene.parts.find((p) => p.type === 'part').id
+      const rid = state.scene.parts.find((p) => p.packageId === 'oip.vacuum-tool').id
       const root = window.__oip.view.entries.get(rid).visual.object
       const green = () => {
         const lit = []
@@ -150,13 +166,13 @@ async function main() {
     check('the cups do NOT glow (indicator moved off the rubber)', !!lamp.cups && lamp.cups[0] === 0 && lamp.cups[1] === 0 && lamp.cups[2] === 0, JSON.stringify(lamp.cups))
     check('the cups compress 15% while the vacuum holds', lamp.squash === 0.85, `scale.y=${lamp.squash}`)
 
-    // the resize gizmo (robot_gizmo's orange EOAT dots): select the robot, find the size:toolSizeX dot's
+    // the resize gizmo (the tool's orange dots, riding the arm): select the tool, find the size:toolSizeX dot's
     // screen position, and pointer-drag it outward along the tool's X axis - the param must follow.
     await setParams(page, { toolSizeX: 0.5, toolSizeZ: 0.5 })
     await page.waitForTimeout(300)
     await page.evaluate(() => {
       const store = window.__oip.store
-      const rid = store.getState().scene.parts.find((p) => p.type === 'part').id
+      const rid = store.getState().scene.parts.find((p) => p.packageId === 'oip.vacuum-tool').id
       store.cancelPlacing() // leave placing mode (custom placement doesn't auto-exit) so the rig gizmo arms
       store.select(rid)
     })
@@ -164,7 +180,7 @@ async function main() {
     const drag = await page.evaluate(() => {
       const store = window.__oip.store
       const view = window.__oip.view
-      const rid = store.getState().scene.parts.find((p) => p.type === 'part').id
+      const rid = store.getState().scene.parts.find((p) => p.packageId === 'oip.vacuum-tool').id
       const root = view.entries.get(rid).visual.object
       root.updateMatrixWorld(true)
       // the size dots are drawn by the view's rig gizmo overlay (rigGizmoOverlay.ts): the toolSizeX one
@@ -178,7 +194,7 @@ async function main() {
       const to = ((v) => view.worldToScreen(v.x, v.y, v.z))(eoat.localToWorld(new Vec3(0.75, -0.075, 0)))
       return { from, to, visible: view.rigGizmoOverlay.root.visible && view.robotGizmoId === rid }
     })
-    check('size gizmo dot exists + is visible once the robot is selected', !!drag && drag.visible, JSON.stringify(drag && { from: drag.from, to: drag.to }))
+    check('size gizmo dot exists + is visible once the tool is selected', !!drag && drag.visible, JSON.stringify(drag && { from: drag.from, to: drag.to }))
     if (drag) {
       await page.mouse.move(drag.from.x, drag.from.y)
       await page.mouse.down()
@@ -186,7 +202,7 @@ async function main() {
       await page.mouse.up()
       await page.waitForTimeout(300)
       const val = await page.evaluate(() => {
-        const p = window.__oip.store.getState().scene.parts.find((q) => q.type === 'part')
+        const p = window.__oip.store.getState().scene.parts.find((q) => q.packageId === 'oip.vacuum-tool')
         return p.params.toolSizeX
       })
       await page.screenshot({ path: join(SHOTS, 'eoat-gizmo-dragged.png') })

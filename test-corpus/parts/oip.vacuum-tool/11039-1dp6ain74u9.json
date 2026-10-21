@@ -1,0 +1,208 @@
+{
+  "format": 6,
+  "id": "oip.vacuum-tool",
+  "name": "Vacuum Tool",
+  "params": {
+    "toolSizeX": {
+      "type": "number",
+      "default": 0.5,
+      "min": 0.5,
+      "max": 3,
+      "step": 0.01,
+      "label": "Tool size X (m)",
+      "handle": {
+        "kind": "rigSize",
+        "link": "eoat",
+        "axis": "x",
+        "frameY": -0.075
+      },
+      "desc": "Length of the vacuum plate. The orange dots on the tool itself drag this in the viewport, and they ride the arm, so you can size the tool in whatever pose you are inspecting. Size it to the product you are picking - the plate is also the grab reach."
+    },
+    "toolSizeZ": {
+      "type": "number",
+      "default": 0.5,
+      "min": 0.5,
+      "max": 3,
+      "step": 0.01,
+      "label": "Tool size Z (m)",
+      "handle": {
+        "kind": "rigSize",
+        "link": "eoat",
+        "axis": "z",
+        "frameY": -0.075
+      },
+      "desc": "Width of the vacuum plate, dragged by the same orange dots on the tool."
+    },
+    "cupPitchX": {
+      "type": "number",
+      "default": 0.1,
+      "min": 0.01,
+      "max": 0.5,
+      "step": 0.005,
+      "label": "Cup pitch X (m)",
+      "group": "Cups",
+      "desc": "Centre-to-centre spacing of the suction cups along the plate length. The plate fits as many as the pitch allows, so tightening it adds cups rather than moving them."
+    },
+    "cupPitchZ": {
+      "type": "number",
+      "default": 0.1,
+      "min": 0.01,
+      "max": 0.5,
+      "step": 0.005,
+      "label": "Cup pitch Z (m)",
+      "group": "Cups",
+      "desc": "Centre-to-centre spacing of the suction cups across the plate width."
+    },
+    "cupMarginX": {
+      "type": "number",
+      "default": 0.05,
+      "min": 0,
+      "max": 0.5,
+      "step": 0.005,
+      "label": "Cup margin X (m)",
+      "group": "Cups",
+      "desc": "Inset from each end of the plate before the first cup, so the grid does not run off the edge."
+    },
+    "cupMarginZ": {
+      "type": "number",
+      "default": 0.05,
+      "min": 0,
+      "max": 0.5,
+      "step": 0.005,
+      "label": "Cup margin Z (m)",
+      "group": "Cups",
+      "desc": "Inset from each side of the plate before the first cup."
+    },
+    "cupsEnabled": {
+      "type": "boolean",
+      "default": true,
+      "label": "Suction cups",
+      "group": "Cups",
+      "desc": "Draw the cup grid under the plate. Appearance only - the grip itself comes from the robot's vacuum, not from the cups being visible."
+    }
+  },
+  "behavior": "// Vacuum Tool: an end-of-arm tool for the Six-Axis Robot, and for any rig with a link named `eoat`. It is a part of its\n// own, so it is chosen, resized or swapped without touching the robot: drop it on the robot's flange (it seats there and\n// is soft-parented under the arm) and it rides the flange through every joint move. Delete it and the robot keeps\n// its flange and picks nothing.\n//\n// The tool is engineered hardware, so it is code: a painted plate framed by slotted rails and corner caps, the adapter\n// the wrist flange bolts to, the vacuum LED, and a pitch/margin grid of turned cups that squash off that LED. The\n// robot's vacuum lamp reaches the tool through the mount, so the cups close when the robot switches its vacuum on.\n// Its pickup volume is the plate itself, which is what the robot's gripper picks inside (`mount.grip`).\n//\n// This is the part's source. `npm run build-parts` writes behavior.ts (this script as the app ships it, with the\n// _shared/ modules it imports joined in and `manifest` / `rig()` left out) and rig.json (the manifest, with the\n// rig compiled from rig()).\n\ndefinePart({\n  lamps: ['vacuumLamp'],\n  // a passive part: the robot's vacuum lamp reaches it through the mount, and its pickup volume is declared in rig()\n  step() {},\n  params: {\n    toolSizeX: { type: 'number', default: 0.5, min: 0.5, max: 3, step: 0.01, label: 'Tool size X (m)', handle: { kind: 'rigSize', link: 'eoat', axis: 'x', frameY: -0.075 }, desc: 'Length of the vacuum plate. The orange dots on the tool itself drag this in the viewport, and they ride the arm, so you can size the tool in whatever pose you are inspecting. Size it to the product you are picking - the plate is also the grab reach.' },\n    toolSizeZ: { type: 'number', default: 0.5, min: 0.5, max: 3, step: 0.01, label: 'Tool size Z (m)', handle: { kind: 'rigSize', link: 'eoat', axis: 'z', frameY: -0.075 }, desc: 'Width of the vacuum plate, dragged by the same orange dots on the tool.' },\n    cupPitchX: { type: 'number', default: 0.1, min: 0.01, max: 0.5, step: 0.005, label: 'Cup pitch X (m)', group: 'Cups', desc: 'Centre-to-centre spacing of the suction cups along the plate length. The plate fits as many as the pitch allows, so tightening it adds cups rather than moving them.' },\n    cupPitchZ: { type: 'number', default: 0.1, min: 0.01, max: 0.5, step: 0.005, label: 'Cup pitch Z (m)', group: 'Cups', desc: 'Centre-to-centre spacing of the suction cups across the plate width.' },\n    cupMarginX: { type: 'number', default: 0.05, min: 0, max: 0.5, step: 0.005, label: 'Cup margin X (m)', group: 'Cups', desc: 'Inset from each end of the plate before the first cup, so the grid does not run off the edge.' },\n    cupMarginZ: { type: 'number', default: 0.05, min: 0, max: 0.5, step: 0.005, label: 'Cup margin Z (m)', group: 'Cups', desc: 'Inset from each side of the plate before the first cup.' },\n    cupsEnabled: { type: 'boolean', default: true, label: 'Suction cups', group: 'Cups', desc: 'Draw the cup grid under the plate. Appearance only - the grip itself comes from the robot\\'s vacuum, not from the cups being visible.' },\n  },\n  geometry(g, p) {\n    const hx = p.toolSizeX / 2\n    const hz = p.toolSizeZ / 2\n    const RAIL_Y = -0.075 // rail centreline\n    const RAIL_H = 0.059 // rail depth, back to front\n    const RAIL_OUT = 0.003 // rail face, outside the plate edge\n    const RAIL_W = 0.015 // rail width\n    const CAP = 0.019 // corner cap, square in plan\n    const out = []\n    // plate and corner caps\n    const paint = [g.box([2 * (hx - RAIL_W + RAIL_OUT) + 0.002, 0.0493, 2 * (hz - RAIL_W + RAIL_OUT) + 0.002], [0, -0.07635, 0])]\n    for (const sx of [-1, 1]) for (const sz of [-1, 1]) {\n      paint.push(g.bevelBox([CAP, RAIL_H + 0.004, CAP], [sx * (hx + RAIL_OUT - CAP / 2 + 0.002), RAIL_Y, sz * (hz + RAIL_OUT - CAP / 2 + 0.002)], 0.002))\n    }\n    out.push({ desc: g.merge(...paint), material: 'eoatPaint', link: 'eoat' })\n    // rails: a slotted extrusion between the caps\n    const section = (edge) => {\n      const o = edge + RAIL_OUT\n      const i = o - RAIL_W\n      const y0 = RAIL_Y - RAIL_H / 2\n      const y1 = RAIL_Y + RAIL_H / 2\n      const pts = [[i, y0], [o, y0]]\n      for (const gy of [-0.015, 0.015]) pts.push([o, RAIL_Y + gy - 0.003], [o - 0.003, RAIL_Y + gy - 0.003], [o - 0.003, RAIL_Y + gy + 0.003], [o, RAIL_Y + gy + 0.003])\n      pts.push([o, y1], [i, y1])\n      return pts\n    }\n    const mirror = (pts) => pts.map((q) => [-q[0], q[1]])\n    const runZ = hz + RAIL_OUT - CAP + 0.002 // to the cap\n    const runX = hx + RAIL_OUT - CAP + 0.002\n    const swap = (pts) => pts.map((q) => [q[1], q[0]]) // x-axis outline is (y, z)\n    out.push({\n      desc: g.merge(\n        g.extrude(section(hx), -runZ, runZ, { axis: 'z', bevel: 0.0008 }),\n        g.extrude(mirror(section(hx)), -runZ, runZ, { axis: 'z', bevel: 0.0008 }),\n        g.extrude(swap(section(hz)), -runX, runX, { axis: 'x', bevel: 0.0008 }),\n        g.extrude(swap(mirror(section(hz))), -runX, runX, { axis: 'x', bevel: 0.0008 }),\n      ),\n      material: 'eoatRail',\n      link: 'eoat',\n    })\n    // adapter: a plate and a turned boss up to the flange\n    const ADAPTER_TOP = -0.0397\n    out.push({\n      desc: g.merge(\n        g.bevelBox([0.192, 0.012, 0.318], [0, -0.0457, 0], 0.002, ['y-']),\n        g.lathe([[0, ADAPTER_TOP], [0.07, ADAPTER_TOP], [0.07, -0.025], [0.062, -0.021], [0.062, -0.013], [0, -0.013]], { segments: 40 }),\n      ),\n      material: 'eoatSteel',\n      link: 'eoat',\n    })\n    const bolts = []\n    for (const bx of [-0.078, 0.078]) for (const bz of [-0.14, 0, 0.14]) {\n      bolts.push(g.lathe([[0, ADAPTER_TOP], [0.008, ADAPTER_TOP], [0.008, ADAPTER_TOP + 0.005], [0, ADAPTER_TOP + 0.005]], { segments: 6, smooth: false, center: [bx, 0, bz] }))\n    }\n    out.push({ desc: g.merge(...bolts), finish: 'bolt', link: 'eoat' })\n    // vacuum LED, 0.07 m in from the +X/+Z corner\n    const BACK = -0.0517 // plate back face\n    const lx = hx - 0.07\n    const lz = hz - 0.07\n    out.push({ desc: g.lathe([[0, BACK], [0.0175, BACK], [0.0175, BACK + 0.005], [0.0155, BACK + 0.007], [0, BACK + 0.007]], { segments: 32, center: [lx, 0, lz] }), material: 'eoatPlastic', link: 'eoat' })\n    out.push({\n      desc: g.lathe([[0, BACK + 0.007], [0.0135, BACK + 0.007], [0.012, BACK + 0.0105], [0.007, BACK + 0.0128], [0, BACK + 0.0135]], { segments: 32, center: [lx, 0, lz] }),\n      material: 'eoatLens',\n      link: 'eoat',\n      lamps: [{ name: 'vacuumLamp', emissive: [0.15, 0.85, 0.2], offColor: [0.03, 0.06, 0.03] }],\n    })\n    // cup bed, squashed about the rims while the vacuum holds\n    if (p.cupsEnabled) {\n      const axis = (size, pitch, margin) => {\n        const usable = Math.max(size - Math.max(margin, 0) * 2, 0)\n        const n = Math.max(1, Math.min(64, Math.floor(usable / Math.max(pitch, 1e-4) + 1e-6) + 1))\n        if (n === 1) return [0]\n        const at = []\n        for (let k = 0; k < n; k++) at.push(-usable / 2 + (k * usable) / (n - 1))\n        return at\n      }\n      const cup = g.lathe([\n        [0, -0.0417], [0.0187, -0.0417], [0.0262, -0.047], [0.0286, -0.0532], [0.0328, -0.0532], [0.0338, -0.052],\n        [0.0336, -0.0506], [0.0328, -0.0495], [0.0213, -0.0374], [0.0246, -0.0358], [0.0245, -0.035], [0.0152, -0.0232],\n        [0.0112, -0.013], [0.0081, -0.0121], [0.0081, 0], [0, 0],\n      ], { segments: 20 })\n      // at most 256 cups, thinned as the host's grid is\n      const xs = axis(p.toolSizeX, p.cupPitchX, p.cupMarginX)\n      const zs = axis(p.toolSizeZ, p.cupPitchZ, p.cupMarginZ)\n      let nx = xs.length\n      let nz = zs.length\n      while (nx * nz > 256) {\n        if (nx >= nz) nx--\n        else nz--\n      }\n      const thin = (at, n) => (n === at.length ? at : n === 1 ? [0] : Array.from({ length: n }, (_, k) => at[0] + ((at[at.length - 1] - at[0]) * k) / (n - 1)))\n      const instances = []\n      for (const cx of thin(xs, nx)) for (const cz of thin(zs, nz)) instances.push({ position: [cx, -0.1035, cz] })\n      out.push({ desc: cup, material: 'eoatCup', link: 'eoat', instances, squash: { amount: 0.15, lamp: 'vacuumLamp' } })\n    }\n    return out\n  },\n})\n",
+  "geometry": {
+    "kind": "rig",
+    "links": [
+      {
+        "name": "eoat",
+        "shape": {
+          "kind": "frame"
+        },
+        "offset": [
+          0,
+          0,
+          0
+        ]
+      }
+    ],
+    "joints": [],
+    "mount": {
+      "link": "eoat",
+      "grip": {
+        "link": "gripper",
+        "zone": {
+          "size": [
+            0.5,
+            0.7,
+            0.5
+          ],
+          "sizeParams": [
+            {
+              "axis": 0,
+              "param": "toolSizeX"
+            },
+            {
+              "axis": 2,
+              "param": "toolSizeZ"
+            }
+          ]
+        }
+      }
+    },
+    "bounds": {
+      "length": 0.5,
+      "width": 0.5,
+      "top": 0,
+      "bottom": -0.1567,
+      "params": [
+        {
+          "field": "length",
+          "param": "toolSizeX"
+        },
+        {
+          "field": "width",
+          "param": "toolSizeZ"
+        }
+      ]
+    }
+  },
+  "category": "Equipment",
+  "materials": [
+    {
+      "id": "eoatPaint",
+      "color": [
+        0.639,
+        0.116,
+        0.0066
+      ],
+      "metalness": 0,
+      "roughness": 0.55
+    },
+    {
+      "id": "eoatRail",
+      "color": [
+        0.04,
+        0.04,
+        0.045
+      ],
+      "metalness": 0.7,
+      "roughness": 0.35
+    },
+    {
+      "id": "eoatSteel",
+      "color": [
+        0.18,
+        0.18,
+        0.19
+      ],
+      "metalness": 0.85,
+      "roughness": 0.45
+    },
+    {
+      "id": "eoatCup",
+      "color": [
+        0.024,
+        0.104,
+        0.4
+      ],
+      "metalness": 0,
+      "roughness": 0.75
+    },
+    {
+      "id": "eoatPlastic",
+      "color": [
+        0.02,
+        0.02,
+        0.022
+      ],
+      "metalness": 0,
+      "roughness": 0.5
+    },
+    {
+      "id": "eoatLens",
+      "color": [
+        0.03,
+        0.06,
+        0.03
+      ],
+      "metalness": 0,
+      "roughness": 0.25
+    }
+  ],
+  "sdk": {
+    "level": 7,
+    "of": "v2:9226:jfrth11jol"
+  }
+}

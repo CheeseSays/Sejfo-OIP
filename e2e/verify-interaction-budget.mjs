@@ -356,7 +356,7 @@ try {
       const store = window.__oip.store
       const view = window.__oip.view
       const start = store.getState().scene
-      const pkg = kind === 'robot tool size' ? 'oip.six-axis-robot' : kind === 'rack length' ? 'oip.rack' : kind === 'box pose' ? 'oip.box' : kind === 'sensor pose' ? 'oip.diffuse-sensor' : 'oip.roller-conveyor'
+      const pkg = kind === 'robot tool size' ? 'oip.vacuum-tool' : kind === 'rack length' ? 'oip.rack' : kind === 'box pose' ? 'oip.box' : kind === 'sensor pose' ? 'oip.diffuse-sensor' : 'oip.roller-conveyor'
       const target = start.parts.find((p) => p.packageId === pkg)
       if (!target) return null
       // the box stream's first step puts the box into a sensor's beam, half a metre out along a cast the last stopped

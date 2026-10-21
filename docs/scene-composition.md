@@ -11,7 +11,9 @@ holds no running objects.
 - **Soft parenting.** A part's optional `parent` is the id of its parent in the scene tree
   (`PartBase.parent`, [types/base.ts](../src/core/types/base.ts)). Positions stay world-space, so the sim and the
   renderer are unaffected, but the editor treats a parent and its descendants as a rigid group: moving or rotating
-  the parent carries its subtree, and delete and duplicate act on the whole subtree.
+  the parent carries its subtree, and delete and duplicate act on the whole subtree. One exception: a tool seated on a
+  link of its parent rides that link, so its pose comes from the arm and not from its stored position
+  ([part-mounts.md](part-mounts.md)).
 - **Group** is a part type with no mesh and no sim body, a container for a subtree.
 - **A part is a saved, instanceable definition.** A placed part references its package by id, and every placement
   follows the package, so editing a part's definition updates every copy

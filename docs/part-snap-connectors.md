@@ -12,7 +12,8 @@ A part's `snap` block is a set of declarations in a closed vocabulary. The engin
 **connectors** ([snapConnectors.ts](../src/core/snap/snapConnectors.ts)):
 
 - A **plug** is a feature of the part being dragged. It seeks a socket of a kind, or, for a peer plug, a
-  same-group plug on the other part. `plugsOf(snap)` compiles a declaration into plugs once and caches them.
+  same-group plug on the other part. `plugsOf(snap)` compiles a declaration into plugs once and caches them, and
+  `plugsOfPackage` adds the link seat of a rig that declares `geometry.mount`, which has no `snap` block of its own.
 - A **socket** is a feature of the host a plug seats on. Most are implicit, so they are resolved from the host
   at solve time: every part's footprint faces, every conveyor's guard rails, ends and roller bed. The rest
   are declared: `surfaces`, and the peer `tile` / `chain`.
@@ -27,6 +28,7 @@ A part's `snap` block is a set of declarations in a closed vocabulary. The engin
 | `flush` | footprint | every part's footprint faces | `snapFaceFlush` via `flushOnEdges` |
 | `chain` | line (peer) | the target's `chain`, same group | `snapChain` |
 | `edgeMount` | edge seat | `surfaces` of the accepted kind (all four edges); facing `'into'` + `fromFloor` also needs a `heightParam` | `snapEdgeMount` / `snapEdgeMountInto` |
+| a rig's `geometry.mount` ([part-mounts.md](part-mounts.md)) | link seat | the named rig link of any part that has one, at the pose the host rests in | `snapLinkSeat` |
 | (a conveyor's ends, implicit) | - | another conveyor's ends | the conveyor engine (`snapConveyor`) |
 
 Conveyor to conveyor stays a special-purpose engine (side merges, curve pairing, spur splay, flow reversal; see
@@ -39,7 +41,8 @@ connectors. Other readers use the declarations:
 - a `conveyorGuard` mount that `opens` cuts the conveyor's guard (`isGuardPusher`);
 - an `edgeMount` that `opens` / `notch`es / `lift`s fuses railings, holes the deck and raises the flight
   (`structureConnections.ts`, [part-snap-cuts.md](part-snap-cuts.md));
-- `checkLayout` reports a part that declares a seat (`mounts`, `track`, `edgeMount`) but has none.
+- `checkLayout` reports a part that declares a seat (`mounts`, `track`, `edgeMount`) but has none, and a tool that is
+  not seated on a host.
 
 ## One ranking rule
 

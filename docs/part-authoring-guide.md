@@ -1044,9 +1044,11 @@ Every first-party part documents every visible param, enforced by `bundledPackag
     `outerGuardParam` (defaults `'innerGuard'` / `'outerGuard'`), and `endGap` (the straight lead-in the snap
     ends extend past the arc, to match the stub you draw) or `endGapParam: { param, scale?, add? }`.
 - `{ kind: 'rigSize', link, axis, frameY? }` puts an orange size dot on a rig link's frame. It follows the posed
-  arm (unlike a `face` dot on the static footprint) and drags the param along that link axis, with a tool
-  outline when an `'x'` and a `'z'` handle share the link (the [Vacuum Tool](../examples/parts/vacuum-tool/part.js)'s
-  resize, which rides the arm it is seated on; see [part-mounts.md](part-mounts.md)).
+  arm (unlike a `face` dot on the static footprint) and drags the param along that link axis (`'x'`, `'y'` or
+  `'z'`), with a tool outline when an `'x'` and a `'z'` handle share the link, and a box when a `'y'` handle joins
+  them (the [Vacuum Tool](../examples/parts/vacuum-tool/part.js)'s resize, which rides the arm it is seated on; see
+  [part-mounts.md](part-mounts.md)). A gripper draws its pickup volume this way: a `frame` link at the box centre, one
+  handle per axis, and `mount.grip.zone.sizeParams` / `offsetParams` naming the same params.
 - `{ kind: 'flexPath', lengthParam, sections, maxHingeDeg?, infeedBrakeParam?, dischargeBrakeParam?, scissor? }`
   on a `numberList` of `[x, z]` control points is the flex conveyor's bed of hinged sections, dragged point by
   point ([flex-conveyor](../examples/parts/flex-conveyor/part.js) and the type's docs in `index.d.ts`).

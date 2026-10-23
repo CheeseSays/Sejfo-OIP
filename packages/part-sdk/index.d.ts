@@ -423,12 +423,13 @@ export type ParamHandle =
  *  handles). An orange dot sits on the named link's local `axis` at `value/2` (so it follows the
  *  posed arm, unlike a `face` dot on the static footprint); dragging projects the pointer onto that axis
  *  and writes back `2·|distance|`, clamped to the param's min/max. When an `'x'` and a `'z'` handle share
- *  the link, the host also draws the tool's outline rectangle between them. `frameY` drops the handle
+ *  the link, the host also draws the tool's outline rectangle between them, and a `'y'` handle on the same link
+ *  makes it a box (a gripper's pickup volume, centred on the link). `frameY` drops the handle
  *  plane below the link origin (the EOAT frame sits at −0.075). Rig parts only; ignored elsewhere. */
  | {
     kind: 'rigSize';
     link: string;
-    axis: 'x' | 'z';
+    axis: 'x' | 'y' | 'z';
     frameY?: number;
 }
 /** the flex-conveyor path: this `numberList` param holds [x, z] control points (part-local, the last one the

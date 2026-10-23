@@ -27,7 +27,7 @@ definePart({
   manifest: {
     id: 'oip.vacuum-tool',
     name: 'Vacuum Tool',
-    category: 'Equipment',
+    category: 'Robot Tools',
     // The tool is plain finishes, colours LINEAR: orange paint (sRGB #d0601a) on the plate and caps, black anodised
     // aluminium rails, a steel adapter, blue rubber cups (sRGB #2b5ba8), and the vacuum LED: a black plastic bezel
     // round a lens that is dark green until it lights.

@@ -223,6 +223,8 @@ export function checkGeometryRefs(geometry: PartPackageGeometry, params: ParamSc
     if (j.minParam) ref(`geometry.joints[${i}].minParam.param`, j.minParam.param, 'number')
     if (j.maxParam) ref(`geometry.joints[${i}].maxParam.param`, j.maxParam.param, 'number')
   })
+  refs('geometry.mount.grip.zone.sizeParams', geometry.mount?.grip?.zone.sizeParams)
+  refs('geometry.mount.grip.zone.offsetParams', geometry.mount?.grip?.zone.offsetParams)
   const links = new Map(geometry.links.map((l) => [l.name, l]))
   const lampNames = rigLampNames(geometry)
   geometry.links.forEach((l: RigLink, i) => {

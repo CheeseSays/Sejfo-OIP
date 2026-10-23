@@ -1243,7 +1243,7 @@
           "type": "string"
         },
         "grip": {
-          "description": "The pickup volume this part gives the host's gripper: a box in the frame of the host link `link`, resized by\nthis part's own params. A host gripper with a mounted tool picks inside it, and with none picks nothing.",
+          "description": "The pickup volume this part gives the host's gripper: a box in the frame of the host link `link`, resized by\nthis part's own params. A host gripper with a mounted tool picks inside it, and with none picks nothing.\n`sizeParams` and `offsetParams` track the box's size and centre to params, so a rigSize handle can set them.",
           "type": "object",
           "properties": {
             "link": {
@@ -1259,6 +1259,12 @@
                   "$ref": "#/$defs/Vec3Tuple"
                 },
                 "sizeParams": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/SizeParamRef"
+                  }
+                },
+                "offsetParams": {
                   "type": "array",
                   "items": {
                     "$ref": "#/$defs/SizeParamRef"

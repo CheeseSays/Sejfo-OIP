@@ -809,8 +809,9 @@ export interface RigMount {
   /** the host link this part rides, by name */
   link: string
   /** The pickup volume this part gives the host's gripper: a box in the frame of the host link `link`, resized by
-   *  this part's own params. A host gripper with a mounted tool picks inside it, and with none picks nothing. */
-  grip?: { link: string; zone: { size: Vec3Tuple; offset?: Vec3Tuple; sizeParams?: SizeParamRef[] } }
+   *  this part's own params. A host gripper with a mounted tool picks inside it, and with none picks nothing.
+   *  `sizeParams` and `offsetParams` track the box's size and centre to params, so a rigSize handle can set them. */
+  grip?: { link: string; zone: { size: Vec3Tuple; offset?: Vec3Tuple; sizeParams?: SizeParamRef[]; offsetParams?: SizeParamRef[] } }
 }
 
 /** A multi-body rig: a tree of links + kinematic joints (robots, gates, AGVs, imported devices). */
@@ -1810,7 +1811,7 @@ function isVec4(v: unknown): v is Vec4Tuple {
 
 /** Validate a rig's `mount` (see RigMount): the host link it rides and the optional grip volume it gives that host. */
 function validateMount(mount: unknown, add: (field: string, message: string) => void): void {
-  const m = mount as { link?: unknown; grip?: { link?: unknown; zone?: { size?: unknown; offset?: unknown; sizeParams?: unknown } } } | null
+  const m = mount as { link?: unknown; grip?: { link?: unknown; zone?: { size?: unknown; offset?: unknown; sizeParams?: unknown; offsetParams?: unknown } } } | null
   if (typeof m !== 'object' || m === null || Array.isArray(m)) {
     add('geometry.mount', 'mount must be an object: { link, grip? }')
     return
@@ -1831,6 +1832,7 @@ function validateMount(mount: unknown, add: (field: string, message: string) => 
   if (!isVec3(zone.size) || zone.size.some((n) => n <= 0)) add('geometry.mount.grip.zone.size', 'mount.grip.zone.size must be 3 positive numbers')
   if (zone.offset !== undefined && !isVec3(zone.offset)) add('geometry.mount.grip.zone.offset', 'mount.grip.zone.offset must be 3 finite numbers (host-link metres)')
   validateSizeParams(zone.sizeParams, 'geometry.mount.grip.zone.sizeParams', add)
+  validateSizeParams(zone.offsetParams, 'geometry.mount.grip.zone.offsetParams', add)
 }
 
 /** Validate a box's optional param-driven size overrides (C-paramgeo). */

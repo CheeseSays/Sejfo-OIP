@@ -24,3 +24,6 @@
 # A 301 only fires for a path with no file, so the build has no st/index.html.
 /st     /plc/  301
 /st/    /plc/  301
+
+# The bare origin opens the editor. 302, not 301, so browsers don't cache it and the landing can come back.
+/  /app/  302

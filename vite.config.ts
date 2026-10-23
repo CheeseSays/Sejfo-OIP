@@ -309,6 +309,7 @@ export default defineConfig({
   // (oracle checkouts, tsc's declaration emit, census builds, e2e output) is ignored: tens of thousands of such files
   // can hold a cold server's first /app/ response for ~40 s. dist/ is already ignored by vite as the outDir.
   server: {
+    open: '/app/',
     headers: coiHeaders,
     watch: { ignored: ['**/.oracle*/**', '**/.types/**', '**/.eager-census/**', '**/.census-*/**', '**/e2e/out/**', '**/e2e/shots/**', '**/e2e/__shots/**'] },
   },

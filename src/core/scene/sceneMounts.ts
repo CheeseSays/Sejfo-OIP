@@ -4,7 +4,7 @@ import { toWorldXZ } from '../parts/partGeometry'
 import { resolvePartParams } from '../parts/partScript'
 import type { ParamValue } from '../parts/partApi'
 import type { PartPackage } from '../parts/partPackage'
-import { idleJointValues, resolvedBoxSize, rigWorldPoses } from '../rig/rigPose'
+import { idleJointValues, resolvedBoxSize, resolvedOffset, rigWorldPoses } from '../rig/rigPose'
 import type { RigParams, Vec3 } from '../rig/rigPose'
 
 /**
@@ -76,7 +76,8 @@ export function computeSceneMounts(parts: readonly PartInstance[]): SceneMounts 
     if (grip) {
       const params = resolvePartParams(m.pkg.params, m.sdk.params as Record<string, ParamValue>) as unknown as RigParams
       const size = resolvedBoxSize(grip.zone.size, grip.zone.sizeParams, params)
-      tool = { ...tool, grip: { link: grip.link, zone: { size, ...(grip.zone.offset ? { offset: grip.zone.offset } : {}) } } }
+      const offset = grip.zone.offset || grip.zone.offsetParams ? resolvedOffset(grip.zone.offset ?? [0, 0, 0], grip.zone.offsetParams, params) : undefined
+      tool = { ...tool, grip: { link: grip.link, zone: { size, ...(offset ? { offset } : {}) } } }
     }
     if (taken) taken.push(tool)
     else out.hosts.set(host.id, [tool])

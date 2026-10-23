@@ -20,6 +20,7 @@
   "oip.chain-transfer/22122-24m1hs9uzwy.json": "e5e9de74f839544f",
   "oip.chain-transfer/24235-1xu8vv5x5zd.json": "e5e9de74f839544f",
   "oip.chain-transfer/24290-11iqci9v4sp.json": "e5e9de74f839544f",
+  "oip.clamp-tool/5793-n8gl8bmj8i.json": "42ca9cfeb22c9248",
   "oip.color-sensor/12642-2e1okfia9it.json": "9d0a6422a9adbaf3",
   "oip.color-sensor/8560-k0nn1xz91l.json": "9d0a6422a9adbaf3",
   "oip.curved-conveyor/39921-yqndb0c0wf.json": "09052b2af2c0b464",
@@ -100,5 +101,6 @@
   "oip.turntable-conveyor/65911-ddlkx9bfi9.json": "97670415ea476aa0",
   "oip.unit-load/5564-ierzzzctah.json": "621403b850d07797",
   "oip.unit-load/5571-1u8x9frwxb.json": "621403b850d07797",
-  "oip.vacuum-tool/11039-1dp6ain74u9.json": "42ca9cfeb22c9248"
+  "oip.vacuum-tool/11039-1dp6ain74u9.json": "42ca9cfeb22c9248",
+  "oip.vacuum-tool/11041-28e2x22swpw.json": "42ca9cfeb22c9248"
 }

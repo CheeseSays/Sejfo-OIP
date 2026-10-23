@@ -22,14 +22,14 @@ afterEach(() => {
 })
 
 describe('middleDragAction', () => {
-  it('default style: middle pans, Shift+middle orbits (the CAD convention)', () => {
-    expect(middleDragAction(false, DEFAULT_NAV)).toBe('pan')
-    expect(middleDragAction(true, DEFAULT_NAV)).toBe('orbit')
+  it('default style: middle orbits, Shift+middle pans', () => {
+    expect(middleDragAction(false, DEFAULT_NAV)).toBe('orbit')
+    expect(middleDragAction(true, DEFAULT_NAV)).toBe('pan')
   })
-  it('middle-orbits style swaps the two', () => {
-    const nav = { ...DEFAULT_NAV, style: 'middleOrbits' } as const
-    expect(middleDragAction(false, nav)).toBe('orbit')
-    expect(middleDragAction(true, nav)).toBe('pan')
+  it('middle-pans style swaps the two', () => {
+    const nav = { ...DEFAULT_NAV, style: 'middlePans' } as const
+    expect(middleDragAction(false, nav)).toBe('pan')
+    expect(middleDragAction(true, nav)).toBe('orbit')
   })
 })
 

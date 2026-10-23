@@ -80,6 +80,19 @@ describe('mounts', () => {
     expect(computeSceneMounts([host(), bare]).hosts.get('arm')![0]!.grip!.zone.size).toEqual([0.5, 0.7, 0.5])
   })
 
+  it('moves the grip volume with offsetParams, in any sign, and keeps the static offset when a param is missing', () => {
+    registerPackage({
+      ...toolPkg(),
+      params: { plateX: { type: 'number', default: 0.5 }, plateZ: { type: 'number', default: 0.5 }, dropY: { type: 'number', default: -0.2 } },
+      geometry: {
+        ...(toolPkg().geometry as object),
+        mount: { link: 'flange', grip: { link: 'gripper', zone: { size: [0.5, 0.7, 0.5], offset: [0, 0.1, 0], offsetParams: [{ axis: 1, param: 'dropY' }, { axis: 0, param: 'nope' }] } } },
+      },
+    } as unknown as PartPackage)
+    expect(computeSceneMounts([host(), tool()]).hosts.get('arm')![0]!.grip!.zone.offset).toEqual([0, -0.2, 0])
+    expect(computeSceneMounts([host(), tool({}, { dropY: 0.3 })]).hosts.get('arm')![0]!.grip!.zone.offset).toEqual([0, 0.3, 0])
+  })
+
   it('gives render the tool and sim the host, and nothing else to either', () => {
     const parts: PartInstance[] = [host(), tool()]
     const render = resolveScene(parts, 'render')

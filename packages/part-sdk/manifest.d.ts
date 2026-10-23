@@ -715,13 +715,15 @@ export interface RigMount {
     /** the host link this part rides, by name */
     link: string;
     /** The pickup volume this part gives the host's gripper: a box in the frame of the host link `link`, resized by
-     *  this part's own params. A host gripper with a mounted tool picks inside it, and with none picks nothing. */
+     *  this part's own params. A host gripper with a mounted tool picks inside it, and with none picks nothing.
+     *  `sizeParams` and `offsetParams` track the box's size and centre to params, so a rigSize handle can set them. */
     grip?: {
         link: string;
         zone: {
             size: Vec3Tuple;
             offset?: Vec3Tuple;
             sizeParams?: SizeParamRef[];
+            offsetParams?: SizeParamRef[];
         };
     };
 }

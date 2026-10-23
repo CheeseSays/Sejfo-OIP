@@ -61,6 +61,7 @@ export function bundledBehaviors(): Map<string, string> {
 export const ORDER: string[] = [
   'oip.six-axis-robot',
   'oip.vacuum-tool',
+  'oip.clamp-tool',
   'oip.diverter',
   'oip.blade-stop',
   'oip.safety-gate',

@@ -27,6 +27,10 @@ rig(p) {
 - `grip` is optional: the pickup volume the tool gives the host's gripper link `grip.link`. It is a box in that link's
   frame, sized by the tool's own params (`sizeParams`, the same shape as a box link's). A tool with no `grip` leaves the
   host's gripper as it is.
+- `grip.zone.offsetParams` moves the box's centre the way `sizeParams` sizes it (any sign). Put a `frame` link of the
+  tool at the box centre, give it `rigSize` handles on `x`, `y` and `z`, and the viewport draws the pickup volume as a
+  box with a dot on each axis to drag. The link is the tool's own; the box is in the host gripper link's frame, which
+  shares the tool's axes.
 - The host declares nothing. Any rig with a link of that name takes the tool, and the link is usually a `frame`. A host
   gripper that has a tool picks inside the tool's volume. With no tool it should pick nothing, so the robot declares a
   2 cm volume on `gripper`: a case's centre is never inside it.

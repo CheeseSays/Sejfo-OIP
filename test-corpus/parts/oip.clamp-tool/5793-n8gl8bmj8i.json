@@ -1,0 +1,198 @@
+{
+  "format": 6,
+  "id": "oip.clamp-tool",
+  "name": "Clamp Gripper",
+  "params": {
+    "gripX": {
+      "type": "number",
+      "default": 0.4,
+      "min": 0.1,
+      "max": 3,
+      "step": 0.01,
+      "label": "Grip width X (m)",
+      "group": "Grip volume",
+      "handle": {
+        "kind": "rigSize",
+        "link": "grip",
+        "axis": "x"
+      },
+      "desc": "Gap between the jaws, which is the width of the pickup box. The orange dots on the tool drag it in the viewport, and they ride the arm."
+    },
+    "gripY": {
+      "type": "number",
+      "default": 0.4,
+      "min": 0.1,
+      "max": 1.5,
+      "step": 0.01,
+      "label": "Grip height Y (m)",
+      "group": "Grip volume",
+      "handle": {
+        "kind": "rigSize",
+        "link": "grip",
+        "axis": "y"
+      },
+      "desc": "Height of the pickup box, centred on the box centre. A load whose centre is inside the box is picked."
+    },
+    "gripZ": {
+      "type": "number",
+      "default": 0.4,
+      "min": 0.1,
+      "max": 3,
+      "step": 0.01,
+      "label": "Grip depth Z (m)",
+      "group": "Grip volume",
+      "handle": {
+        "kind": "rigSize",
+        "link": "grip",
+        "axis": "z"
+      },
+      "desc": "Length of the jaws along the load, and the depth of the pickup box."
+    },
+    "gripDepth": {
+      "type": "number",
+      "default": 0.4,
+      "min": 0.15,
+      "max": 1.5,
+      "step": 0.01,
+      "label": "Box centre below flange (m)",
+      "group": "Grip volume",
+      "desc": "How far below the tool flange the centre of the pickup box sits. The jaws are as long as it takes to reach the box."
+    }
+  },
+  "behavior": "// Clamp Gripper: an end-of-arm tool for the Six-Axis Robot, and for any rig with a link named `eoat`. Two jaws hang from a\n// cross bar and close on the sides of a load, and the pickup volume is the box between them. The box is the part's\n// setting: its width, height and depth are params, and the orange dots on a link at the box centre drag the three sizes\n// in the viewport, drawn as a wire box that rides the arm. The robot's gripper picks whatever the box holds.\n//\n// The jaws stand still, drawn closed on the box. This is the source: `npm run build-parts` writes behavior.ts and\n// rig.json from it.\n\nconst FLANGE_PLATE = -0.0517 // adapter plate underside, in the eoat frame\nconst BAR_H = 0.05 // cross bar height\nconst BAR_Z = 0.16 // cross bar width\nconst JAW_T = 0.02 // jaw plate thickness\nconst PAD_T = 0.012 // rubber pad thickness, on the box side of the jaw\n\ndefinePart({\n  // a passive part: it has no behaviour of its own, and its pickup volume is declared in rig()\n  step() {},\n  params: {\n    gripX: { type: 'number', default: 0.4, min: 0.1, max: 3, step: 0.01, label: 'Grip width X (m)', group: 'Grip volume', handle: { kind: 'rigSize', link: 'grip', axis: 'x' }, desc: 'Gap between the jaws, which is the width of the pickup box. The orange dots on the tool drag it in the viewport, and they ride the arm.' },\n    gripY: { type: 'number', default: 0.4, min: 0.1, max: 1.5, step: 0.01, label: 'Grip height Y (m)', group: 'Grip volume', handle: { kind: 'rigSize', link: 'grip', axis: 'y' }, desc: 'Height of the pickup box, centred on the box centre. A load whose centre is inside the box is picked.' },\n    gripZ: { type: 'number', default: 0.4, min: 0.1, max: 3, step: 0.01, label: 'Grip depth Z (m)', group: 'Grip volume', handle: { kind: 'rigSize', link: 'grip', axis: 'z' }, desc: 'Length of the jaws along the load, and the depth of the pickup box.' },\n    gripDepth: { type: 'number', default: 0.4, min: 0.15, max: 1.5, step: 0.01, label: 'Box centre below flange (m)', group: 'Grip volume', desc: 'How far below the tool flange the centre of the pickup box sits. The jaws are as long as it takes to reach the box.' },\n  },\n  geometry(g, p) {\n    const out = []\n    // the adapter the wrist flange bolts to: a plate and a turned boss\n    const ADAPTER_TOP = -0.0397\n    out.push({\n      desc: g.merge(\n        g.bevelBox([0.192, 0.012, 0.318], [0, -0.0457, 0], 0.002, ['y-']),\n        g.lathe([[0, ADAPTER_TOP], [0.07, ADAPTER_TOP], [0.07, -0.025], [0.062, -0.021], [0.062, -0.013], [0, -0.013]], { segments: 40 }),\n      ),\n      material: 'clampSteel',\n      link: 'eoat',\n    })\n    // the cross bar under the plate, as wide as the jaws are apart\n    const half = p.gripX / 2 + PAD_T + JAW_T\n    const barTop = FLANGE_PLATE\n    const barBottom = barTop - BAR_H\n    const paint = [g.bevelBox([2 * half, BAR_H, BAR_Z], [0, (barTop + barBottom) / 2, 0], 0.004)]\n    // jaw plates from the bar down past the bottom of the box, and pads on the box side of each\n    const boxBottom = -(p.gripDepth + p.gripY / 2)\n    const jawH = Math.max(barBottom - boxBottom, 0.02)\n    const pads = []\n    for (const sx of [-1, 1]) {\n      paint.push(g.bevelBox([JAW_T, jawH, p.gripZ], [sx * (p.gripX / 2 + PAD_T + JAW_T / 2), barBottom - jawH / 2, 0], 0.003))\n      pads.push(g.box([PAD_T, p.gripY, p.gripZ * 0.9], [sx * (p.gripX / 2 + PAD_T / 2), -p.gripDepth, 0]))\n    }\n    out.push({ desc: g.merge(...paint), material: 'clampPaint', link: 'eoat' })\n    out.push({ desc: g.merge(...pads), material: 'clampPad', link: 'eoat' })\n    return out\n  },\n})\n",
+  "geometry": {
+    "kind": "rig",
+    "links": [
+      {
+        "name": "eoat",
+        "shape": {
+          "kind": "frame"
+        },
+        "offset": [
+          0,
+          0,
+          0
+        ]
+      },
+      {
+        "name": "grip",
+        "parent": "eoat",
+        "shape": {
+          "kind": "frame"
+        },
+        "offset": [
+          0,
+          -0.4,
+          0
+        ],
+        "offsetParams": [
+          {
+            "axis": 1,
+            "param": "gripDepth",
+            "scale": -1
+          }
+        ]
+      }
+    ],
+    "joints": [],
+    "mount": {
+      "link": "eoat",
+      "grip": {
+        "link": "gripper",
+        "zone": {
+          "size": [
+            0.4,
+            0.4,
+            0.4
+          ],
+          "offset": [
+            0,
+            0.243328,
+            0
+          ],
+          "sizeParams": [
+            {
+              "axis": 0,
+              "param": "gripX"
+            },
+            {
+              "axis": 1,
+              "param": "gripY"
+            },
+            {
+              "axis": 2,
+              "param": "gripZ"
+            }
+          ],
+          "offsetParams": [
+            {
+              "axis": 1,
+              "param": "gripDepth",
+              "add": -0.156672
+            }
+          ]
+        }
+      }
+    },
+    "bounds": {
+      "length": 0.464,
+      "width": 0.4,
+      "top": 0,
+      "bottom": -0.6,
+      "params": [
+        {
+          "field": "length",
+          "param": "gripX",
+          "add": 0.064
+        },
+        {
+          "field": "width",
+          "param": "gripZ"
+        },
+        {
+          "field": "bottom",
+          "param": "gripDepth",
+          "scale": -1,
+          "add": -0.2
+        }
+      ]
+    }
+  },
+  "category": "Robot Tools",
+  "materials": [
+    {
+      "id": "clampPaint",
+      "color": [
+        0.012,
+        0.16,
+        0.33
+      ],
+      "metalness": 0,
+      "roughness": 0.55
+    },
+    {
+      "id": "clampSteel",
+      "color": [
+        0.18,
+        0.18,
+        0.19
+      ],
+      "metalness": 0.85,
+      "roughness": 0.45
+    },
+    {
+      "id": "clampPad",
+      "color": [
+        0.02,
+        0.02,
+        0.022
+      ],
+      "metalness": 0,
+      "roughness": 0.8
+    }
+  ],
+  "sdk": {
+    "level": 8,
+    "of": "v2:4668:cwzj2bnm7t"
+  }
+}

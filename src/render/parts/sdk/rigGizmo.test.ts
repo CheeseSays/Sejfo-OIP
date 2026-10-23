@@ -133,6 +133,31 @@ describe('rig gizmo layout', () => {
     expect(l.toolOutlines).toHaveLength(1)
     expect(l.toolOutlines[0]!.map((c) => [+c.x.toFixed(6), +c.z.toFixed(6)])).toEqual([[0.4, -0.2], [1.6, -0.2], [1.6, 0.2], [0.4, 0.2]])
   })
+
+  it('draws a box and a height dot when the link has a y size handle, and drags along y', () => {
+    const part = new Group()
+    const grip = new Group()
+    grip.position.set(0, 2, 0)
+    part.add(grip)
+    const links = new Map<string, Group>([['grip', grip]])
+    const geo = { kind: 'rig', posable: true, links: [], joints: [] } as unknown as RigGeo
+    const specs = {
+      gx: { type: 'number', default: 0.4, handle: { kind: 'rigSize', link: 'grip', axis: 'x' } },
+      gy: { type: 'number', default: 0.6, handle: { kind: 'rigSize', link: 'grip', axis: 'y' } },
+      gz: { type: 'number', default: 0.2, handle: { kind: 'rigSize', link: 'grip', axis: 'z' } },
+    } as unknown as PartPackage['params']
+    const gizmo = buildRigGizmo(geo, part, links, () => {}, specs)!
+    gizmo.setSizes!({ gx: 0.4, gy: 0.6, gz: 0.2 })
+    const l = gizmo.api.layout()
+    expect(l.sizes.find((s) => s.handle === 'size:gy')!.pos.toArray().map((v) => +v.toFixed(6))).toEqual([0, 2.3, 0])
+    // top and bottom rectangles, then the four edges between them
+    expect(l.toolOutlines).toHaveLength(6)
+    expect(l.toolOutlines[0]!.every((c) => Math.abs(c.y - 2.3) < 1e-6)).toBe(true)
+    expect(l.toolOutlines[1]!.every((c) => Math.abs(c.y - 1.7) < 1e-6)).toBe(true)
+    const info = gizmo.api.sizeInfo!('gy')!
+    expect(info.dir.toArray().map((v) => +v.toFixed(6))).toEqual([0, 1, 0])
+    expect(info.origin.y).toBeCloseTo(2, 6)
+  })
 })
 
 describe('rig gizmo jog', () => {

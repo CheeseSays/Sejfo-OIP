@@ -1,0 +1,135 @@
+{
+  "id": "oip.clamp-tool",
+  "name": "Clamp Gripper",
+  "category": "Robot Tools",
+  "geometry": {
+    "kind": "rig",
+    "links": [
+      {
+        "name": "eoat",
+        "shape": {
+          "kind": "frame"
+        },
+        "offset": [
+          0,
+          0,
+          0
+        ]
+      },
+      {
+        "name": "grip",
+        "parent": "eoat",
+        "shape": {
+          "kind": "frame"
+        },
+        "offset": [
+          0,
+          -0.4,
+          0
+        ],
+        "offsetParams": [
+          {
+            "axis": 1,
+            "param": "gripDepth",
+            "scale": -1
+          }
+        ]
+      }
+    ],
+    "joints": [],
+    "mount": {
+      "link": "eoat",
+      "grip": {
+        "link": "gripper",
+        "zone": {
+          "size": [
+            0.4,
+            0.4,
+            0.4
+          ],
+          "offset": [
+            0,
+            0.243328,
+            0
+          ],
+          "sizeParams": [
+            {
+              "axis": 0,
+              "param": "gripX"
+            },
+            {
+              "axis": 1,
+              "param": "gripY"
+            },
+            {
+              "axis": 2,
+              "param": "gripZ"
+            }
+          ],
+          "offsetParams": [
+            {
+              "axis": 1,
+              "param": "gripDepth",
+              "add": -0.156672
+            }
+          ]
+        }
+      }
+    },
+    "bounds": {
+      "length": 0.464,
+      "width": 0.4,
+      "top": 0,
+      "bottom": -0.6,
+      "params": [
+        {
+          "field": "length",
+          "param": "gripX",
+          "add": 0.064
+        },
+        {
+          "field": "width",
+          "param": "gripZ"
+        },
+        {
+          "field": "bottom",
+          "param": "gripDepth",
+          "scale": -1,
+          "add": -0.2
+        }
+      ]
+    }
+  },
+  "materials": [
+    {
+      "id": "clampPaint",
+      "color": [
+        0.012,
+        0.16,
+        0.33
+      ],
+      "metalness": 0,
+      "roughness": 0.55
+    },
+    {
+      "id": "clampSteel",
+      "color": [
+        0.18,
+        0.18,
+        0.19
+      ],
+      "metalness": 0.85,
+      "roughness": 0.45
+    },
+    {
+      "id": "clampPad",
+      "color": [
+        0.02,
+        0.02,
+        0.022
+      ],
+      "metalness": 0,
+      "roughness": 0.8
+    }
+  ]
+}

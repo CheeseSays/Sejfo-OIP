@@ -29,10 +29,9 @@ export const NAV_PRESETS: readonly NavPreset[] = [
 ]
 
 /**
- * Middle pans by default: the people this app is for mostly come from CAD and BIM tools that all
- * pan on the middle button.
+ * Middle orbits by default.
  */
-export const DEFAULT_NAV_STYLE: NavStyle = 'middlePans'
+export const DEFAULT_NAV_STYLE: NavStyle = 'middleOrbits'
 
 export interface NavSettings {
   style: NavStyle

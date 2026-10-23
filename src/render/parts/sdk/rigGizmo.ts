@@ -50,15 +50,17 @@ function toolSizes(linkGroups: Map<string, Group>, paramSpecs: PartPackage['para
   layout: () => Pick<RobotGizmoLayout, 'sizes' | 'toolOutlines'>
   sizeInfo: (param: string) => { origin: Vector3; dir: Vector3; unit: number } | null
 } {
-  const sizeHandles: { key: string; link: string; axis: 'x' | 'z'; frameY: number; value: number }[] = []
-  const sizeRects: { link: string; frameY: number; x: number; z: number }[] = []
+  const sizeHandles: { key: string; link: string; axis: 'x' | 'y' | 'z'; frameY: number; value: number }[] = []
+  const sizeRects: { link: string; frameY: number; x: number; y: number; z: number }[] = []
   for (const [key, spec] of Object.entries(paramSpecs)) {
     const h = spec.handle
     if (h?.kind !== 'rigSize' || !linkGroups.has(h.link)) continue
     const frameY = h.frameY ?? 0
     sizeHandles.push({ key, link: h.link, axis: h.axis, frameY, value: 0 })
-    if (!sizeRects.some((r) => r.link === h.link)) sizeRects.push({ link: h.link, frameY, x: 0, z: 0 })
+    if (!sizeRects.some((r) => r.link === h.link)) sizeRects.push({ link: h.link, frameY, x: 0, y: 0, z: 0 })
   }
+  /** a handle's axis as a unit vector in its link's frame */
+  const axisVec = (axis: 'x' | 'y' | 'z'): Vector3 => new Vector3(axis === 'x' ? 1 : 0, axis === 'y' ? 1 : 0, axis === 'z' ? 1 : 0)
   const setSizes = sizeHandles.length
     ? (params: Record<string, ParamValue>): void => {
         const val = (key: string | undefined): number | null => {
@@ -72,6 +74,7 @@ function toolSizes(linkGroups: Map<string, Group>, paramSpecs: PartPackage['para
           const vz = val(sizeHandles.find((s) => s.link === r.link && s.axis === 'z')?.key)
           r.x = vx ?? vz ?? 0
           r.z = vz ?? vx ?? 0
+          r.y = val(sizeHandles.find((s) => s.link === r.link && s.axis === 'y')?.key) ?? 0
         }
       }
     : undefined
@@ -81,13 +84,19 @@ function toolSizes(linkGroups: Map<string, Group>, paramSpecs: PartPackage['para
     layout: () => ({
       sizes: sizeHandles.map((sh) => ({
         handle: `size:${sh.key}` as const,
-        pos: new Vector3(sh.axis === 'x' ? sh.value / 2 : 0, sh.frameY, sh.axis === 'z' ? sh.value / 2 : 0).applyMatrix4(linkGroups.get(sh.link)!.matrixWorld),
+        pos: axisVec(sh.axis).multiplyScalar(sh.value / 2).add(new Vector3(0, sh.frameY, 0)).applyMatrix4(linkGroups.get(sh.link)!.matrixWorld),
       })),
+      // a rectangle at the frame height, or with a y size a box: top and bottom rectangles and the four edges between
+      // them (an edge is drawn as a 4-corner loop that retraces itself, since the overlay's pool draws closed loops)
       toolOutlines: sizeRects
         .filter((r) => r.x > 0 && r.z > 0)
-        .map((r) => {
+        .flatMap((r) => {
           const m = linkGroups.get(r.link)!.matrixWorld
-          return [[-1, -1], [1, -1], [1, 1], [-1, 1]].map(([sx, sz]) => new Vector3((sx! * r.x) / 2, r.frameY, (sz! * r.z) / 2).applyMatrix4(m))
+          const ring = (y: number): Vector3[] => [[-1, -1], [1, -1], [1, 1], [-1, 1]].map(([sx, sz]) => new Vector3((sx! * r.x) / 2, y, (sz! * r.z) / 2).applyMatrix4(m))
+          if (r.y <= 0) return [ring(r.frameY)]
+          const top = ring(r.frameY + r.y / 2)
+          const bottom = ring(r.frameY - r.y / 2)
+          return [top, bottom, ...top.map((t, k) => [t, bottom[k]!, t, bottom[k]!])]
         }),
     }),
     // a `size:<param>` handle's drag line: the tool frame origin + world axis dir, and the world length of
@@ -98,7 +107,7 @@ function toolSizes(linkGroups: Map<string, Group>, paramSpecs: PartPackage['para
       if (!sh || !g) return null
       refreshWorld()
       const origin = new Vector3(0, sh.frameY, 0).applyMatrix4(g.matrixWorld)
-      const dir = new Vector3(sh.axis === 'x' ? 1 : 0, sh.frameY, sh.axis === 'z' ? 1 : 0).applyMatrix4(g.matrixWorld).sub(origin)
+      const dir = new Vector3(0, sh.frameY, 0).add(axisVec(sh.axis)).applyMatrix4(g.matrixWorld).sub(origin)
       const unit = dir.length()
       if (unit < 1e-6) return null
       return { origin, dir: dir.multiplyScalar(1 / unit), unit }

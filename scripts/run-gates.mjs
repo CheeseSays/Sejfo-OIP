@@ -265,6 +265,10 @@ const GATES = [
     why: "a tool is a part of its own that rides the arm: dropped on the robot's flange it seats (a snap) and hangs under the flange link, follows every joint pose and the arm's scale, survives a robot rebuild and an undo, takes the robot's vacuum lamp, and carries its own resize dots with it. A tool drawn at the part's own stale position, or parented under a link group a rebuild has discarded, passes every unit test and is simply not on the arm",
   },
   {
+    script: 'verify-carton-folds.mjs',
+    why: 'a Carton that folds draws each look as its own batch: bodies share a visual by collider and colour, so a look that follows a param the collider ignores (cargo.visualParams: open, flat, foldA, foldB, tapedA, tapedB) draws as the first one made when it is not named',
+  },
+  {
     script: 'verify-shape-part.mjs',
     why: "the Shape primitives are solid as what they LOOK like: collision:'staticHull' colliders hull the mesh (cargo over a cylinder's AABB corner falls, a ramp carries at its wedge height), and the vertical resize dot drives height",
   },

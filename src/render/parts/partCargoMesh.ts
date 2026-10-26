@@ -48,17 +48,22 @@ function visualAt(ref: CargoShapeRef, colorParam: string, color: string): PartVi
 function drawn(root: Object3D): { mesh: Mesh; matrix: Matrix4 }[] {
   root.updateMatrixWorld(true)
   const out: { mesh: Mesh; matrix: Matrix4 }[] = []
-  root.traverse((o) => {
-    if (!(o as Mesh).isMesh || !o.visible) return
-    const mesh = o as Mesh
-    if ((mesh as InstancedMesh).isInstancedMesh) {
-      const im = mesh as InstancedMesh
-      for (let i = 0; i < im.count; i++) {
-        im.getMatrixAt(i, tmp)
-        out.push({ mesh, matrix: new Matrix4().multiplyMatrices(mesh.matrixWorld, tmp) })
-      }
-    } else out.push({ mesh, matrix: mesh.matrixWorld.clone() })
-  })
+  // an author-hidden link (the cargo's own collider, drawn nowhere) takes its whole subtree with it
+  const walk = (o: Object3D): void => {
+    if (o.userData.authorHidden) return
+    if ((o as Mesh).isMesh && o.visible) {
+      const mesh = o as Mesh
+      if ((mesh as InstancedMesh).isInstancedMesh) {
+        const im = mesh as InstancedMesh
+        for (let i = 0; i < im.count; i++) {
+          im.getMatrixAt(i, tmp)
+          out.push({ mesh, matrix: new Matrix4().multiplyMatrices(mesh.matrixWorld, tmp) })
+        }
+      } else out.push({ mesh, matrix: mesh.matrixWorld.clone() })
+    }
+    for (const child of o.children) walk(child)
+  }
+  walk(root)
   return out
 }
 

@@ -7,9 +7,13 @@
   "public/thumbnails/pkg/oip.belt-conveyor.webp": "c79772cef5658e3b",
   "public/thumbnails/pkg/oip.blade-stop.webp": "2f721c61d7eeef4a",
   "public/thumbnails/pkg/oip.bollards.webp": "cfc9473b0223ea47",
+  "public/thumbnails/pkg/oip.bottom-taper.webp": "39ac5af8edbad301",
   "public/thumbnails/pkg/oip.box-spawner.webp": "69404efe37488da9",
   "public/thumbnails/pkg/oip.box.webp": "df65f19e695b1d99",
+  "public/thumbnails/pkg/oip.carton-opener.webp": "0d99f30fc8026cc4",
+  "public/thumbnails/pkg/oip.carton.webp": "2c92ced3e325ddfa",
   "public/thumbnails/pkg/oip.chain-transfer.webp": "abe546d45d2710f1",
+  "public/thumbnails/pkg/oip.clamp-tool.webp": "2be2a5bb18911129",
   "public/thumbnails/pkg/oip.color-sensor.webp": "af4352971961d076",
   "public/thumbnails/pkg/oip.curved-conveyor.webp": "141c98352295b010",
   "public/thumbnails/pkg/oip.curved-roller-conveyor.webp": "dfefa44df499a595",
@@ -17,6 +21,7 @@
   "public/thumbnails/pkg/oip.diffuse-sensor.webp": "6ab91ab6f861912d",
   "public/thumbnails/pkg/oip.diverter.webp": "a55e3a94d1d21481",
   "public/thumbnails/pkg/oip.fence.webp": "7a004faae641f623",
+  "public/thumbnails/pkg/oip.flap-folder.webp": "d07b8a5a29522bf5",
   "public/thumbnails/pkg/oip.flex-conveyor.webp": "bab53155a15f5f2b",
   "public/thumbnails/pkg/oip.floor-marking.webp": "d409422942bfbfba",
   "public/thumbnails/pkg/oip.gantry.webp": "cf5ca49eb911706f",
@@ -32,7 +37,7 @@
   "public/thumbnails/pkg/oip.roller-conveyor.webp": "004cd18d974964e2",
   "public/thumbnails/pkg/oip.safety-gate.webp": "9f0f4f8588a7af9f",
   "public/thumbnails/pkg/oip.shape.webp": "f4805f84758d7259",
-  "public/thumbnails/pkg/oip.six-axis-robot.webp": "0af6d74717a4429e",
+  "public/thumbnails/pkg/oip.six-axis-robot.webp": "70fec5861425608f",
   "public/thumbnails/pkg/oip.spur-conveyor.webp": "10c0aaf1e6530d7f",
   "public/thumbnails/pkg/oip.spur-roller-conveyor.webp": "f0b22760ea6e2b9e",
   "public/thumbnails/pkg/oip.stack-light.webp": "c1f1a7d00c48b991",
@@ -40,5 +45,5 @@
   "public/thumbnails/pkg/oip.stretch-wrapper.webp": "13304d5b9b1a43d8",
   "public/thumbnails/pkg/oip.turntable-conveyor.webp": "7f1e3d8f7d745be3",
   "public/thumbnails/pkg/oip.unit-load.webp": "ef80a28e055c0494",
-  "public/thumbnails/pkg/oip.vacuum-tool.webp": "961bcb60b9bbaf74"
+  "public/thumbnails/pkg/oip.vacuum-tool.webp": "a992dd5ad6b56e8f"
 }

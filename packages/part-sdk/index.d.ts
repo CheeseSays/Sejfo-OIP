@@ -766,12 +766,15 @@ export interface PartContext<P extends ParamSchema = ParamSchema, J extends stri
      * fresh copy, so writing into the result changes nothing outside your part. `marks` is what machines upstream
      * left on the cargo it hit ({@link mark}), present when there is any: a scanner reads a label, a check reads
      * "wrapped". A beam also sees the walking pilot, as a real photo-eye sees a person, and a box the pilot carries.
+     * `face` is the face of the body it hit, in the body's own frame (`'+x'`, `'-x'`, `'+y'`, `'-y'`, `'+z'`, `'-z'`): which
+     * end of a part is toward the beam, however the part is turned.
      */
     sense(beam: string): {
         hit: boolean;
         distance: number;
         color: [number, number, number];
         marks?: Readonly<Record<string, number | boolean | string>>;
+        face?: string;
     };
     /**
      * Read a load cell: the weight resting on a `loadCell` link this tick, in kg (the vertical force through the
@@ -976,6 +979,35 @@ export interface PartContext<P extends ParamSchema = ParamSchema, J extends stri
     }): void;
     /** Make the load in a zone one unit load (see {@link mark}). A load already joined is left as it is. */
     join(zone: string): void;
+    /**
+     * Remake the loose cargo in a zone as another product, or the same product with other params, where it stands: a
+     * flat blank erected into a case, an open case taped shut. The new body keeps the old one's place on the line (its
+     * bottom face stays where it was), heading, speed, marks and age, so it is the same item to the line's counts, which
+     * a {@link despawn} and {@link spawn} pair would not be. `part` is a cargo part's package id and `params` overrides
+     * its own, as in {@link spawn}; `from` limits the change to cargo that is that product, and `marks` are facts the new
+     * body starts with on top of the old one's (a {@link mark} after a reform would land on the body it replaced). Cargo
+     * that is part of a unit load, or in a walking person's hands, is left as it is. Cargo a rig gripper holds is remade in
+     * the gripper's hand (its centre and its offset from the gripper stay), so a robot can carry a case through its
+     * changes. A part that is not cargo, or not in the project, changes nothing
+     * and is reported on the machine.
+     */
+    reform(zone: string, spec: {
+        part: string;
+        params?: Record<string, number | boolean | string>;
+        from?: string;
+        marks?: Record<string, number | boolean | string>;
+    }): void;
+    /**
+     * {@link reform} for the one body a beam hit this tick, as {@link markHit} is {@link mark} for one body: a taper that
+     * tapes the case over its head and not the cases queued behind it. Nothing changes when the beam is clear or sees only
+     * the walking pilot. Applied by the host after this tick, in call order with the zone calls.
+     */
+    reformHit(beam: string, spec: {
+        part: string;
+        params?: Record<string, number | boolean | string>;
+        from?: string;
+        marks?: Record<string, number | boolean | string>;
+    }): void;
     /**
      * True for the single tick after the user "used" this part (a pilot-mode interact / click) - the
      * interaction primitive (push buttons, switches). Requires `definePart({ interactive: true })` so the editor

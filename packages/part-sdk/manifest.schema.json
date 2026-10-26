@@ -212,6 +212,13 @@
             "$ref": "#/$defs/SizeParamRef"
           }
         },
+        "rotationParams": {
+          "description": "per-axis overrides that make this link's rest `rotation` track an instance param: `axis` is the Euler axis\n(0 = x, 1 = y, 2 = z) and the resolved value `params[param] * scale + add` (clamped like any ref) is in DEGREES.\nA hinge: a frame link at a panel's edge whose children follow its angle, so a flap that folds with a param\nfolds about its edge. Needs no joint, so a part with a rigid body (cargo) can use it.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/SizeParamRef"
+          }
+        },
         "color": {
           "description": "The base material colour [r, g, b] (0..1, linear) of this primitive link - gives it its own tinted\nmaterial instead of the shared neutral fallback (so a belt reads as steel, a rack's shelves as wood,\netc.). Not on a lamp link: a lamp's colours are its own, lit `emissive` and dark `offColor` ({@link RigLamp}).\nRender-only; ignored on mesh/frame links (a mesh keeps its GLB/`material`).",
           "$ref": "#/$defs/Vec3Tuple"
@@ -1986,7 +1993,7 @@
       ]
     },
     "CargoDecl": {
-      "description": "Cargo with its own body: declared on a `rig` geometry, it makes the part payload that moves\nas one rigid body, the way a box, pallet or tote does, but with the rig's own shape. Its collider is the rig's\ncolliding links at rest pose (a box per box link, a round cylinder per cylinder link, so a drum rolls), and it draws\nas its own rig. The rig has no joints, and its links' bounds are centred on the part's origin, like every cargo.\n\n- `friction`: the body's friction (default 0.5, a box's).\n- `massParam`: the `number` param that is its mass in kg (default `mass`; 10 kg when the part has no such param).\n- `colorParam`: the colour param that tints it (default `color`).\n\nWhat it is, to the machines around it (each is off unless declared). A built-in box, pallet or tote that declares\nnone has the ones its kind always had:\n- `forkPockets`: it has a block pallet's fork channels at its footprint, so forks that take it are told when their\n  spread does not fit a face. A pallet's.\n- `heavy`: it bears loads (a pallet under a stack). The physics solver works harder on it so a stack does not sink\n  into it, and it is never counted as dropped or tipped. A pallet's.\n- `loadBase`: a load is wrapped from it (a stretch wrapper's film starts at its mid-height), and\n  it anchors a unit load before any other piece. A pallet's.\n- `separateContacts`: its sub-shapes keep their own contacts, so a floor that hovers over its foot does not sink\n  into what it stands on. A tote's.\n- `nestDepth`: a body of its shape set on it sits this far lower than its height (m), its foot inside the rim\n  below. A stacking tote's foot.",
+      "description": "Cargo with its own body: declared on a `rig` geometry, it makes the part payload that moves\nas one rigid body, the way a box, pallet or tote does, but with the rig's own shape. Its collider is the rig's\ncolliding links at rest pose (a box per box link, a round cylinder per cylinder link, so a drum rolls), and it draws\nas its own rig. The rig has no joints, and its links' bounds are centred on the part's origin, like every cargo.\n\n- `friction`: the body's friction (default 0.5, a box's).\n- `massParam`: the `number` param that is its mass in kg (default `mass`; 10 kg when the part has no such param).\n- `colorParam`: the colour param that tints it (default `color`).\n- `visualParams`: params that change how it looks but not its collider (open flaps, a strip of tape). Bodies share a\n  drawn visual by collider and colour alone, so a look that follows a param has to be named here. Bodies that differ\n  in one of these params are drawn, and batched, separately.\n\nWhat it is, to the machines around it (each is off unless declared). A built-in box, pallet or tote that declares\nnone has the ones its kind always had:\n- `forkPockets`: it has a block pallet's fork channels at its footprint, so forks that take it are told when their\n  spread does not fit a face. A pallet's.\n- `heavy`: it bears loads (a pallet under a stack). The physics solver works harder on it so a stack does not sink\n  into it, and it is never counted as dropped or tipped. A pallet's.\n- `loadBase`: a load is wrapped from it (a stretch wrapper's film starts at its mid-height), and\n  it anchors a unit load before any other piece. A pallet's.\n- `separateContacts`: its sub-shapes keep their own contacts, so a floor that hovers over its foot does not sink\n  into what it stands on. A tote's.\n- `nestDepth`: a body of its shape set on it sits this far lower than its height (m), its foot inside the rim\n  below. A stacking tote's foot.",
       "type": "object",
       "properties": {
         "friction": {
@@ -1997,6 +2004,12 @@
         },
         "colorParam": {
           "type": "string"
+        },
+        "visualParams": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
         },
         "forkPockets": {
           "type": "boolean"

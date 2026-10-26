@@ -61,8 +61,13 @@ export function cargoCentreOffset(bounds: { min: Vec3; max: Vec3 }): number {
   return Math.hypot((bounds.min[0] + bounds.max[0]) / 2, (bounds.min[1] + bounds.max[1]) / 2, (bounds.min[2] + bounds.max[2]) / 2)
 }
 
-/** A stable key for a cargo body's shape: the same package at the same pieces shares one collider and one batch. */
-export function cargoShapeKey(packageId: string, pieces: readonly CargoPiece[]): string {
+/**
+ * A stable key for a cargo body's shape: the same package at the same pieces shares one collider and one batch. A part
+ * whose look follows a param the collider does not (cargo `visualParams`) adds those `[name, value]` pairs, so bodies
+ * that look different get their own batch.
+ */
+export function cargoShapeKey(packageId: string, pieces: readonly CargoPiece[], visual: readonly (readonly [string, unknown])[] = []): string {
   const r = (n: number): number => Math.round(n * 1e5) / 1e5
-  return `${packageId}|${pieces.map((p) => (p.shape === 'box' ? `b${p.half.map(r)}` : `c${r(p.radius)},${r(p.halfHeight)}`) + `@${p.pos.map(r)}/${p.quat.map(r)}`).join(';')}`
+  const look = visual.length > 0 ? `|v${JSON.stringify(visual.map(([k, v]) => [k, typeof v === 'number' ? r(v) : v]))}` : ''
+  return `${packageId}${look}|${pieces.map((p) => (p.shape === 'box' ? `b${p.half.map(r)}` : `c${r(p.radius)},${r(p.halfHeight)}`) + `@${p.pos.map(r)}/${p.quat.map(r)}`).join(';')}`
 }

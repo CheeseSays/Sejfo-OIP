@@ -87,7 +87,7 @@ interface Instance {
 type TagVal = number | boolean
 
 /** A sensor beam's nearest-cargo result for this tick (C-sensing), handed in by the host. */
-type BeamHit = { hit: boolean; distance: number; color: [number, number, number]; marks?: Readonly<Record<string, CargoMark>> }
+type BeamHit = { hit: boolean; distance: number; color: [number, number, number]; marks?: Readonly<Record<string, CargoMark>>; face?: string }
 const CLEAR_BEAM: BeamHit = { hit: false, distance: 0, color: [0, 0, 0] }
 const EMPTY_SPEEDS: Record<string, number> = {} // shared empty conveyor-speed map (scene has no conveyors this tick)
 // Cap on a published display string. A display crosses the worker boundary every tick it changes, so an
@@ -129,6 +129,39 @@ export type CargoOp =
   | { op: 'markHit'; beam: string; key: string; value: CargoMark }
   | { op: 'dress'; zone: string; id: string; material: string; opacity?: number; upTo?: number; web?: { link: string; offset: [number, number, number]; height: number } }
   | { op: 'join'; zone: string }
+  | ({ op: 'reform'; zone: string } & ReformReq)
+  | ({ op: 'reformHit'; beam: string } & ReformReq)
+/** what a ctx.reform / reformHit asks for */
+export interface ReformReq {
+  part: string
+  params: Record<string, number | boolean | string>
+  from?: string
+  marks?: Record<string, CargoMark>
+}
+/** a ctx.reform / reformHit spec, copied field by field (nothing the script holds is shared with the host), or null */
+function reformRequest(spec: { part?: unknown; params?: unknown; from?: unknown; marks?: unknown } | undefined): ReformReq | null {
+  if (!spec) return null
+  const part = spec.part
+  const from = spec.from
+  if (typeof part !== 'string' || !part) return null
+  const params: Record<string, number | boolean | string> = {}
+  const given = spec.params
+  if (given && typeof given === 'object') {
+    for (const k of Object.keys(given)) {
+      const v = (given as Record<string, unknown>)[k]
+      if (typeof v === 'string' || typeof v === 'boolean' || (typeof v === 'number' && Number.isFinite(v))) params[k] = v
+    }
+  }
+  const marks: Record<string, CargoMark> = {}
+  const given2 = spec.marks
+  if (given2 && typeof given2 === 'object') {
+    for (const k of Object.keys(given2)) {
+      const v = (given2 as Record<string, unknown>)[k]
+      if (typeof v === 'string' || typeof v === 'boolean' || (typeof v === 'number' && Number.isFinite(v))) marks[k] = v
+    }
+  }
+  return { part, params, ...(typeof from === 'string' && from ? { from } : {}), ...(Object.keys(marks).length ? { marks } : {}) }
+}
 const MAX_SPAWNS_PER_TICK = 8 // a buggy behavior can't flood the world in one tick
 // Values a part hands to ctx are read once into locals and validated there. Checking a field and then reading it
 // again lets a getter (or a Proxy, or the part's own `.every`) pass the check and hand back NaN or an object on the
@@ -566,7 +599,7 @@ export function create(source: string, paramsJson = '{}', servosJson?: string): 
       // part's clear beam.
       sense: (beam: string): BeamHit => {
         const h = sensed.beams[beam] ?? CLEAR_BEAM
-        return { hit: h.hit, distance: h.distance, color: [h.color[0], h.color[1], h.color[2]], ...(h.marks ? { marks: Object.freeze({ ...h.marks }) } : {}) }
+        return { hit: h.hit, distance: h.distance, color: [h.color[0], h.color[1], h.color[2]], ...(h.marks ? { marks: Object.freeze({ ...h.marks }) } : {}), ...(h.face ? { face: h.face } : {}) }
       },
       zone: (zone: string, filter?: unknown): number => {
         const t = filtered(zone, filter)
@@ -615,6 +648,16 @@ export function create(source: string, paramsJson = '{}', servosJson?: string): 
         })
       },
       join: (zone: string) => { if (typeof zone === 'string' && zone) out.cargo.push({ op: 'join', zone }) },
+      reform: (zone: string, spec: { part?: unknown; params?: unknown; from?: unknown; marks?: unknown }) => {
+        const req = reformRequest(spec)
+        if (typeof zone !== 'string' || !zone || !req) return
+        out.cargo.push({ op: 'reform', zone, ...req })
+      },
+      reformHit: (beam: string, spec: { part?: unknown; params?: unknown; from?: unknown; marks?: unknown }) => {
+        const req = reformRequest(spec)
+        if (typeof beam !== 'string' || !beam || !req) return
+        out.cargo.push({ op: 'reformHit', beam, ...req })
+      },
       readTag: (name: string) => {
         const v = tagsBox.cur[tagKey(name)]
         return typeof v === 'number' ? v !== 0 : (v ?? false)

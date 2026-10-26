@@ -76,6 +76,21 @@ lamps [] animates=false
   drawn[1] {instances:5.0000,look:guard}
   drawn[2] {instances:20.0000,look:bolt}
 
+## oip.bottom-taper (rig)
+class {}
+footprint {hx:0.3000,hz:0.4500,y0:-1.0000,y1:1.0000}
+plugs []
+params reserved=[enableComms] tags=[countTag:out:DINT]
+lamps [] animates=false
+  link roll {shape:frame}
+  link eyeUp {sensesBeam:true,shape:frame}
+  link eyeDown {sensesBeam:true,shape:frame}
+  link head {hidden:true,shape:frame,zone:true}
+  drawn[0] {material:frame}
+  drawn[1] {material:steel}
+  drawn[2] {material:head}
+  drawn[3] {material:tape,rides:roll}
+
 ## oip.box (cargo)
 class {}
 footprint {hx:0.3000,hz:0.2000,y0:-0.2000,y1:0.2000}
@@ -92,6 +107,57 @@ lamps [] animates=false
   link marker {outline:true,shape:box}
   link dropCone {shape:cone}
 
+## oip.carton (rig)
+class {}
+footprint {hx:0.2003,hz:0.1250,y0:-0.1500,y1:0.1500}
+plugs []
+params reserved=[] tags=[]
+lamps [] animates=false
+  link cFront {body:true,hidden:true,shape:box}
+  link cBack {body:true,hidden:true,shape:box}
+  link cRight {body:true,hidden:true,shape:box}
+  link cLeft {body:true,hidden:true,shape:box}
+  link cFloorA {body:true,hidden:true,shape:box}
+  link cFloorB {body:true,hidden:true,shape:box}
+  link wingR {body:true,hidden:true,shape:box}
+  link wingL {body:true,hidden:true,shape:box}
+  link shell {shape:frame}
+  link shear {shape:frame}
+  link wall1 {shape:box}
+  link wall3 {shape:box}
+  link wall2 {shape:box}
+  link wall4 {shape:box}
+  link hinge1A {shape:frame}
+  link flap1A {shape:box}
+  link hinge3A {shape:frame}
+  link flap3A {shape:box}
+  link hinge2A {shape:frame}
+  link flap2A {shape:box}
+  link hinge4A {shape:frame}
+  link flap4A {shape:box}
+  link hinge1B {shape:frame}
+  link flap1B {shape:box}
+  link hinge3B {shape:frame}
+  link flap3B {shape:box}
+  link hinge2B {shape:frame}
+  link flap2B {shape:box}
+  link hinge4B {shape:frame}
+  link flap4B {shape:box}
+  link tapeA {shape:box}
+  link tapeB {shape:box}
+
+## oip.carton-opener (rig)
+class {}
+footprint {hx:0.4500,hz:0.3000,y0:-1.0000,y1:0.5000}
+plugs []
+params reserved=[] tags=[]
+lamps [] animates=false
+  link table {body:true,hidden:true,shape:box}
+  link lift {sensesBeam:true,shape:frame}
+  drawn[0] {material:frame}
+  drawn[1] {material:steel}
+  drawn[2] {material:hook}
+
 ## oip.chain-transfer (rig)
 class {}
 footprint {hx:0.8250,hz:1.0000,y0:-0.3622,y1:0.2000}
@@ -103,6 +169,18 @@ lamps [] animates=true
   drawn[0] {doubleSided:true,material:frame,rides:chainBank}
   drawn[1] {doubleSided:true,material:support,rides:chainBank}
   drawn[2] {doubleSided:true,material:chain,rides:chainBank,scrolls:true}
+
+## oip.clamp-tool (rig)
+class {}
+footprint {hx:0.2320,hz:0.2000,y0:-0.6000,y1:0}
+plugs [mount]
+params reserved=[] tags=[]
+lamps [] animates=false
+  link eoat {shape:frame}
+  link grip {shape:frame}
+  drawn[0] {material:clampSteel,rides:eoat}
+  drawn[1] {material:clampPaint,rides:eoat}
+  drawn[2] {material:clampPad,rides:eoat}
 
 ## oip.color-sensor (rig)
 class {}
@@ -198,6 +276,17 @@ lamps [] animates=false
   link barrier {body:true,hidden:true,shape:box}
   drawn[0] {material:postMetal}
   drawn[1] {material:meshMetal}
+
+## oip.flap-folder (rig)
+class {}
+footprint {hx:0.5000,hz:0.4500,y0:-1.0000,y1:0.1000}
+plugs []
+params reserved=[] tags=[]
+lamps [] animates=false
+  link depth {sensesBeam:true,shape:frame}
+  drawn[0] {material:frame}
+  drawn[1] {material:steel}
+  drawn[2] {material:plow}
 
 ## oip.flex-conveyor (rig)
 class {}

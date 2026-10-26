@@ -98,6 +98,20 @@ export function restQuatOf(link: RigLink): Quat {
 }
 
 /**
+ * A link's rest rotation at these params: its `rotationParams` replace the matching Euler axes of `rotation` (in
+ * degrees, as the ref resolves), else {@link restQuatOf}.
+ */
+export function restQuatFor(link: RigLink, params: RigParams | undefined): Quat {
+  if (!params || !link.rotationParams || link.rotationParams.length === 0 || link.quat) return restQuatOf(link)
+  const e: Vec3 = link.rotation ? [link.rotation[0], link.rotation[1], link.rotation[2]] : [0, 0, 0]
+  for (const sp of link.rotationParams) {
+    const r = resolvedRef(sp, params)
+    if (r !== null) e[sp.axis] = (r * Math.PI) / 180
+  }
+  return qFromEulerXYZ(e)
+}
+
+/**
  * A joint's limits for this instance: its static `[min, max]`, narrowed by any `minParam` / `maxParam` resolved
  * against the params (and never widened past the static envelope). Every place a joint is posed clamps through
  * here, so the sim, the rendered FK and `ctx.measured.joints` agree.
@@ -123,7 +137,7 @@ export function legFrameDepth(shape: Pick<RigLegShape, 'frameDepth' | 'frameDept
 }
 
 export function rigLocalPose(link: RigLink, joint: RigJoint | undefined, value: number, params?: RigParams): LinkPose {
-  const restQuat = restQuatOf(link)
+  const restQuat = restQuatFor(link, params)
   const restPos = link.offset
   if (!joint) return { pos: restPos, quat: restQuat }
   const [lo, hi] = jointLimits(joint, params)
@@ -405,6 +419,13 @@ function writeLocalPose(t: RigTables, i: number, values: Record<string, number>,
   let qy = t.restQuats[rq + 1]!
   let qz = t.restQuats[rq + 2]!
   let qw = t.restQuats[rq + 3]!
+  if (link.rotationParams) {
+    const rp = restQuatFor(link, params)
+    qx = rp[0]
+    qy = rp[1]
+    qz = rp[2]
+    qw = rp[3]
+  }
   // C-paramgeo: resolve a param-driven offset (e.g. a hinge at -length/2) before composing.
   let px: number
   let py: number

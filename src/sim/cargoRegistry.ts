@@ -312,6 +312,13 @@ export class CargoRegistry {
     if (u.members.length === 0 && this.units.delete(u)) destroyBody(this.bodyInterface, u.body)
   }
 
+  /** a loose body's velocity onto its replacement (CargoFlow.reformInZone) */
+  carryMotion(from: LiveBox, to: LiveBox): void {
+    const lv = from.body.GetLinearVelocity()
+    const av = from.body.GetAngularVelocity()
+    this.setBodyVelocity(to.body, [lv.GetX(), lv.GetY(), lv.GetZ()], [av.GetX(), av.GetY(), av.GetZ()])
+  }
+
   private setBodyVelocity(body: Jolt.Body, v: Vec3, w: Vec3): void {
     const J = this.J
     const lv = new J.Vec3(v[0], v[1], v[2])

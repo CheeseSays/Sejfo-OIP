@@ -20,7 +20,7 @@ import { filmWeb, loadInZone, markPiece, packageMaterialColor, rowsInZone } from
 import type { CargoRegistry } from './cargoRegistry'
 import { pointInZone } from './cargoSensing'
 import type { ZoneBox } from './cargoSensing'
-import type { CargoOp } from './embeddedBehavior'
+import type { CargoOp, ReformReq } from './embeddedBehavior'
 import type { SensorRegistry } from './sensorRegistry'
 import type { BehaviorRecord, LiveBox, PartGroup, RigInstance, StepClock } from './worldTypes'
 
@@ -186,6 +186,12 @@ export class CargoFlow {
         if (box) this.markPiece(box, { [op.key]: op.value }, b)
         continue
       }
+      if (op.op === 'reformHit') {
+        const box = b.beamBoxes?.[op.beam]
+        const at = box ? this.boxes.indexOf(box) : -1
+        if (box && at >= 0) this.reformBoxes(b, [{ box, pose: this.cargo.wrapBodies()[at]! }], op)
+        continue
+      }
       const z = zones?.find((zz) => zz.name === op.zone)
       if (!z) continue
       const bodies = this.cargo.wrapBodies() // fresh per op: a join or split re-bodies the pieces
@@ -196,6 +202,8 @@ export class CargoFlow {
       } else if (op.op === 'join') {
         const load = loadInZone(z, bodies, this.boxes)
         if (load && load.rows.length > 1) this.cargo.joinRows(load.rows)
+      } else if (op.op === 'reform') {
+        this.reformInZone(b, z, op, bodies)
       }
     }
   }
@@ -236,6 +244,61 @@ export class CargoFlow {
       if (web) next.web = web
     }
     this.cargo.setDressing(next)
+  }
+
+  // ctx.reform / reformHit: each loose body (in the zone, or the one a beam hit) is remade as the product, where it
+  // stands. The new body sits on the same bottom face with the same heading and speed and carries the old one's marks,
+  // age and dressings, and the old one goes without a completion, so the line counts one item throughout. A piece of a
+  // unit load stays, and so does a body a person holds.
+  private reformInZone(
+    b: BehaviorRecord,
+    z: ZoneBox,
+    op: Extract<CargoOp, { op: 'reform' }>,
+    bodies: WrapBody[],
+  ): void {
+    this.reformBoxes(b, rowsInZone(z, bodies).map((i) => ({ box: this.boxes[i]!, pose: bodies[i]! })), op)
+  }
+
+  private reformBoxes(
+    b: BehaviorRecord,
+    olds: { box: LiveBox; pose: WrapBody }[],
+    op: ReformReq,
+  ): void {
+    for (const { box: old, pose } of olds) {
+      if (old.unit) continue
+      // a body a gripper holds is remade in the gripper's hand, so a robot can carry a case through its changes;
+      // one the pilot or a pin holds is left alone
+      const holder = this.holds.holders.get(old.id)
+      if (holder && holder.kind !== 'grip') continue
+      if (op.from !== undefined && old.product !== op.from) continue
+      // the same product keeps the params, colour and mass it was made with, under the ones asked for
+      const ref = old.shapeKey !== undefined ? this.cargo.shapeRefs.get(old.shapeKey) : undefined
+      const same = old.product === op.part
+      const request: SpawnRequest = { part: op.part, params: { ...((same ? ref?.params : undefined) as SpawnRequest['params']), ...op.params } }
+      if (same) {
+        request.color = old.color
+        request.mass = old.mass
+      }
+      // a loose body keeps its bottom face on what it stands on; a held one keeps its centre, where the gripper has it
+      const born = this.makeProduct(b, request, pose.pos[0], holder ? pose.pos[1] : 0, pose.pos[2], pose.quat, holder ? undefined : (view) => pose.pos[1] - old.hy + view.halfExtents[1])
+      if (!born) return
+      born.spawnTime = old.spawnTime
+      if (old.marks) born.marks = { ...old.marks, ...(born.marks ?? {}) }
+      if (old.attrTypes) born.attrTypes = { ...old.attrTypes, ...(born.attrTypes ?? {}) }
+      if (op.marks) this.markPiece(born, op.marks, b)
+      if (!holder) this.cargo.carryMotion(old, born)
+      const dressed = this.dressings.get(old.id)
+      if (dressed) for (const d of dressed.values()) this.cargo.setDressing({ ...d, anchor: born.id })
+      const grips = holder?.kind === 'grip' ? holder.rig?.grips.get(holder.gripper) : undefined
+      const entry = grips?.find((h) => h.bodyId === old.id)
+      const at = this.boxes.indexOf(old)
+      if (at >= 0) this.cargo.removeBox(at)
+      if (holder) {
+        // the new body takes the old one's place in the hand, at the same offset from the gripper
+        this.holds.claim(born, holder)
+        if (holder.kind === 'grip' && holder.rig && entry) holder.rig.grips.set(holder.gripper, [...(holder.rig.grips.get(holder.gripper) ?? []), { ...entry, bodyId: born.id }])
+      }
+    }
   }
 
   // C-spawn: create a dynamic cargo body per request at the part's world pose + its yaw-rotated local offset.
@@ -280,9 +343,26 @@ export class CargoFlow {
    * `mass` over those. Anything that is not a cargo part in this run spawns nothing and is reported on the spawner.
    */
   private spawnProduct(b: BehaviorRecord, s: SpawnRequest, x: number, y: number, z: number, yaw: number): void {
+    this.makeProduct(b, s, x, y, z, yaw)
+  }
+
+  /**
+   * The body of a product made at (x, y, z), for a spawn and for a reform. `rest`, when given, says the height from the
+   * product's own size (a reform keeps the bottom face where it was). Null when it is refused.
+   */
+  private makeProduct(
+    b: BehaviorRecord,
+    s: SpawnRequest,
+    x: number,
+    y: number,
+    z: number,
+    rotation: number | [number, number, number, number],
+    rest?: (view: NonNullable<ReturnType<typeof cargoView>>) => number,
+  ): LiveBox | undefined {
     const pkg = getPackage(s.part!)
-    const refuse = (why: string): void => {
+    const refuse = (why: string): undefined => {
       if (b.partId) reportPartDiagnostic({ source: 'step', partId: b.partId, message: `spawn of '${s.part}' skipped: ${why}`, simTime: this.clock.step / this.hz })
+      return undefined
     }
     if (!pkg) return refuse('no such part in this project')
     if (pkg.unit) return refuse('a unit load cannot be spawned yet')
@@ -293,21 +373,23 @@ export class CargoFlow {
       const want = t === 'number' ? 'number' : t === 'boolean' ? 'boolean' : t === 'string' || t === 'enum' || t === 'color' ? 'string' : null
       if (want !== null && typeof v === want) params[k] = v
     }
+    const yaw = typeof rotation === 'number' ? rotation : 0
     const view = cargoView({ id: '', type: 'part', packageId: pkg.id, position: [x, y, z], rotationY: yaw, params } as PartInstance)
     if (!view) return refuse('it is not cargo')
     const [hx, hy, hz] = view.halfExtents
     const color = s.color ?? hexToRgb(view.color)
     // a part with its own body spawns as its own shape (core/cargoBody.ts), with the friction it declares
     const own = view.body ? { key: view.body.key, pieces: view.body.pieces, product: pkg.id, params: view.body.params } : { key: cargoRefKey(pkg.id, params), product: pkg.id, params }
-    const id = this.cargo.createDynamicBox(x, y, z, hx, hy, hz, yaw, s.mass ?? view.mass, view.body?.friction ?? cargoFriction(view.kind), view.kind, null, color, own, view.caps)
+    const id = this.cargo.createDynamicBox(x, rest ? rest(view) : y, z, hx, hy, hz, rotation, s.mass ?? view.mass, view.body?.friction ?? cargoFriction(view.kind), view.kind, null, color, own, view.caps)
     const born = id >= 0 ? this.boxes[this.boxes.length - 1] : undefined
-    if (!born) return
+    if (!born) return undefined
     born.product = pkg.id
     // a product starts its life carrying its authored attributes, as its marks, as a placed one does
     if (Object.keys(view.attributeTypes).length) {
       born.attrTypes = view.attributeTypes
       if (Object.keys(view.attributes).length) born.marks = { ...view.attributes }
     }
+    return born
   }
 }
 

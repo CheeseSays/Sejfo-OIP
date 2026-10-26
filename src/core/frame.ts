@@ -351,7 +351,7 @@ export function partCargoView(packageId: string, pkg: PartPackage, geo: RigGeome
     mass: typeof mass === 'number' && mass > 0 ? mass : 10,
     attributes: attrs.values,
     attributeTypes: attrs.types,
-    body: { key: cargoShapeKey(packageId, pieces), pieces, friction: decl.friction ?? BOX_FRICTION, params: resolved as Record<string, ParamValue> },
+    body: { key: cargoShapeKey(packageId, pieces, decl.visualParams?.map((k) => [k, resolved[k]])), pieces, friction: decl.friction ?? BOX_FRICTION, params: resolved as Record<string, ParamValue> },
     ...cargoCapsOf(pkg),
   }
 }
@@ -476,6 +476,9 @@ export interface FrameBeamHit {
   color: [number, number, number]
   /** the marks machines left on what it hit (ctx.mark), when there are any */
   marks?: Readonly<Record<string, CargoMarkValue>>
+  /** which face of the body the beam hit, in the body's own frame: `'+x'` / `'-x'` / `'+y'` / `'-y'` / `'+z'` / `'-z'`
+   *  (the walking pilot has none). It says which end of a part is toward the beam however it is turned. */
+  face?: string
 }
 
 /** A dressing on one load (ctx.dress, core/cargoWrap): an open-ended box in the frame of the anchor body (the

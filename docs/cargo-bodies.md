@@ -51,6 +51,35 @@ stands on its end, one collider per shape, and the validation), src/sim/frameWir
 and e2e/verify-cargo-bodies.mjs (drums draw as their own visual stopped and running, a Spawner makes drums, 200 drums
 cost the draws of 2).
 
+## A part with more than one look
+
+A body's drawn visual is keyed by its collider and colour, so two bodies that differ only in a param the collider ignores
+would share one look. `cargo.visualParams` names such params (the Carton's `open`, `flat`, `foldA`, `foldB`, `tapedA` and
+`tapedB`); their values go into the shape key (core/cargoBody.ts `cargoShapeKey`), so each combination gets its own
+collider cache entry and its own batch. Use it for a handful of states, not a continuous value, since every distinct value
+is another shape.
+
+A link's `rotationParams` make a wall or a flap hinge with a param: a frame link whose rotation follows a param in degrees,
+with the panel as its child. A cargo body has no joints, so this is how a part with a rigid body folds. The Carton's four
+walls hang from frame links turned by `open`, so the section goes from flat to a parallelogram to a rectangle, and each
+flap hangs from a hinge on its wall's end edge turned by the end's fold stage. Its collider is hollow too: four thin
+walls and a floor across each end once that end is closed (`closedA`, `closedB`), so a product dropped in at an open end
+stays in the case (src/sim/cartonFill.test.ts) and one dropped in at an open end it stands on falls through.
+
+A machine changes a body from one look to another with `ctx.reform` / `reformHit` (sim/cargoFlow.ts `reformBoxes`): the
+old body is replaced where it stands by one made from the product and params asked for, at the old one's speed, with its
+marks, age and dressings, and the old one leaves without a completion. A body a rig gripper holds is remade in the
+gripper's hand, at the same offset, so a robot can carry a case through its changes. A beam's hit says which face of the
+body it hit (`face`), so a machine knows which end of a case faces it however the robot has turned it.
+
+The Carton is the worked example, and the cell around it is passive. The Carton Opener is the table a flat sleeve lies on:
+as the robot lifts the blank the section opens a step at a time. The Flap Folder closes the end that faces down, a stage at
+a time as the case goes deeper into its funnel, and the Bottom Taper tapes the seam of whichever end faces its head once
+that end is closed (from under the belt, or from over it). Each reads the case's marks through a beam (`open`, `foldA`,
+`foldB`, `tapedA`, `tapedB` are product attributes) and reforms the one it sees. Tests: src/sim/cargoReform.test.ts,
+src/sim/cartonCell.test.ts (a scripted hand carries a blank through all of it) and e2e/verify-carton-folds.mjs (the looks
+draw as separate batches).
+
 ## Capabilities, not kinds
 
 The engine never asks whether a body is a box, a pallet or a tote. It asks what the body is to the machine in front of

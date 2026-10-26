@@ -17,25 +17,10 @@ export const SHIPPED_PART_ASSETS: Readonly<Record<string, ShippedPartAsset>> = {
     "ext": ".glb",
     "input": "56b74a73a2"
   },
-  "/models/AGV.glb": {
-    "sha256": "5dbaea4e60cb4eeea25616a4607c422d5cc8d639ffcefa36807909ae20045090",
-    "ext": ".glb",
-    "input": "e1298a7810"
-  },
   "/models/EOATSuction.glb": {
     "sha256": "929d5eae36c065f460ac5bb80c287977bcf7c7d5596680a56ab2946d483cdb32",
     "ext": ".glb",
     "input": "32f239c901"
-  },
-  "/models/Gantry.glb": {
-    "sha256": "ebcc74ab8fd52311bcf4f499f081c9d7b9d9479599a0ab424aac0e38e0664c29",
-    "ext": ".glb",
-    "input": "2efc462051"
-  },
-  "/models/SixAxisRobot.glb": {
-    "sha256": "fff423a52e7f0509025d41e5a6925392bf9c0f79e7a6f57f8b6177495eb26911",
-    "ext": ".glb",
-    "input": "61a860f6d0"
   },
   "/models/eoat/EOAT_Baked_BaseColor.webp": {
     "sha256": "2a2b615aa3eac06c3e695a7e56a407adbef01a35ff679ea17f434f31ba893f20",
@@ -67,6 +52,21 @@ export const SHIPPED_PART_ASSETS: Readonly<Record<string, ShippedPartAsset>> = {
     "ext": ".webp",
     "input": "8e7ea1c56a"
   },
+  "/models/AGV.glb": {
+    "sha256": "5dbaea4e60cb4eeea25616a4607c422d5cc8d639ffcefa36807909ae20045090",
+    "ext": ".glb",
+    "input": "e1298a7810"
+  },
+  "/models/Gantry.glb": {
+    "sha256": "ebcc74ab8fd52311bcf4f499f081c9d7b9d9479599a0ab424aac0e38e0664c29",
+    "ext": ".glb",
+    "input": "2efc462051"
+  },
+  "/models/SixAxisRobot.glb": {
+    "sha256": "fff423a52e7f0509025d41e5a6925392bf9c0f79e7a6f57f8b6177495eb26911",
+    "ext": ".glb",
+    "input": "61a860f6d0"
+  },
   "/models/gantry/Standard_BaseColor.webp": {
     "sha256": "d5e1503a2008c0a0424d7c3e3fb240cdd9b8459f9ce036c2b10060dd9c8a78c0",
     "ext": ".webp",
@@ -88,9 +88,9 @@ export const SHIPPED_PART_ASSETS: Readonly<Record<string, ShippedPartAsset>> = {
     "input": "f6ca136fe7"
   },
   "/models/sixaxis/BaseColor.webp": {
-    "sha256": "8f2a6fcd746437eb44b66b25f91075c5e16b111ebecceac9f574cf6187d466d2",
+    "sha256": "cdb86054be33b5c4757de4ebb3ebf1ad57ab1d30e9ef5af99f27adfc24f7b2bf",
     "ext": ".webp",
-    "input": "4418e8ced1"
+    "input": "1a5747407f"
   },
   "/models/sixaxis/ORM.webp": {
     "sha256": "4ff77a29d38486a765fbbc993e8f959063db6b32d985650f5e423d68be343ab1",

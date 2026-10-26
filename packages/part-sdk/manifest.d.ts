@@ -372,6 +372,11 @@ export interface RigLink {
     /** per-axis overrides that make this link's `offset` track an instance param (e.g. a hinge at
      *  `-length/2`), so a length/width param repositions the sub-part per instance */
     offsetParams?: SizeParamRef[];
+    /** per-axis overrides that make this link's rest `rotation` track an instance param: `axis` is the Euler axis
+     *  (0 = x, 1 = y, 2 = z) and the resolved value `params[param] * scale + add` (clamped like any ref) is in DEGREES.
+     *  A hinge: a frame link at a panel's edge whose children follow its angle, so a flap that folds with a param
+     *  folds about its edge. Needs no joint, so a part with a rigid body (cargo) can use it. */
+    rotationParams?: SizeParamRef[];
     /** The base material colour [r, g, b] (0..1, linear) of this primitive link - gives it its own tinted
      *  material instead of the shared neutral fallback (so a belt reads as steel, a rack's shelves as wood,
      *  etc.). Not on a lamp link: a lamp's colours are its own, lit `emissive` and dark `offColor` ({@link RigLamp}).
@@ -905,6 +910,9 @@ export interface PartSdkStamp {
  * - `friction`: the body's friction (default 0.5, a box's).
  * - `massParam`: the `number` param that is its mass in kg (default `mass`; 10 kg when the part has no such param).
  * - `colorParam`: the colour param that tints it (default `color`).
+ * - `visualParams`: params that change how it looks but not its collider (open flaps, a strip of tape). Bodies share a
+ *   drawn visual by collider and colour alone, so a look that follows a param has to be named here. Bodies that differ
+ *   in one of these params are drawn, and batched, separately.
  *
  * What it is, to the machines around it (each is off unless declared). A built-in box, pallet or tote that declares
  * none has the ones its kind always had:
@@ -923,6 +931,7 @@ export interface CargoDecl {
     friction?: number;
     massParam?: string;
     colorParam?: string;
+    visualParams?: string[];
     forkPockets?: boolean;
     heavy?: boolean;
     loadBase?: boolean;

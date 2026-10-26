@@ -1,0 +1,144 @@
+{
+  "id": "oip.bottom-taper",
+  "name": "Bottom Taper",
+  "category": "Equipment",
+  "commsParam": "enableComms",
+  "geometry": {
+    "kind": "rig",
+    "links": [
+      {
+        "name": "roll",
+        "shape": {
+          "kind": "frame"
+        },
+        "offset": [
+          0,
+          -0.16,
+          0
+        ]
+      },
+      {
+        "name": "eyeUp",
+        "shape": {
+          "kind": "frame"
+        },
+        "offset": [
+          0,
+          -0.3,
+          0
+        ],
+        "beam": {
+          "range": 0.6,
+          "showParam": "showBeam",
+          "axis": [
+            0,
+            1,
+            0
+          ]
+        }
+      },
+      {
+        "name": "eyeDown",
+        "shape": {
+          "kind": "frame"
+        },
+        "offset": [
+          0,
+          0.9,
+          0
+        ],
+        "beam": {
+          "range": 0.8999999999999999,
+          "showParam": "showBeam",
+          "axis": [
+            0,
+            -1,
+            0
+          ]
+        }
+      },
+      {
+        "name": "head",
+        "hidden": true,
+        "collision": "none",
+        "shape": {
+          "kind": "frame"
+        },
+        "offset": [
+          0,
+          0.25,
+          0
+        ],
+        "zone": {
+          "size": [
+            0.08,
+            0.5,
+            0.9
+          ]
+        }
+      }
+    ],
+    "joints": [
+      {
+        "name": "roll",
+        "link": "roll",
+        "type": "revolute",
+        "axis": [
+          0,
+          0,
+          1
+        ],
+        "min": -3.141592653589793,
+        "max": 3.141592653589793
+      }
+    ],
+    "bounds": {
+      "length": 0.6,
+      "width": 0.9,
+      "top": 1,
+      "bottom": -1
+    }
+  },
+  "materials": [
+    {
+      "id": "frame",
+      "color": [
+        0.0176,
+        0.0802,
+        0.1946
+      ],
+      "metalness": 0.2,
+      "roughness": 0.55
+    },
+    {
+      "id": "steel",
+      "color": [
+        0.4793,
+        0.5149,
+        0.5647
+      ],
+      "metalness": 0.5,
+      "roughness": 0.35
+    },
+    {
+      "id": "head",
+      "color": [
+        0.8879,
+        0.5089,
+        0.0048
+      ],
+      "metalness": 0.1,
+      "roughness": 0.5
+    },
+    {
+      "id": "tape",
+      "color": [
+        0.55,
+        0.38,
+        0.18
+      ],
+      "metalness": 0,
+      "roughness": 0.35
+    }
+  ]
+}

@@ -540,7 +540,10 @@ More fields, each documented in [`manifest.d.ts`](../packages/part-sdk/manifest.
 - **What cargo is to the machines around it:** `cargo` also takes `forkPockets` (forks are checked against a block
   pallet's channels at its footprint), `heavy` (it bears loads: a firmer solver, and never counted as dropped),
   `loadBase` (a wrap starts from it and it anchors a unit load), `separateContacts` (a hollow body standing on a foot)
-  and `nestDepth` (another of its shape set on it sits this many metres lower). A plastic pallet is a rig with
+  and `nestDepth` (another of its shape set on it sits this many metres lower). Bodies share one drawn visual per
+  collider shape and colour, so a look that follows a param the collider does not (flaps standing open, a strip of
+  tape) is named in `visualParams`; bodies that differ in one are drawn, and batched, separately. A rig link's `rotationParams` make its Euler rotation follow a param
+  (in degrees), so a flap hinges with a param and no joint. A plastic pallet is a rig with
   `cargo: { forkPockets: true, heavy: true, loadBase: true }`. The built-in pallet and tote have these by kind
   ([cargo-bodies.md](cargo-bodies.md)).
 - A top-level `thumbnail` (a data URL) is the catalog card's picture.
@@ -1152,6 +1155,14 @@ inside its footprint.
   `web: { link, offset, height }` draws the sheet paying out from a roll on that link.
 - `join(zone)` makes the load one unit load: a single rigid body, every piece still drawn, counted and sensed
   where it stands; a gripper closing on any piece lifts the whole unit.
+- `reform(zone, { part, params?, from?, marks? })` remakes each loose cargo body in the zone as a cargo part, where it
+  stands: a flat blank erected into a case, an open case taped shut. The new body keeps the old one's place (its bottom
+  face stays put), heading, speed, marks and age, so the line still counts one item; a despawn and a spawn would count
+  a completion. The same product keeps the params, colour and mass it had under the `params` you pass. `from` limits
+  it to cargo that is that product, and `marks` start on the new body (a `mark` after a reform lands on the body it
+  replaced). `reformHit(beam, spec)` does it to the one body a beam hit, as `markHit` does for marks. A body a rig gripper
+  holds is remade in the gripper's hand, so a robot can carry a case through its changes. A unit load and a body the
+  walking pilot holds are left alone.
 - **Product attributes**: a param flagged `attribute: true` on a cargo part (or a unit load) is authored and saved
   like any param, starts the run as that mark, is type-checked when a machine marks it, and reads out live in
   the Inspector.
@@ -1367,7 +1378,7 @@ and opening mid-stroke drops it in mid-air.
 | Sensors (presence / colour / distance) | diffuse-sensor, color-sensor, laser-sensor |
 | Safety device: several beams + a PLC-driven indicator | light-curtain (four `beam` links sized by `rangeParam`, one OSSD output, a muting lamp read from a tag. Muting is the safety program's job, not the part's; the demo's `MutingSeq` block is the example) |
 | Identify cargo once | barcode-scanner (a scan line across the conveyor reads each case's code off its marks onto a code tag, and `markHit`s the case it read, so a case held under the arch is read once; a one-shot good-read pulse) |
-| Cargo lifecycle | box-spawner (the Spawner: a product, released at a steady interval or on each enable, with a cycle of colours and of one attribute's values for a mixed stream), despawner; palletSpawner (not in the catalog, kept for projects that use it); pallet-dispenser (stores real cargo: a gripper per magazine position posed with `setSubPose`, so a dispense releases only the bottom pallet; a zone interlock; a set-down stack gripped where it stands; stock authored through `holds`); stretch-wrapper (`dress` as the carriage climbs, then `join` + `mark`; a carriage eye moving with its link; a start / busy / done handshake) |
+| Cargo lifecycle | box-spawner (the Spawner: a product, released at a steady interval or on each enable, with a cycle of colours and of one attribute's values for a mixed stream), despawner; palletSpawner (not in the catalog, kept for projects that use it); pallet-dispenser (stores real cargo: a gripper per magazine position posed with `setSubPose`, so a dispense releases only the bottom pallet; a zone interlock; a set-down stack gripped where it stands; stock authored through `holds`); stretch-wrapper (`dress` as the carriage climbs, then `join` + `mark`; a carriage eye moving with its link; a start / busy / done handshake); carton-opener, flap-folder, bottom-taper (passive rigs that read a case's marks through a beam and `reformHit` it, working on a case a robot holds) |
 | Param-driven structure, arrays | rack, fence, stairs, guardRail, platform |
 | Interaction + lamps | push-button, stack-light |
 | Simple joint devices | safety-gate, blade-stop, diverter |

@@ -118,6 +118,9 @@ export function castBeamRows(
   if (hit) hit.box = null
   let bestT = Infinity
   let best: LiveBox | null = null
+  // the pose of the best body so far, to say which face the beam hit
+  const bp: Vec3 = [0, 0, 0]
+  const bq: Quat = [0, 0, 0, 1]
   const ox = origin[0]
   const oy = origin[1]
   const oz = origin[2]
@@ -181,6 +184,13 @@ export function castBeamRows(
     if (t !== null && t <= range && t < bestT) {
       bestT = t
       best = box
+      bp[0] = s.pos[0]
+      bp[1] = s.pos[1]
+      bp[2] = s.pos[2]
+      bq[0] = s.quat[0]
+      bq[1] = s.quat[1]
+      bq[2] = s.quat[2]
+      bq[3] = s.quat[3]
     }
   }
   // the walking pilot blocks beams like a person blocks a real photo-eye (and a light curtain exists to see
@@ -194,7 +204,12 @@ export function castBeamRows(
   if (!best) return { hit: false, distance: range, color: [0, 0, 0] }
   if (hit) hit.box = best
   const marks = marksOf(best)
-  return { hit: true, distance: bestT, color: best.color, ...(marks ? { marks } : {}) }
+  // the face: the axis along which the hit point sits furthest out in the body's own frame, in proportion to its half size
+  const local = qApply(qConjugate(bq), [ox + dx * bestT - bp[0], oy + dy * bestT - bp[1], oz + dz * bestT - bp[2]])
+  const ratio = [Math.abs(local[0]) / (best.hx || 1), Math.abs(local[1]) / (best.hy || 1), Math.abs(local[2]) / (best.hz || 1)]
+  const axis = ratio[0]! >= ratio[1]! && ratio[0]! >= ratio[2]! ? 0 : ratio[1]! >= ratio[2]! ? 1 : 2
+  const face = `${local[axis]! >= 0 ? '+' : '-'}${'xyz'[axis]}`
+  return { hit: true, distance: bestT, color: best.color, ...(marks ? { marks } : {}), face }
 }
 
 /** every unheld (no gripper, pilot or pin - see holders) cargo box whose surface is within `radius` of a world point: the pickup volume for

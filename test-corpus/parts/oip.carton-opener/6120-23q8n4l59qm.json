@@ -1,0 +1,126 @@
+{
+  "format": 6,
+  "id": "oip.carton-opener",
+  "name": "Carton Opener",
+  "params": {
+    "liftToOpen": {
+      "type": "number",
+      "unit": "m",
+      "default": 0.3,
+      "min": 0.05,
+      "max": 0.8,
+      "step": 0.01,
+      "label": "Lift to open (m)",
+      "desc": "How high the blank's centre has to rise above the table before it is fully open. Between the table and here it opens a step at a time."
+    },
+    "standHeight": {
+      "type": "number",
+      "default": 0.9,
+      "min": 0.2,
+      "max": 2.5,
+      "step": 0.01,
+      "label": "Stand height (m)",
+      "desc": "Height of the table top above the floor. The legs run from here to the floor."
+    },
+    "frameColor": {
+      "type": "color",
+      "default": "#24507a",
+      "label": "Frame color",
+      "group": "Colors",
+      "desc": "Paint of the table and legs."
+    },
+    "showBeam": {
+      "type": "boolean",
+      "default": false,
+      "label": "Show beam",
+      "desc": "Draw the beam that reads how high the blank is."
+    }
+  },
+  "behavior": "// Carton Opener: the table a flat blank lies on, and the hook that opens it as the robot lifts it. A robot lifts the\n// blank by one face, and as it rises the sleeve goes from flat to a parallelogram to a rectangular tube, as it does in a\n// robotic case-packing cell. Nothing here moves and it needs no program.\n//\n// What it does is a ctx.reformHit on the blank over the table each time the lift has gone a step further: the Carton's\n// `open` rises from 0 to 1 in sixths (15 degrees of shear a step) as the blank's centre climbs from the table to\n// `Lift to open` above it, and never goes back down. The blank may be in the robot's gripper: a rig gripper keeps hold\n// of a case that is remade in its hand, at the same centre. The flaps at both ends stand straight out from the first,\n// as they do on a flat sleeve, so opening only changes the section. Only a Carton that is not yet fully open is touched.\n//\n// The blank is read by a beam that looks up through the table from under it, so the lift is the height of the blank's\n// lowest face. The beam knows the Carton's width and how open it is from its marks, and that gives the centre height even\n// as the blank thickens, so the reading does not chase itself.\n//\n// Part frame: the origin is on the table top where the blanks lie, with the table 0.9 m by 0.6 m, and the stand reaches\n// the floor below it. Drop blanks on it from a Spawner set to the Carton with `{\"open\":0,\"flat\":1}` as its product\n// settings, and they lie flat as they are made.\n//\n// This is the part's source. `npm run build-parts` writes behavior.ts and rig.json from it.\n\nconst STEPS = 6 // sixths of the opening\nconst EYE_Y = -0.4 // the beam's emitter, under the table top\nconst FLAT = 0.02 // a flat blank's thickness, as the Carton collides\n\ndefinePart({\n  params: {\n    liftToOpen: { type: 'number', unit: 'm', default: 0.3, min: 0.05, max: 0.8, step: 0.01, label: 'Lift to open (m)', desc: 'How high the blank\\'s centre has to rise above the table before it is fully open. Between the table and here it opens a step at a time.' },\n    standHeight: { type: 'number', default: 0.9, min: 0.2, max: 2.5, step: 0.01, label: 'Stand height (m)', desc: 'Height of the table top above the floor. The legs run from here to the floor.' },\n    frameColor: { type: 'color', default: '#24507a', label: 'Frame color', group: 'Colors', desc: 'Paint of the table and legs.' },\n    showBeam: { type: 'boolean', default: false, label: 'Show beam', desc: 'Draw the beam that reads how high the blank is.' },\n  },\n  geometry(g, p) {\n    const sh = typeof p.standHeight === 'number' && isFinite(p.standHeight) ? p.standHeight : 0.9\n    const box = (list, x0, x1, y0, y1, z0, z1, square) => {\n      list.push(g.bevelBox([Math.abs(x1 - x0), Math.abs(y1 - y0), Math.abs(z1 - z0)], [(x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2], 0.004, square))\n    }\n    const frame = [], steel = [], hook = []\n    // the table top and its legs\n    box(frame, -0.45, 0.45, -0.04, 0, -0.3, 0.3)\n    for (const sx of [-1, 1]) for (const sz of [-1, 1]) box(frame, sx * 0.4 - 0.03, sx * 0.4 + 0.03, -sh, -0.04, sz * 0.25 - 0.03, sz * 0.25 + 0.03, ['y-'])\n    box(frame, -0.4, 0.4, EYE_Y - 0.05, EYE_Y - 0.03, -0.25, 0.25)\n    box(steel, -0.02, 0.02, EYE_Y - 0.03, EYE_Y, -0.02, 0.02)\n    // the hook: a post at the far edge with a plate that leans over the table, which the blank's edge catches on\n    box(frame, -0.45, -0.39, 0, 0.45, -0.04, 0.04, ['y-'])\n    const a = 0.7\n    hook.push(g.transform(g.bevelBox([0.14, 0.012, 0.12], [0, 0, 0], 0.003), { rotate: [0, 0, Math.sin(-a / 2), Math.cos(a / 2)], translate: [-0.34, 0.42, 0] }))\n    const m = (list) => g.merge.apply(g, list)\n    return [\n      { desc: m(frame), material: 'frame', colorParam: 'frameColor' },\n      { desc: m(steel), material: 'steel' },\n      { desc: m(hook), material: 'hook' },\n    ]\n  },\n  step(ctx) {\n    const hit = ctx.sense('lift')\n    const marks = hit.marks\n    if (!hit.hit || !marks || typeof marks.open !== 'number' || typeof marks.width !== 'number' || marks.open >= 1) return\n    // how high the blank's centre is: its lowest face, plus half its thickness, less the half it rests at on the table\n    const thickness = Math.max(FLAT, marks.width * marks.open)\n    const centre = EYE_Y + hit.distance + thickness / 2\n    const lift = centre - FLAT / 2\n    const stage = Math.max(0, Math.min(STEPS, Math.floor((lift / ctx.params.liftToOpen) * STEPS)))\n    const open = stage / STEPS\n    // never back: a blank set down half open stays as open as it got\n    if (open > marks.open + 1e-6) ctx.reformHit('lift', { part: 'oip.carton', from: 'oip.carton', params: { open, flat: 1 - open } })\n  },\n})\n",
+  "geometry": {
+    "kind": "rig",
+    "links": [
+      {
+        "name": "table",
+        "hidden": true,
+        "shape": {
+          "kind": "box",
+          "size": [
+            0.9,
+            0.04,
+            0.6
+          ]
+        },
+        "offset": [
+          0,
+          -0.02,
+          0
+        ]
+      },
+      {
+        "name": "lift",
+        "shape": {
+          "kind": "frame"
+        },
+        "offset": [
+          0,
+          -0.4,
+          0
+        ],
+        "beam": {
+          "range": 1.6,
+          "showParam": "showBeam",
+          "axis": [
+            0,
+            1,
+            0
+          ]
+        }
+      }
+    ],
+    "joints": [],
+    "bounds": {
+      "length": 0.9,
+      "width": 0.6,
+      "top": 0.5,
+      "bottom": -1
+    }
+  },
+  "category": "Equipment",
+  "materials": [
+    {
+      "id": "frame",
+      "color": [
+        0.0176,
+        0.0802,
+        0.1946
+      ],
+      "metalness": 0.2,
+      "roughness": 0.55
+    },
+    {
+      "id": "steel",
+      "color": [
+        0.4793,
+        0.5149,
+        0.5647
+      ],
+      "metalness": 0.5,
+      "roughness": 0.35
+    },
+    {
+      "id": "hook",
+      "color": [
+        0.8879,
+        0.5089,
+        0.0048
+      ],
+      "metalness": 0.1,
+      "roughness": 0.5
+    }
+  ],
+  "sdk": {
+    "level": 9,
+    "of": "v2:5407:10nr3wh1bpd"
+  }
+}

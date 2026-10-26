@@ -1,0 +1,1163 @@
+{
+  "id": "oip.carton",
+  "name": "Carton",
+  "category": "Products",
+  "cargo": {
+    "friction": 0.5,
+    "visualParams": [
+      "open",
+      "flat",
+      "foldA",
+      "foldB",
+      "tapedA",
+      "tapedB"
+    ]
+  },
+  "geometry": {
+    "kind": "rig",
+    "links": [
+      {
+        "name": "cFront",
+        "hidden": true,
+        "shape": {
+          "kind": "box",
+          "size": [
+            0.4,
+            0.01,
+            0.25
+          ],
+          "sizeParams": [
+            {
+              "axis": 0,
+              "param": "length"
+            },
+            {
+              "axis": 2,
+              "param": "height"
+            }
+          ]
+        },
+        "offset": [
+          0,
+          0.145,
+          0
+        ],
+        "offsetParams": [
+          {
+            "axis": 1,
+            "param": "width",
+            "mulParam": "open",
+            "scale": 0.5,
+            "add": -0.005
+          }
+        ]
+      },
+      {
+        "name": "cBack",
+        "hidden": true,
+        "shape": {
+          "kind": "box",
+          "size": [
+            0.4,
+            0.01,
+            0.25
+          ],
+          "sizeParams": [
+            {
+              "axis": 0,
+              "param": "length"
+            },
+            {
+              "axis": 2,
+              "param": "height"
+            }
+          ]
+        },
+        "offset": [
+          0,
+          -0.145,
+          0
+        ],
+        "offsetParams": [
+          {
+            "axis": 1,
+            "param": "width",
+            "mulParam": "open",
+            "scale": -0.5,
+            "add": 0.005
+          }
+        ]
+      },
+      {
+        "name": "cRight",
+        "hidden": true,
+        "shape": {
+          "kind": "box",
+          "size": [
+            0.01,
+            0.3,
+            0.25
+          ],
+          "sizeParams": [
+            {
+              "axis": 1,
+              "param": "width",
+              "mulParam": "open",
+              "min": 0.02
+            },
+            {
+              "axis": 2,
+              "param": "height"
+            }
+          ]
+        },
+        "offset": [
+          0.195,
+          0,
+          0
+        ],
+        "offsetParams": [
+          {
+            "axis": 0,
+            "param": "length",
+            "scale": 0.5,
+            "add": -0.005
+          }
+        ]
+      },
+      {
+        "name": "cLeft",
+        "hidden": true,
+        "shape": {
+          "kind": "box",
+          "size": [
+            0.01,
+            0.3,
+            0.25
+          ],
+          "sizeParams": [
+            {
+              "axis": 1,
+              "param": "width",
+              "mulParam": "open",
+              "min": 0.02
+            },
+            {
+              "axis": 2,
+              "param": "height"
+            }
+          ]
+        },
+        "offset": [
+          -0.195,
+          0,
+          0
+        ],
+        "offsetParams": [
+          {
+            "axis": 0,
+            "param": "length",
+            "scale": -0.5,
+            "add": 0.005
+          }
+        ]
+      },
+      {
+        "name": "cFloorA",
+        "hidden": true,
+        "shape": {
+          "kind": "box",
+          "size": [
+            0.0005,
+            0.0005,
+            0.01
+          ],
+          "sizeParams": [
+            {
+              "axis": 0,
+              "param": "length",
+              "mulParam": "closedA",
+              "min": 0.0005
+            },
+            {
+              "axis": 1,
+              "param": "width",
+              "mulParam": "closedA",
+              "min": 0.0005
+            }
+          ]
+        },
+        "offset": [
+          0,
+          0,
+          -0.12
+        ],
+        "offsetParams": [
+          {
+            "axis": 2,
+            "param": "height",
+            "scale": -0.5,
+            "add": 0.005
+          }
+        ]
+      },
+      {
+        "name": "cFloorB",
+        "hidden": true,
+        "shape": {
+          "kind": "box",
+          "size": [
+            0.0005,
+            0.0005,
+            0.01
+          ],
+          "sizeParams": [
+            {
+              "axis": 0,
+              "param": "length",
+              "mulParam": "closedB",
+              "min": 0.0005
+            },
+            {
+              "axis": 1,
+              "param": "width",
+              "mulParam": "closedB",
+              "min": 0.0005
+            }
+          ]
+        },
+        "offset": [
+          0,
+          0,
+          0.12
+        ],
+        "offsetParams": [
+          {
+            "axis": 2,
+            "param": "height",
+            "scale": 0.5,
+            "add": -0.005
+          }
+        ]
+      },
+      {
+        "name": "wingR",
+        "hidden": true,
+        "shape": {
+          "kind": "box",
+          "size": [
+            0.0005,
+            0.02,
+            0.25
+          ],
+          "sizeParams": [
+            {
+              "axis": 0,
+              "param": "width",
+              "mulParam": "flat",
+              "scale": 0.5,
+              "min": 0.0005
+            },
+            {
+              "axis": 2,
+              "param": "height"
+            }
+          ]
+        },
+        "offset": [
+          0.2,
+          0,
+          0
+        ],
+        "offsetParams": [
+          {
+            "axis": 0,
+            "param": "length",
+            "scale": 0.5
+          }
+        ]
+      },
+      {
+        "name": "wingL",
+        "hidden": true,
+        "shape": {
+          "kind": "box",
+          "size": [
+            0.0005,
+            0.02,
+            0.25
+          ],
+          "sizeParams": [
+            {
+              "axis": 0,
+              "param": "width",
+              "mulParam": "flat",
+              "scale": 0.5,
+              "min": 0.0005
+            },
+            {
+              "axis": 2,
+              "param": "height"
+            }
+          ]
+        },
+        "offset": [
+          -0.2,
+          0,
+          0
+        ],
+        "offsetParams": [
+          {
+            "axis": 0,
+            "param": "length",
+            "scale": -0.5
+          }
+        ]
+      },
+      {
+        "name": "shell",
+        "shape": {
+          "kind": "frame"
+        },
+        "offset": [
+          0,
+          0,
+          0
+        ],
+        "collision": "none"
+      },
+      {
+        "name": "shear",
+        "parent": "shell",
+        "shape": {
+          "kind": "frame"
+        },
+        "offset": [
+          0,
+          0,
+          0
+        ],
+        "rotationParams": [
+          {
+            "axis": 2,
+            "param": "open",
+            "scale": 90
+          }
+        ],
+        "collision": "none"
+      },
+      {
+        "name": "wall1",
+        "parent": "shear",
+        "shape": {
+          "kind": "box",
+          "size": [
+            0.4,
+            0.004,
+            0.25
+          ],
+          "sizeParams": [
+            {
+              "axis": 0,
+              "param": "length"
+            },
+            {
+              "axis": 2,
+              "param": "height"
+            }
+          ]
+        },
+        "offset": [
+          -0.15,
+          0,
+          0
+        ],
+        "offsetParams": [
+          {
+            "axis": 0,
+            "param": "width",
+            "scale": -0.5
+          }
+        ],
+        "rotationParams": [
+          {
+            "axis": 2,
+            "param": "open",
+            "scale": -90
+          }
+        ],
+        "collision": "none",
+        "colorParam": "color",
+        "roughness": 0.9
+      },
+      {
+        "name": "wall3",
+        "parent": "shear",
+        "shape": {
+          "kind": "box",
+          "size": [
+            0.4,
+            0.004,
+            0.25
+          ],
+          "sizeParams": [
+            {
+              "axis": 0,
+              "param": "length"
+            },
+            {
+              "axis": 2,
+              "param": "height"
+            }
+          ]
+        },
+        "offset": [
+          0.15,
+          0,
+          0
+        ],
+        "offsetParams": [
+          {
+            "axis": 0,
+            "param": "width",
+            "scale": 0.5
+          }
+        ],
+        "rotationParams": [
+          {
+            "axis": 2,
+            "param": "open",
+            "scale": -90
+          }
+        ],
+        "collision": "none",
+        "colorParam": "color",
+        "roughness": 0.9
+      },
+      {
+        "name": "wall2",
+        "parent": "shell",
+        "shape": {
+          "kind": "box",
+          "size": [
+            0.3,
+            0.004,
+            0.25
+          ],
+          "sizeParams": [
+            {
+              "axis": 0,
+              "param": "width"
+            },
+            {
+              "axis": 2,
+              "param": "height"
+            }
+          ]
+        },
+        "offset": [
+          0.2,
+          0,
+          0
+        ],
+        "offsetParams": [
+          {
+            "axis": 0,
+            "param": "length",
+            "scale": 0.5
+          }
+        ],
+        "rotationParams": [
+          {
+            "axis": 2,
+            "param": "open",
+            "scale": 90
+          }
+        ],
+        "collision": "none",
+        "colorParam": "color",
+        "roughness": 0.9
+      },
+      {
+        "name": "wall4",
+        "parent": "shell",
+        "shape": {
+          "kind": "box",
+          "size": [
+            0.3,
+            0.004,
+            0.25
+          ],
+          "sizeParams": [
+            {
+              "axis": 0,
+              "param": "width"
+            },
+            {
+              "axis": 2,
+              "param": "height"
+            }
+          ]
+        },
+        "offset": [
+          -0.2,
+          0,
+          0
+        ],
+        "offsetParams": [
+          {
+            "axis": 0,
+            "param": "length",
+            "scale": -0.5
+          }
+        ],
+        "rotationParams": [
+          {
+            "axis": 2,
+            "param": "open",
+            "scale": 90
+          }
+        ],
+        "collision": "none",
+        "colorParam": "color",
+        "roughness": 0.9
+      },
+      {
+        "name": "hinge1A",
+        "parent": "wall1",
+        "shape": {
+          "kind": "frame"
+        },
+        "offset": [
+          0,
+          0,
+          -0.125
+        ],
+        "offsetParams": [
+          {
+            "axis": 2,
+            "param": "height",
+            "scale": -0.5
+          }
+        ],
+        "rotationParams": [
+          {
+            "axis": 0,
+            "param": "foldA",
+            "scale": 30,
+            "add": -90,
+            "min": 0,
+            "max": 90
+          }
+        ],
+        "collision": "none"
+      },
+      {
+        "name": "flap1A",
+        "parent": "hinge1A",
+        "shape": {
+          "kind": "box",
+          "size": [
+            0.4,
+            0.004,
+            0.15
+          ],
+          "sizeParams": [
+            {
+              "axis": 0,
+              "param": "length"
+            },
+            {
+              "axis": 2,
+              "param": "width",
+              "scale": 0.5
+            }
+          ]
+        },
+        "offset": [
+          0,
+          -0.006,
+          -0.075
+        ],
+        "offsetParams": [
+          {
+            "axis": 2,
+            "param": "width",
+            "scale": -0.25
+          }
+        ],
+        "collision": "none",
+        "colorParam": "color",
+        "roughness": 0.9
+      },
+      {
+        "name": "hinge3A",
+        "parent": "wall3",
+        "shape": {
+          "kind": "frame"
+        },
+        "offset": [
+          0,
+          0,
+          -0.125
+        ],
+        "offsetParams": [
+          {
+            "axis": 2,
+            "param": "height",
+            "scale": -0.5
+          }
+        ],
+        "rotationParams": [
+          {
+            "axis": 0,
+            "param": "foldA",
+            "scale": -30,
+            "add": 90,
+            "min": -90,
+            "max": 0
+          }
+        ],
+        "collision": "none"
+      },
+      {
+        "name": "flap3A",
+        "parent": "hinge3A",
+        "shape": {
+          "kind": "box",
+          "size": [
+            0.4,
+            0.004,
+            0.15
+          ],
+          "sizeParams": [
+            {
+              "axis": 0,
+              "param": "length"
+            },
+            {
+              "axis": 2,
+              "param": "width",
+              "scale": 0.5
+            }
+          ]
+        },
+        "offset": [
+          0,
+          0.006,
+          -0.075
+        ],
+        "offsetParams": [
+          {
+            "axis": 2,
+            "param": "width",
+            "scale": -0.25
+          }
+        ],
+        "collision": "none",
+        "colorParam": "color",
+        "roughness": 0.9
+      },
+      {
+        "name": "hinge2A",
+        "parent": "wall2",
+        "shape": {
+          "kind": "frame"
+        },
+        "offset": [
+          0,
+          0,
+          -0.125
+        ],
+        "offsetParams": [
+          {
+            "axis": 2,
+            "param": "height",
+            "scale": -0.5
+          }
+        ],
+        "rotationParams": [
+          {
+            "axis": 0,
+            "param": "foldA",
+            "scale": 30,
+            "min": 0,
+            "max": 90
+          }
+        ],
+        "collision": "none"
+      },
+      {
+        "name": "flap2A",
+        "parent": "hinge2A",
+        "shape": {
+          "kind": "box",
+          "size": [
+            0.3,
+            0.004,
+            0.15
+          ],
+          "sizeParams": [
+            {
+              "axis": 0,
+              "param": "width"
+            },
+            {
+              "axis": 2,
+              "param": "width",
+              "scale": 0.5
+            }
+          ]
+        },
+        "offset": [
+          0,
+          -0.002,
+          -0.075
+        ],
+        "offsetParams": [
+          {
+            "axis": 2,
+            "param": "width",
+            "scale": -0.25
+          }
+        ],
+        "collision": "none",
+        "colorParam": "color",
+        "roughness": 0.9
+      },
+      {
+        "name": "hinge4A",
+        "parent": "wall4",
+        "shape": {
+          "kind": "frame"
+        },
+        "offset": [
+          0,
+          0,
+          -0.125
+        ],
+        "offsetParams": [
+          {
+            "axis": 2,
+            "param": "height",
+            "scale": -0.5
+          }
+        ],
+        "rotationParams": [
+          {
+            "axis": 0,
+            "param": "foldA",
+            "scale": -30,
+            "min": -90,
+            "max": 0
+          }
+        ],
+        "collision": "none"
+      },
+      {
+        "name": "flap4A",
+        "parent": "hinge4A",
+        "shape": {
+          "kind": "box",
+          "size": [
+            0.3,
+            0.004,
+            0.15
+          ],
+          "sizeParams": [
+            {
+              "axis": 0,
+              "param": "width"
+            },
+            {
+              "axis": 2,
+              "param": "width",
+              "scale": 0.5
+            }
+          ]
+        },
+        "offset": [
+          0,
+          0.002,
+          -0.075
+        ],
+        "offsetParams": [
+          {
+            "axis": 2,
+            "param": "width",
+            "scale": -0.25
+          }
+        ],
+        "collision": "none",
+        "colorParam": "color",
+        "roughness": 0.9
+      },
+      {
+        "name": "hinge1B",
+        "parent": "wall1",
+        "shape": {
+          "kind": "frame"
+        },
+        "offset": [
+          0,
+          0,
+          0.125
+        ],
+        "offsetParams": [
+          {
+            "axis": 2,
+            "param": "height",
+            "scale": 0.5
+          }
+        ],
+        "rotationParams": [
+          {
+            "axis": 0,
+            "param": "foldB",
+            "scale": -30,
+            "add": 90,
+            "min": -90,
+            "max": 0
+          }
+        ],
+        "collision": "none"
+      },
+      {
+        "name": "flap1B",
+        "parent": "hinge1B",
+        "shape": {
+          "kind": "box",
+          "size": [
+            0.4,
+            0.004,
+            0.15
+          ],
+          "sizeParams": [
+            {
+              "axis": 0,
+              "param": "length"
+            },
+            {
+              "axis": 2,
+              "param": "width",
+              "scale": 0.5
+            }
+          ]
+        },
+        "offset": [
+          0,
+          0.006,
+          0.075
+        ],
+        "offsetParams": [
+          {
+            "axis": 2,
+            "param": "width",
+            "scale": 0.25
+          }
+        ],
+        "collision": "none",
+        "colorParam": "color",
+        "roughness": 0.9
+      },
+      {
+        "name": "hinge3B",
+        "parent": "wall3",
+        "shape": {
+          "kind": "frame"
+        },
+        "offset": [
+          0,
+          0,
+          0.125
+        ],
+        "offsetParams": [
+          {
+            "axis": 2,
+            "param": "height",
+            "scale": 0.5
+          }
+        ],
+        "rotationParams": [
+          {
+            "axis": 0,
+            "param": "foldB",
+            "scale": 30,
+            "add": -90,
+            "min": 0,
+            "max": 90
+          }
+        ],
+        "collision": "none"
+      },
+      {
+        "name": "flap3B",
+        "parent": "hinge3B",
+        "shape": {
+          "kind": "box",
+          "size": [
+            0.4,
+            0.004,
+            0.15
+          ],
+          "sizeParams": [
+            {
+              "axis": 0,
+              "param": "length"
+            },
+            {
+              "axis": 2,
+              "param": "width",
+              "scale": 0.5
+            }
+          ]
+        },
+        "offset": [
+          0,
+          -0.006,
+          0.075
+        ],
+        "offsetParams": [
+          {
+            "axis": 2,
+            "param": "width",
+            "scale": 0.25
+          }
+        ],
+        "collision": "none",
+        "colorParam": "color",
+        "roughness": 0.9
+      },
+      {
+        "name": "hinge2B",
+        "parent": "wall2",
+        "shape": {
+          "kind": "frame"
+        },
+        "offset": [
+          0,
+          0,
+          0.125
+        ],
+        "offsetParams": [
+          {
+            "axis": 2,
+            "param": "height",
+            "scale": 0.5
+          }
+        ],
+        "rotationParams": [
+          {
+            "axis": 0,
+            "param": "foldB",
+            "scale": -30,
+            "min": -90,
+            "max": 0
+          }
+        ],
+        "collision": "none"
+      },
+      {
+        "name": "flap2B",
+        "parent": "hinge2B",
+        "shape": {
+          "kind": "box",
+          "size": [
+            0.3,
+            0.004,
+            0.15
+          ],
+          "sizeParams": [
+            {
+              "axis": 0,
+              "param": "width"
+            },
+            {
+              "axis": 2,
+              "param": "width",
+              "scale": 0.5
+            }
+          ]
+        },
+        "offset": [
+          0,
+          0.002,
+          0.075
+        ],
+        "offsetParams": [
+          {
+            "axis": 2,
+            "param": "width",
+            "scale": 0.25
+          }
+        ],
+        "collision": "none",
+        "colorParam": "color",
+        "roughness": 0.9
+      },
+      {
+        "name": "hinge4B",
+        "parent": "wall4",
+        "shape": {
+          "kind": "frame"
+        },
+        "offset": [
+          0,
+          0,
+          0.125
+        ],
+        "offsetParams": [
+          {
+            "axis": 2,
+            "param": "height",
+            "scale": 0.5
+          }
+        ],
+        "rotationParams": [
+          {
+            "axis": 0,
+            "param": "foldB",
+            "scale": 30,
+            "min": 0,
+            "max": 90
+          }
+        ],
+        "collision": "none"
+      },
+      {
+        "name": "flap4B",
+        "parent": "hinge4B",
+        "shape": {
+          "kind": "box",
+          "size": [
+            0.3,
+            0.004,
+            0.15
+          ],
+          "sizeParams": [
+            {
+              "axis": 0,
+              "param": "width"
+            },
+            {
+              "axis": 2,
+              "param": "width",
+              "scale": 0.5
+            }
+          ]
+        },
+        "offset": [
+          0,
+          -0.002,
+          0.075
+        ],
+        "offsetParams": [
+          {
+            "axis": 2,
+            "param": "width",
+            "scale": 0.25
+          }
+        ],
+        "collision": "none",
+        "colorParam": "color",
+        "roughness": 0.9
+      },
+      {
+        "name": "tapeA",
+        "parent": "shell",
+        "shape": {
+          "kind": "box",
+          "size": [
+            0.001,
+            0.001,
+            0.003
+          ],
+          "sizeParams": [
+            {
+              "axis": 0,
+              "param": "length",
+              "mulParam": "tapedA",
+              "min": 0.001
+            },
+            {
+              "axis": 1,
+              "param": "tapedA",
+              "scale": 0.048,
+              "min": 0.001
+            }
+          ]
+        },
+        "offset": [
+          0,
+          0,
+          -0.1385
+        ],
+        "offsetParams": [
+          {
+            "axis": 2,
+            "param": "height",
+            "scale": -0.5,
+            "add": -0.0135
+          }
+        ],
+        "collision": "none",
+        "color": [
+          0.62,
+          0.5,
+          0.3
+        ],
+        "roughness": 0.25,
+        "metalness": 0.1
+      },
+      {
+        "name": "tapeB",
+        "parent": "shell",
+        "shape": {
+          "kind": "box",
+          "size": [
+            0.001,
+            0.001,
+            0.003
+          ],
+          "sizeParams": [
+            {
+              "axis": 0,
+              "param": "length",
+              "mulParam": "tapedB",
+              "min": 0.001
+            },
+            {
+              "axis": 1,
+              "param": "tapedB",
+              "scale": 0.048,
+              "min": 0.001
+            }
+          ]
+        },
+        "offset": [
+          0,
+          0,
+          0.1385
+        ],
+        "offsetParams": [
+          {
+            "axis": 2,
+            "param": "height",
+            "scale": 0.5,
+            "add": 0.0135
+          }
+        ],
+        "collision": "none",
+        "color": [
+          0.62,
+          0.5,
+          0.3
+        ],
+        "roughness": 0.25,
+        "metalness": 0.1
+      }
+    ],
+    "joints": []
+  },
+  "materials": []
+}

@@ -9,6 +9,7 @@ import { forkEntryProblem } from '../core/pallet'
 import { reportPartDiagnostic } from '../core/parts/partDiagnostics'
 import { composePartWorldInPlace, jointLimits, linkCollisionBox, POSE_STRIDE, qApply, qConjugate, qFromAxisAngle, qMul, resolvedGrabReach, resolvedGrabZone, rigLinkIndex, rigPoseBuffer, rigWorldPosesInto, shapeHalfExtents } from '../core/rig/rigPose'
 import type { Quat, Vec3 } from '../core/rig/rigPose'
+import type { MountedOn } from '../core/scene/sceneMounts'
 import type { BodyHolds } from './bodyHolds'
 import type { CargoRegistry } from './cargoRegistry'
 import { grabbableBoxesInReach, grabbableBoxesInZone } from './cargoSensing'
@@ -16,6 +17,11 @@ import { reportUnknownRigNames } from './rigBuild'
 import type { SensorRegistry } from './sensorRegistry'
 import { flatRecEq, snapshotRigInputs, subPosesEq } from './worldTypes'
 import type { KinematicScratch, LiveBox, RigInstance } from './worldTypes'
+
+function quatEq(a: Quat | undefined, b: Quat | undefined): boolean {
+  if (!a || !b) return !a && !b
+  return a[0] === b[0] && a[1] === b[1] && a[2] === b[2] && a[3] === b[3]
+}
 
 export class RigDriver {
   // Custom rig parts: kinematic collision body per link, driven each step by the behavior's joint output
@@ -51,14 +57,26 @@ export class RigDriver {
     const dt = this.dt
     const kinPos = this.kin.pos
     const kinQuat = this.kin.quat
-    for (const rig of this.rigs) {
+    // a tool rides its host's link, so every host is driven before any tool (pass 0 hosts, pass 1 tools)
+    for (let pass = 0; pass < 2; pass++) for (const rig of this.rigs) {
+      if ((rig.mountedOn !== undefined) !== (pass === 1)) continue
       const tr = perfParts ? performance.now() : 0
       const rec = rig.rec
       const rk = rec.partId ?? '#anon'
       // C-drive: a mobile part (one that called ctx.drive) has a live root pose on its behavior record that has
       // moved off the saved scene pose; compose the rig from it so the kinematic bodies follow as it navigates.
-      const rootPos = rec.mobile ? rec.pos : rig.pos
-      const rootYaw = rec.mobile ? Math.atan2(-rec.fwd[2], rec.fwd[0]) : rig.rotationY
+      let rootPos = rec.mobile ? rec.pos : rig.pos
+      let rootYaw = rec.mobile ? Math.atan2(-rec.fwd[2], rec.fwd[0]) : rig.rotationY
+      // a mounted tool is rooted on its host link's world pose, turn and all; a host not driven yet leaves it where it was
+      let rootQuat: Quat | undefined
+      if (rig.mountedOn) {
+        const at = this.hostLinkWorld(rig.mountedOn)
+        if (!at) continue
+        rootPos = at.pos
+        rootQuat = at.quat
+        rootYaw = 0
+        rig.scale = at.scale
+      }
       // Idle-rig skip: FK + the kinematic moves below are pure functions of (joints, subPoses, grips, root
       // pose). When none changed since the last apply, the rig gets one settle re-apply (its links have
       // arrived, so MoveKinematic computes ~zero velocities), then its bodies are put to sleep and the whole
@@ -67,7 +85,7 @@ export class RigDriver {
       // stay live, because handleGrips polls for grabbable cargo under it every step.
       const ap = rig.applied
       let clean =
-        !!ap && ap.rx === rootPos[0] && ap.ry === rootPos[1] && ap.rz === rootPos[2] && ap.yaw === rootYaw &&
+        !!ap && ap.rx === rootPos[0] && ap.ry === rootPos[1] && ap.rz === rootPos[2] && ap.yaw === rootYaw && quatEq(ap.rq, rootQuat) &&
         flatRecEq(rec.joints, ap.joints) && flatRecEq(rec.grips, ap.grips) && subPosesEq(rec.subPoses, ap.subPoses)
       if (clean && rec.grips) {
         for (const g of Object.keys(rec.grips)) {
@@ -90,7 +108,7 @@ export class RigDriver {
         continue
       }
       rig.settleSteps = clean ? 1 : 0
-      if (!clean) rig.applied = snapshotRigInputs(rec, rootPos, rootYaw)
+      if (!clean) rig.applied = snapshotRigInputs(rec, rootPos, rootYaw, rootQuat)
       reportUnknownRigNames(rig)
       // FK straight into a flat per-rig buffer (7 floats/link). A Map form allocates ~500 short-lived
       // objects per rig per step, which on the demo's 60-link robot measured costlier than the maths.
@@ -111,7 +129,7 @@ export class RigDriver {
           }
         }
       }
-      const partQuat = qFromAxisAngle([0, 1, 0], rootYaw)
+      const partQuat = rootQuat ?? qFromAxisAngle([0, 1, 0], rootYaw)
       // world pose of every link (incl. transform-only 'frame' links like a gripper anchor, which have no
       // body): handleGrips locates the cargo by the gripper link's world pose, so it must be in the buffer.
       // Limited to bodied links, a frame gripper would be left out and its grab would never fire.
@@ -152,6 +170,20 @@ export class RigDriver {
       }
       if (perfParts) this.rigMsByPart.set(rk, (this.rigMsByPart.get(rk) ?? 0) + (performance.now() - tr))
     }
+  }
+
+  /**
+   * Where a host's link stands in the world as of its last drive, and the host's scale: the pose a tool seated on it is
+   * rooted on. Null when the host is gone or has not been driven yet.
+   */
+  private hostLinkWorld(on: MountedOn): { pos: Vec3; quat: Quat; scale: number } | null {
+    const host = this.rigs.find((r) => r.rec.partId === on.hostId)
+    if (!host?.poseBuf) return null
+    const li = rigLinkIndex(host.geo).get(on.link)
+    if (li === undefined) return null
+    const o = li * POSE_STRIDE
+    const b = host.poseBuf
+    return { pos: [b[o]!, b[o + 1]!, b[o + 2]!], quat: [b[o + 3]!, b[o + 4]!, b[o + 5]!, b[o + 6]!], scale: host.scale }
   }
 
   // Resolve a rig's gripper commands: close → grab the nearest cargo to the gripper link and ride it

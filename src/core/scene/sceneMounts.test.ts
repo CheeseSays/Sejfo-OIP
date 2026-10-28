@@ -93,14 +93,16 @@ describe('mounts', () => {
     expect(computeSceneMounts([host(), tool({}, { dropY: 0.3 })]).hosts.get('arm')![0]!.grip!.zone.offset).toEqual([0, 0.3, 0])
   })
 
-  it('gives render the tool and sim the host, and nothing else to either', () => {
+  it('gives render the tool, and sim the host and the tool, and nothing else to either', () => {
     const parts: PartInstance[] = [host(), tool()]
     const render = resolveScene(parts, 'render')
     expect(render.get('plate')?.mountedOn).toEqual({ hostId: 'arm', link: 'flange' })
     expect(render.get('arm')?.mounts).toBeUndefined()
     const sim = resolveScene(parts, 'sim')
     expect(sim.get('arm')?.mounts).toHaveLength(1)
-    expect(sim.get('plate')?.mountedOn).toBeUndefined()
+    // the sim roots a tool's own rig on the link it rides
+    expect(sim.get('plate')?.mountedOn).toEqual({ hostId: 'arm', link: 'flange' })
+    expect(sim.get('arm')?.mountedOn).toBeUndefined()
   })
 
   it('moves the keys only when something the consumer builds from changes', () => {

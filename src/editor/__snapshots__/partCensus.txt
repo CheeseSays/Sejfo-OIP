@@ -546,6 +546,24 @@ lamps [] animates=false
   link marker {outline:true,shape:box}
   link dropCone {shape:cone}
 
+## oip.pitch-gripper (rig)
+class {}
+footprint {hx:0.7000,hz:0.2000,y0:-0.6000,y1:0}
+plugs [mount]
+params reserved=[enableComms] tags=[pitchTag:in:REAL,gripATag:in:BOOL,gripBTag:in:BOOL,pitchOkTag:out:BOOL,heldATag:out:BOOL,heldBTag:out:BOOL]
+lamps [] animates=false
+  link eoat {shape:frame}
+  link secA {shape:frame}
+  link gripA {gripZone:true,shape:frame}
+  link secB {shape:frame}
+  link gripB {gripZone:true,shape:frame}
+  drawn[0] {material:pitchSteel,rides:eoat}
+  drawn[1] {material:pitchSteel,rides:eoat}
+  drawn[2] {material:pitchPaint,rides:secA}
+  drawn[3] {material:pitchPad,rides:secA}
+  drawn[4] {material:pitchPaint,rides:secB}
+  drawn[5] {material:pitchPad,rides:secB}
+
 ## oip.platform (rig)
 class {platformDeck:{deckTop:0,hl:2.0000,hw:2.0000}}
 footprint {hx:2.0000,hz:2.0000,y0:0,y1:1.0700}

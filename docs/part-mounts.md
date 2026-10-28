@@ -35,7 +35,25 @@ rig(p) {
   gripper that has a tool picks inside the tool's volume. With no tool it should pick nothing, so the robot declares a
   2 cm volume on `gripper`: a case's centre is never inside it.
 
+- A tool may have a rig of its own: links, joints and grippers beyond the frame it rides on (the Pitch Gripper's two
+  sections on a linear axis). Declare no `grip` on the mount then, and put the pickup volume on the tool's own gripper
+  links. See "A tool with moving parts" below.
+
 A part does not need a `snap` block to be seated. `geometry.mount` is its plug.
+
+## A tool with moving parts
+
+A tool is a rig like any other, so its behavior can drive joints and grippers of its own. The sim roots that rig on the
+host link's live world pose, turn and all, instead of on the tool's stored position, and it drives every host before
+any tool so the tool reads the pose of the same step. A section on a joint takes its `grip.zone` and whatever it
+holds along with it, and each gripper link is closed and opened on its own (`ctx.grips.<name>`), which is how a
+pitch-change head picks a row of products and sets two groups down in separate places.
+
+The host's gripper is not involved: it is the tool's behavior that closes the tool's grippers, usually from tags
+(`readTag`), because the host's program drives the host's own. The tool takes the host's `scale`. Keep its links to
+frames and visuals: a link with a collision shape would be a kinematic body on the host's link, pushing cargo with
+the arm. The [Pitch Gripper](../examples/parts/pitch-gripper/part.js) is the worked example. A grip volume that the
+tool's params resize sits on a `frame` child link of the section, positioned by that link's `offsetParams`.
 
 ## Seating
 
@@ -63,8 +81,8 @@ and carried in `ResolvedContext`:
 
 ## In the sim
 
-The tool has no bodies. The host's rig is built with the tool's grip volume in place of the host link's own
-(`withMountedGrips`), so the gripper picks what the tool's plate covers. The host's `scale` multiplies the volume as it
+The tool has no bodies unless it draws collision links. The host's rig is built with the tool's grip volume in place of
+the host link's own (`withMountedGrips`), so the gripper picks what the tool's plate covers. The host's `scale` multiplies the volume as it
 does every grip volume.
 
 ## In the view
@@ -92,5 +110,7 @@ gizmo of the dots and the outline alone ([rigGizmo.ts](../src/render/parts/sdk/r
 - [sceneMounts.test.ts](../src/core/scene/sceneMounts.test.ts): the seam, its keys and the seat position.
 - [snapLinkSeat.test.ts](../src/core/snap/snapLinkSeat.test.ts): the snap and its commit.
 - [multiGrab.test.ts](../src/sim/multiGrab.test.ts): a tool gives the hand its volume, and a bare hand picks nothing.
+- [toolRig.test.ts](../src/sim/toolRig.test.ts): a tool's own sections ride the host link, move on their joints and open one at a time.
+- [pitchGripper.test.ts](../src/sim/pitchGripper.test.ts): the shipped Pitch Gripper, driven by tags.
 - [verify-tool-mount.mjs](../e2e/verify-tool-mount.mjs): drop the tool on the flange, follow every pose, scale, rebuild,
   lamp, resize dots, delete and undo.

@@ -54,7 +54,8 @@ export interface ResolvedContext {
   /** the tools riding this part's links, with the grip volume each gives it (sim only: render draws a tool as its
    *  own part under the host link, so the host has nothing to change; core/scene/sceneMounts.ts) */
   mounts?: readonly MountedTool[]
-  /** where this tool rides (render only: the sim builds a tool no bodies, so it has nothing to place) */
+  /** where this tool rides: the view hangs its visual under that link, and the sim roots its rig (its joints and
+   *  grippers) on the link's live pose */
   mountedOn?: MountedOn
 }
 
@@ -100,7 +101,7 @@ export function resolveScene(parts: readonly PartInstance[], consumer: ResolveCo
   for (const id of structConn.stairTopConnected.keys()) patch(id, (c) => { c.structConn = structConn })
   // a scene with no tool resolves to the shared empty result, so this costs one pass over the parts' packages
   const mounts = computeSceneMounts(parts)
-  if (render) for (const [id, on] of mounts.tools) patch(id, (c) => { c.mountedOn = on })
+  for (const [id, on] of mounts.tools) patch(id, (c) => { c.mountedOn = on })
   if (sim) for (const [id, tools] of mounts.hosts) patch(id, (c) => { c.mounts = tools })
   return out
 }
@@ -122,5 +123,5 @@ export function renderResolvedKey(partId: string, ctx: ResolvedContext | undefin
 /** Sim's change-signature: the fields the physics body build depends on (no roller grid - sim rollers are
  *  position-derived; plus the deck-merge cluster render ignores). Folded into partSignature. */
 export function simResolvedKey(partId: string, ctx: ResolvedContext | undefined): string {
-  return `${openingsKey(ctx?.openings)}|${extentsKey(ctx?.extents)}|${deckClusterKey(ctx?.cluster)}|${structureCutKey(partId, ctx?.structConn)}|${guardRunsKey(ctx?.guardRun)}|${hostMountsKey(ctx?.mounts)}`
+  return `${openingsKey(ctx?.openings)}|${extentsKey(ctx?.extents)}|${deckClusterKey(ctx?.cluster)}|${structureCutKey(partId, ctx?.structConn)}|${guardRunsKey(ctx?.guardRun)}|${hostMountsKey(ctx?.mounts)}|${toolMountKey(ctx?.mountedOn)}`
 }

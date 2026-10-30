@@ -18,7 +18,8 @@ The first public source release. The [README](README.md#features) lists what it 
   can be merged back, any node can change **Parent** in place, **Test motion** sweeps a joint between its limits
   and **Position** drags it by hand, and a revolute joint can **spin endlessly** at a set rpm (a wrapping servo).
   A joint's **PLC control** can be set to **Two positions**, which writes a behavior with a BOOL command tag, two
-  end-position tags and a stroke time, so a PLC moves the joint with no code in the part.
+  end-position tags and a stroke time, so a PLC moves the joint with no code in the part, and a spinning joint's to
+  **Spin**, with a run tag, a speed tag in rpm and an at-speed tag.
   Editing a joint in the panel no longer drops its `servo`, `rest`, `cosmetic` or param-driven limits.
 - Each node of an imported model is drawn by one mesh link, the nearest that keeps it (`keepNode`), so a split
   piece needs no `hideNodes` entry on the model, a piece can be split from inside another, and deleting a piece

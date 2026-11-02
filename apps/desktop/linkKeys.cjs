@@ -2,8 +2,11 @@
 // controller's, and each named controller (`Cell2::%IX0.0`, src/core/io/controllerTag.ts) has a number of its own
 // (src/editor/links/linkHosts.ts). A call without `link` is link 0. plcIo.cjs, opcUaIo.cjs, eipIo.cjs and adsIo.cjs
 // key their links by window and number through this, and opcUaServer.cjs each simulated controller's OPC UA server.
+// A scene has at most 32 controllers (src/core/scene/scenePlcs.ts MAX_SCENE_PLCS), links 0-31. Number 32 is past all of
+// them, for the ADS variable picker (src/editor/links/linkHosts.ts BROWSE_LINK): a short connection that lists a PLC's
+// variables while a run may hold the controller's own link. Every protocol accepts it, and only that picker uses it.
 
-const MAX_LINKS = 32
+const MAX_LINKS = 33
 
 /** The link number a call names: a whole number below {@link MAX_LINKS}, 0 when absent, null when malformed. */
 function linkNo(opts) {
@@ -43,6 +46,6 @@ function onPageGone(sender, watched, close) {
   sender.on('did-navigate', gone)
 }
 
-const BAD_LINK = 'not a link number (0-31)'
+const BAD_LINK = 'not a link number (0-32)'
 
 module.exports = { MAX_LINKS, linkNo, linkKey, windowKeys, onPageGone, BAD_LINK }

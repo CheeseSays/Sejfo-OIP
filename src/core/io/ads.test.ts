@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { adsErrorText, adsPointsFromTags, adsRouteText, adsStale, adsSymbolGroups, adsSymbolMessage, adsTagNames, adsVariableFits, adsUnreachable, bindAdsPoint, fromAdsValue, isAmsNetId, toAdsValue } from './ads'
+import { adsErrorText, adsPointsFromTags, adsRouteText, adsStale, adsSymbolGroups, adsSymbolMessage, adsTagNames, adsUnreachable, bindAdsPoint, fromAdsValue, isAmsNetId, toAdsValue } from './ads'
 
 const wired = (name: string, dir: 'w' | 'r', type: 'BOOL' | 'INT' | 'DINT' | 'REAL' | null = 'BOOL') =>
   ({ name, type, writers: dir === 'w' ? ['p.tag'] : [], readers: dir === 'r' ? ['p.tag'] : [] }) as never
@@ -120,13 +120,5 @@ describe('the symbol table as the PLC connections window lists it', () => {
     const table = [sym('MAIN.Extend', 'BOOL', 33, 0), sym('Loose', 'BOOL', 33, 1), sym('MAIN.Odd', 'INT', 2, 4), sym('GVL.Speed', 'REAL', 4, 4)]
     const listed = adsSymbolGroups(table).flatMap((g) => g.variables.map((v) => v.name))
     expect(listed.sort()).toEqual(adsTagNames(table))
-  })
-
-  it('fits a bit to a BOOL field and a number to a numeric one', () => {
-    expect(adsVariableFits({ kind: 'bool' }, 'BOOL')).toBe(true)
-    expect(adsVariableFits({ kind: 'bool' }, 'REAL')).toBe(false)
-    expect(adsVariableFits({ kind: 'number' }, 'DINT')).toBe(true)
-    expect(adsVariableFits({ kind: 'number' }, 'BOOL')).toBe(false)
-    expect(adsVariableFits({ kind: 'number' }, null)).toBe(true)
   })
 })

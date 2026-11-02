@@ -24,6 +24,7 @@ import { partsForController } from '../../../core/io/controllerTag'
 import type { PartInstance } from '../../../core/types'
 import { isEipPath, isOpcUaEndpoint, isPlcHost, servePortClash } from '../../store/storePrefs'
 import type { ExternalPlcSettings, PlcLinkSettings } from '../../store/storePrefs'
+import { linkSource } from '../../program/plcConnections'
 import type { MessageId } from '../../../core/i18n'
 import { defineMessages, t } from '../../../core/i18n'
 
@@ -169,7 +170,8 @@ interface ExternalPlcSectionProps {
   /** the default controller's OPC UA server (OpcUaServerSection.tsx), shown under the choice to run it here, as each
    *  other controller's sits in its own row: a server publishes the program this simulator runs */
   server?: ReactNode
-  /** open PLC Connections for this controller (components/plc/PlcConnectionsWindow.tsx); offered while it is a PLC over ADS */
+  /** open PLC Connections for this controller (components/plc/PlcConnectionsWindow.tsx); offered while the simulator runs
+   *  the program, or it is a PLC that lists its variables (ADS, EtherNet/IP, OPC UA) */
   onConnections?: () => void
 }
 
@@ -223,7 +225,7 @@ export function ExternalPlcSection({ store, state, controller, server, onConnect
   return (
     <section className="ctl-ext ctl-sec" data-testid="external-plc" aria-label={t(M.section)}>
       <SectionHead title={t(M.section)} scope="scene" note={t(M.sectionNote)} />
-      <DefaultName store={store} name={settings.mainName} locked={locked} onConnections={external && settings.mode === 'ads' ? onConnections : undefined} />
+      <DefaultName store={store} name={settings.mainName} locked={locked} onConnections={!settings.enabled || linkSource(settings) !== null ? onConnections : undefined} />
       <div className="ctl-ext-mode" role="radiogroup" aria-label={t(M.runsOn)}>
         <label className="ctl-ext-field" title={t(M.here)}>
           <input type="radio" name="external-plc-runs-on" checked={!external} disabled={locked} onChange={() => store.setExternalPlc({ enabled: false })} data-testid="external-plc-here" />

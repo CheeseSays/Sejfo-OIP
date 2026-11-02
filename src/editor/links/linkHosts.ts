@@ -78,6 +78,7 @@ export function eipForLink(host: EipHost, link: number): EipHost {
     open: (opts) => host.open({ ...opts, link }),
     bind: (opts) => host.bind({ ...opts, link }),
     exchange: (opts) => host.exchange({ ...opts, link }),
+    ...(host.tags ? { tags: () => host.tags!({ link }) } : {}),
     close: () => host.close({ link }),
   }
 }
@@ -92,6 +93,7 @@ export function adsForLink(host: AdsHost, link: number): AdsHost {
   }
 }
 
-/** The shell's link number a picker lists a PLC's variables on (apps/desktop/linkKeys.cjs): one past every controller's
- *  (0 to MAX_SCENE_PLCS - 1), so a list read during a run opens a connection of its own beside theirs. */
+/** The shell's link number the PLC connections window lists a PLC's variables on (apps/desktop/linkKeys.cjs BROWSE_LINK):
+ *  one past every controller's (0 to MAX_SCENE_PLCS - 1), so a list read during a run opens a connection of its own
+ *  beside theirs. Only the shell's ADS, EtherNet/IP and OPC UA links take it. */
 export const BROWSE_LINK = MAX_SCENE_PLCS

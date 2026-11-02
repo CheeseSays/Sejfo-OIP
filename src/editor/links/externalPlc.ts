@@ -26,11 +26,11 @@
 import { canWatch } from '../../core/scene/scenePlcs'
 import { clientDrivenTags, externalDrivenTags, modbusClientFromTags, modbusServerFromTags, registerImagePointWhere, registerWords } from '../../core/io/externalIo'
 import type { ClientIoPoint, ExternalIo, ExternalIoPoint, ModbusClientIo, TagSignal } from '../../core/io/externalIo'
-import { bindEipPoint, cipTypeName, eipListingFailure, eipNothingAnswered, eipPointsFromTags, eipStatusMessage, eipTagNames, eipUnreachable, fromEipValue, toEipValue } from '../../core/io/eip'
+import { bindEipPoint, cipTypeName, eipListingFailure, eipNothingAnswered, eipPointsFromTags, eipStatusMessage, eipTagNames, eipUnreachable, eipVariableGroups, fromEipValue, toEipValue } from '../../core/io/eip'
 import type { EipBinding, EipPoint } from '../../core/io/eip'
-import { bindOpcUaPoints, builtinName, discoveryServerMessage, fromOpcUaValue, isOpcUaNodeId, matchOpcUaTag, opcUaBrowseRoot, opcUaPointsFromTags, opcUaTagNames, toOpcUaValue } from '../../core/io/opcUa'
+import { bindOpcUaPoints, builtinName, discoveryServerMessage, fromOpcUaValue, isOpcUaNodeId, matchOpcUaTag, opcUaBrowseRoot, opcUaPointsFromTags, opcUaTagNames, opcUaVariableGroups, toOpcUaValue } from '../../core/io/opcUa'
 import type { OpcUaBinding, OpcUaBrowseRoot, OpcUaPoint, OpcUaVariable } from '../../core/io/opcUa'
-import { adsPointsFromTags, adsRouteText, adsTagNames } from '../../core/io/ads'
+import { adsPointsFromTags, adsRouteText, adsSymbolGroups, adsTagNames } from '../../core/io/ads'
 import type { AdsBinding, AdsPoint } from '../../core/io/ads'
 import { describeS7Point, s7ClientFromTags, s7DrivenTags, s7Endpoint } from '../../core/io/s7Io'
 import type { S7ClientIo } from '../../core/io/s7Io'
@@ -397,7 +397,7 @@ export class ExternalPlcClientSession extends SocketLink<ModbusPoller> {
  */
 
 export function plcTagListOf(endpoint: string, from: readonly string[], browsed: { variables: OpcUaVariable[]; truncated: boolean }): PlcTagList {
-  return { protocol: 'opcua', endpoint, from, state: 'ready', names: opcUaTagNames(browsed.variables), variables: browsed.variables, truncated: browsed.truncated, error: null }
+  return { protocol: 'opcua', endpoint, from, state: 'ready', names: opcUaTagNames(browsed.variables), groups: opcUaVariableGroups(browsed.variables), variables: browsed.variables, truncated: browsed.truncated, error: null }
 }
 
 /** Start points as typed (PlcLinkSettings.opcUaBrowseFrom), as the shell takes them; one that reads as neither is left out. */
@@ -411,7 +411,7 @@ export function browseRootsOf(from: readonly string[]): OpcUaBrowseRoot[] {
  * asked before closing, so this never closes the run's link.
  */
 export async function readOpcUaTagList(host: OpcUaHost, endpoint: string, from: readonly string[], mayClose: () => boolean): Promise<PlcTagList> {
-  const failed = (error: string): PlcTagList => ({ protocol: 'opcua', endpoint, from, state: 'failed', names: [], variables: [], truncated: false, error })
+  const failed = (error: string): PlcTagList => ({ protocol: 'opcua', endpoint, from, state: 'failed', names: [], groups: [], variables: [], truncated: false, error })
   const { error, discovery } = await host.connect({ endpoint })
   if (discovery) return failed(discoveryServerMessage(endpoint, discovery))
   if (error) return failed(error)
@@ -432,7 +432,7 @@ export async function readOpcUaTagList(host: OpcUaHost, endpoint: string, from: 
  */
 export async function readAdsTagList(host: AdsHost, netId: string, port: number, mayClose: () => boolean): Promise<PlcTagList> {
   const endpoint = adsEndpoint(netId, port)
-  const failed = (error: string): PlcTagList => ({ protocol: 'ads', endpoint, from: [], state: 'failed', names: [], variables: [], truncated: false, error })
+  const failed = (error: string): PlcTagList => ({ protocol: 'ads', endpoint, from: [], state: 'failed', names: [], groups: [], variables: [], truncated: false, error })
   if (!host.symbols) return failed("this version of the desktop app cannot list a PLC's tags")
   const opened = await host.open({ netId, port })
   if (opened.error) return failed(opened.error)
@@ -440,7 +440,7 @@ export async function readAdsTagList(host: AdsHost, netId: string, port: number,
     const r = await host.symbols()
     if (r.error) return failed(r.error)
     if (r.code) return failed(adsRouteText(r.code, opened.localNetId ?? ''))
-    return { protocol: 'ads', endpoint, from: [], state: 'ready', names: adsTagNames(r.symbols ?? []), variables: [], truncated: false, error: null }
+    return { protocol: 'ads', endpoint, from: [], state: 'ready', names: adsTagNames(r.symbols ?? []), groups: adsSymbolGroups(r.symbols ?? []), variables: [], truncated: false, error: null }
   } finally {
     if (mayClose()) await host.close()
   }
@@ -449,7 +449,7 @@ export async function readAdsTagList(host: AdsHost, netId: string, port: number,
 /** The same for a Logix controller over EtherNet/IP: its tags and each program's, as libplctag lists them. */
 export async function readEipTagList(host: EipHost, gateway: string, path: string, mayClose: () => boolean): Promise<PlcTagList> {
   const endpoint = eipEndpoint(gateway, path)
-  const failed = (error: string): PlcTagList => ({ protocol: 'eip', endpoint, from: [], state: 'failed', names: [], variables: [], truncated: false, error })
+  const failed = (error: string): PlcTagList => ({ protocol: 'eip', endpoint, from: [], state: 'failed', names: [], groups: [], variables: [], truncated: false, error })
   if (!host.tags) return failed("this version of the desktop app cannot list a PLC's tags")
   const opened = await host.open({ gateway, path })
   if (opened.error) return failed(opened.error)
@@ -457,7 +457,7 @@ export async function readEipTagList(host: EipHost, gateway: string, path: strin
     const r = await host.tags()
     if (r.error) return failed(r.error)
     if (r.status !== 'ok') return failed(eipListingFailure(r.status ?? 'no status', path))
-    return { protocol: 'eip', endpoint, from: [], state: 'ready', names: eipTagNames(r.tags ?? []), variables: [], truncated: false, error: null }
+    return { protocol: 'eip', endpoint, from: [], state: 'ready', names: eipTagNames(r.tags ?? []), groups: eipVariableGroups(r.tags ?? []), variables: [], truncated: false, error: null }
   } finally {
     if (mayClose()) await host.close()
   }

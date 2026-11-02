@@ -17,7 +17,7 @@
 
 const { existsSync } = require('node:fs')
 const { join } = require('node:path')
-const { BAD_LINK, linkKey, linkNo, onPageGone, windowKeys } = require('./linkKeys.cjs')
+const { BAD_LINK, linkKey, listingLinkNo, onPageGone, windowKeys } = require('./linkKeys.cjs')
 
 /** The library file for this platform, as the fetch script names it. */
 const LIB_FILE = process.platform === 'win32' ? 'plctag.dll' : process.platform === 'darwin' ? 'libplctag.dylib' : 'libplctag.so'
@@ -324,7 +324,7 @@ function shutdownEip() {
 function registerEipIo(ipcMain, { consent }) {
   ipcMain.handle('eip:open', async (event, opts) => {
     const sender = event.sender
-    const n = linkNo(opts)
+    const n = listingLinkNo(opts)
     if (n === null) return { error: BAD_LINK }
     const key = linkKey(sender.id, n)
     links.get(key)?.close()
@@ -349,7 +349,7 @@ function registerEipIo(ipcMain, { consent }) {
     return { error: '' }
   })
   const withLink = async (event, opts, fn) => {
-    const n = linkNo(opts)
+    const n = listingLinkNo(opts)
     if (n === null) return { error: BAD_LINK }
     const link = links.get(linkKey(event.sender.id, n))
     if (!link) return { error: 'not connected' }
@@ -363,7 +363,7 @@ function registerEipIo(ipcMain, { consent }) {
   ipcMain.handle('eip:exchange', (event, opts) => withLink(event, opts, (l) => l.exchange(Array.isArray(opts?.writes) ? opts.writes : [], Array.isArray(opts?.reads) ? opts.reads : [])))
   ipcMain.handle('eip:tags', (event, opts) => withLink(event, opts, (l) => l.listTags()))
   ipcMain.handle('eip:close', (event, opts) => {
-    const n = linkNo(opts)
+    const n = listingLinkNo(opts)
     if (n === null) return
     const key = linkKey(event.sender.id, n)
     links.get(key)?.close()

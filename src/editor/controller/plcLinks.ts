@@ -126,7 +126,7 @@ export function readPlcTags(l: PlcLinkState, ec: PlcLinkDeps): void {
   const settings = ec.store.getState().externalPlc
   if (l.externalSession || l.plcTags?.state === 'reading') return
   const mayClose = (): boolean => l.externalSession === null
-  const list = (protocol: PlcTagList['protocol'], endpoint: string, from: readonly string[] = []): PlcTagList => ({ protocol, endpoint, from, state: 'reading', names: [], variables: [], truncated: false, error: null })
+  const list = (protocol: PlcTagList['protocol'], endpoint: string, from: readonly string[] = []): PlcTagList => ({ protocol, endpoint, from, state: 'reading', names: [], groups: [], variables: [], truncated: false, error: null })
   const { adsHost: ads, eipHost: eip, opcUaHost: ua } = ec
   let reading: PlcTagList
   let read: (m: ExternalPlcModule) => Promise<PlcTagList>

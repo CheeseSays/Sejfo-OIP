@@ -6,6 +6,7 @@
 
 import type { AdsSymbol } from '../../core/io/ads'
 import type { EipListedTag } from '../../core/io/eip'
+import type { PlcVariableGroup } from '../../core/io/plcVariables'
 import type { DiscoveredServer, OpcUaBrowseRoot, OpcUaNodeInfo, OpcUaVariable } from '../../core/io/opcUa'
 import type { TagValue } from '../../plc/types'
 import type { PlcLinkSettings } from '../store/storePrefs'
@@ -167,7 +168,8 @@ export type PlcTagProtocol = 'opcua' | 'ads' | 'eip'
  * or what readOpcUaTagList read while stopped; `names` are the ones a pick may write (core/io/opcUa.ts
  * opcUaTagNames), and `variables` is the tree they came from, which says whether a typed name is on the PLC. Over ADS
  * and EtherNet/IP: the PLC's own list as readAdsTagList or readEipTagList read it while stopped (core/io/ads.ts
- * adsTagNames, core/io/eip.ts eipTagNames), with no tree.
+ * adsTagNames, core/io/eip.ts eipTagNames), with no tree. `groups` is the same list grouped by program or folder, with
+ * types where the PLC gives them, for the PLC connections window.
  */
 export interface PlcTagList {
   protocol: PlcTagProtocol
@@ -177,6 +179,7 @@ export interface PlcTagList {
   from: readonly string[]
   state: 'reading' | 'ready' | 'failed'
   names: string[]
+  groups: PlcVariableGroup[]
   variables: OpcUaVariable[]
   /** the browse stopped at its limit, so a name it did not reach may still be on the PLC */
   truncated: boolean

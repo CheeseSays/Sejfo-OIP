@@ -4,7 +4,7 @@ import type { PartPackage } from '../../core/parts/partPackage'
 import { clearPackages, registerPackage } from '../../core/parts/partRegistry'
 import type { PartInstance, SceneJSON } from '../../core/types'
 import type { PlcSetup } from '../store/storePlcs'
-import { browsableControllers, connectionMachines, connectionsOf, withConnection } from './plcConnections'
+import { connectableControllers, connectionMachines, connectionsOf, programVariableGroups, withConnection } from './plcConnections'
 
 const DIVERTER: PartPackage = {
   format: PACKAGE_FORMAT,
@@ -73,7 +73,7 @@ describe('the PLC connections window', () => {
     expect(withConnection(s, 'nope', 'tag', null, 'MAIN.Extend')).toBeNull()
   })
 
-  it('offers only the controllers on a PLC over ADS', () => {
+  it('offers the simulated program and every PLC that lists its variables', () => {
     const setup = {
       enabled: true,
       mode: 'ads',
@@ -83,12 +83,39 @@ describe('the PLC connections window', () => {
       controllers: [
         { name: 'Cell2', runsOn: 'plc', mode: 'ads', adsNetId: '', adsPort: 852 },
         { name: 'Cell3', runsOn: 'app', mode: 'ads', adsNetId: '', adsPort: 851 },
-        { name: 'Cell4', runsOn: 'plc', mode: 'opcua', adsNetId: '', adsPort: 851 },
+        { name: 'Cell4', runsOn: 'plc', mode: 'eip', eipGateway: '10.0.0.9', eipPath: '1,0' },
+        { name: 'Cell5', runsOn: 'plc', mode: 'opcua', opcUaEndpoint: 'opc.tcp://plc:4840', opcUaBrowseFrom: [] },
+        { name: 'Cell6', runsOn: 'plc', mode: 's7' },
       ],
     } as unknown as PlcSetup
-    expect(browsableControllers(setup)).toEqual([
-      { name: null, label: 'PLC1', netId: '5.170.233.29.1.1', port: 851 },
-      { name: 'Cell2', label: 'Cell2', netId: '', port: 852 },
+    expect(connectableControllers(setup)).toEqual([
+      { name: null, label: 'PLC1', source: { kind: 'ads', netId: '5.170.233.29.1.1', port: 851 } },
+      { name: 'Cell2', label: 'Cell2', source: { kind: 'ads', netId: '', port: 852 } },
+      { name: 'Cell4', label: 'Cell4', source: { kind: 'eip', gateway: '10.0.0.9', path: '1,0' } },
+      { name: 'Cell5', label: 'Cell5', source: { kind: 'opcua', endpoint: 'opc.tcp://plc:4840', from: [] } },
+    ])
+    // the default controller run by the simulator lists the program's variables; one on a Modbus PLC lists none
+    expect(connectableControllers({ ...setup, enabled: false, controllers: [] })).toEqual([{ name: null, label: 'PLC1', source: { kind: 'program' } }])
+    expect(connectableControllers({ ...setup, mode: 'serve', controllers: [] })).toEqual([])
+  })
+
+  it("lists the program's bits and numbers by instance, with which way the program uses each", () => {
+    const groups = programVariableGroups([
+      { name: 'Run', type: 'BOOL', dir: 'out' },
+      { name: 'Main.Eye', type: 'BOOL', dir: 'in' },
+      { name: 'Main.Count', type: 'DINT' },
+      { name: 'Main.Label', type: 'STRING' },
+      { name: 'Main.T1', type: 'TON' },
+    ])
+    expect(groups).toEqual([
+      { name: '', variables: [{ name: 'Run', short: 'Run', typeName: 'BOOL', kind: 'bool', dir: 'out' }] },
+      {
+        name: 'Main',
+        variables: [
+          { name: 'Main.Count', short: 'Count', typeName: 'DINT', kind: 'number' },
+          { name: 'Main.Eye', short: 'Eye', typeName: 'BOOL', kind: 'bool', dir: 'in' },
+        ],
+      },
     ])
   })
 })

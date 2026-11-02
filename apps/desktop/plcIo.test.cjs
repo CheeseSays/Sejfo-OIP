@@ -58,7 +58,7 @@ async function main() {
 
   assert.deepEqual(await ipc.invoke('plcio:listen', win, { link: 1, host: '127.0.0.1', port: base + 1 }), { error: '' })
   assert.deepEqual(await ipc.invoke('plcio:listen', win, { link: 2, host: '127.0.0.1', port: base + 2 }), { error: '' })
-  assert.deepEqual(await ipc.invoke('plcio:listen', win, { link: 99, host: '127.0.0.1', port: base + 3 }), { error: 'not a link number (0-32)' })
+  assert.deepEqual(await ipc.invoke('plcio:listen', win, { link: 99, host: '127.0.0.1', port: base + 3 }), { error: 'not a link number (0-31)' })
 
   const a = await dial(base + 1)
   const b = await dial(base + 2)

@@ -18,6 +18,7 @@ import { MAX_NAMED_PLCS, servePortClash } from '../../store/storePrefs'
 import { statusLine } from '../../links/externalPlcStatus'
 import { plcOfProgram } from '../../../plc'
 import { CommitField, ConnectionsButton, PlcLinkFields, useLinkStatus, WHY_NOT } from './ExternalPlcSection'
+import { linkSource } from '../../program/plcConnections'
 import { UaServerFields, UaServerHead, useServerStatus } from './OpcUaServerSection'
 import { defineMessages, t } from '../../../core/i18n'
 
@@ -166,7 +167,7 @@ interface NamedPlcProps {
   open: boolean
   onToggle: () => void
   onRenamed: (to: string) => void
-  /** open PLC Connections for this controller; offered while it is a PLC over ADS */
+  /** open PLC Connections for this controller; offered while it is a PLC that lists its variables (ADS, EtherNet/IP, OPC UA) */
   onConnections?: () => void
 }
 
@@ -221,7 +222,7 @@ function NamedPlc({ store, state, controller, link, locked, available, open, onT
         <button type="button" className="ctl-btn" title={t(M.removeTitle)} disabled={locked} onClick={() => store.setNamedPlc(link.name, null)} data-testid={`${tid}-remove`}>
           {t(M.remove)}
         </button>
-        {onConnections && !simulated && link.mode === 'ads' && available && (
+        {onConnections && !simulated && linkSource(link) !== null && available && (
           <ConnectionsButton title={t(M.connectionsTitle)} label={t(M.connections)} onClick={onConnections} testId={`${tid}-connections`} />
         )}
       </div>

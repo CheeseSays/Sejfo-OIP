@@ -51,3 +51,12 @@ test('a link that was never opened says so rather than listing', async () => {
   assert.equal(typeof r.error, 'string')
   assert.notEqual(r.error, '')
 })
+
+test("the PLC connections window's link number is past every controller's, and only a listing protocol takes it", () => {
+  const { BROWSE_LINK, MAX_LINKS, linkNo, listingLinkNo } = require('./linkKeys.cjs')
+  assert.equal(BROWSE_LINK, MAX_LINKS)
+  assert.equal(linkNo({ link: MAX_LINKS - 1 }), MAX_LINKS - 1)
+  assert.equal(linkNo({ link: BROWSE_LINK }), null)
+  assert.equal(listingLinkNo({ link: BROWSE_LINK }), BROWSE_LINK)
+  assert.equal(listingLinkNo({ link: BROWSE_LINK + 1 }), null)
+})

@@ -27,5 +27,9 @@ The first public source release. The [README](README.md#features) lists what it 
 - Scene Properties splits **Units** into **Speed** and **Length**. Speed is m/s or FPM, which its conveyors' speed
   tags carry. Length shows every length in metres, millimetres or inches, display only. A scene saved with Units
   **Metric (mm, m/s)** opens as Metric (m/s) with Length in millimetres.
+- **PLC connections…** beside a controller: its variables, grouped by program or list, beside the scene's machines and
+  their tag fields. They come from the simulator's own program, or are read from a TwinCAT PLC over ADS, a Logix
+  controller over EtherNet/IP or an OPC UA server. Picking a field and a variable wires them, writing the name into the
+  field as the Inspector's Comms group would.
 
 Earlier development history is not part of this repository.

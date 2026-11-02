@@ -5,6 +5,7 @@
 // which is what a test's host sends.
 
 import { controllerTag, tagsForController } from '../../core/io/controllerTag'
+import { MAX_SCENE_PLCS } from '../../core/scene/scenePlcs'
 import type { TagValue } from '../../plc/types'
 import type { AdsHost, EipHost, ExternalPlcLink, ExternalPlcStatus, OpcUaHost, PlcIoHost } from './externalPlcStatus'
 import type { OpcUaServerHost } from './opcUaServer'
@@ -77,6 +78,7 @@ export function eipForLink(host: EipHost, link: number): EipHost {
     open: (opts) => host.open({ ...opts, link }),
     bind: (opts) => host.bind({ ...opts, link }),
     exchange: (opts) => host.exchange({ ...opts, link }),
+    ...(host.tags ? { tags: () => host.tags!({ link }) } : {}),
     close: () => host.close({ link }),
   }
 }
@@ -86,6 +88,12 @@ export function adsForLink(host: AdsHost, link: number): AdsHost {
     open: (opts) => host.open({ ...opts, link }),
     bind: (opts) => host.bind({ ...opts, link }),
     exchange: (opts) => host.exchange({ ...opts, link }),
+    ...(host.symbols ? { symbols: () => host.symbols!({ link }) } : {}),
     close: () => host.close({ link }),
   }
 }
+
+/** The shell's link number the PLC connections window lists a PLC's variables on (apps/desktop/linkKeys.cjs BROWSE_LINK):
+ *  one past every controller's (0 to MAX_SCENE_PLCS - 1), so a list read during a run opens a connection of its own
+ *  beside theirs. Only the shell's ADS, EtherNet/IP and OPC UA links take it. */
+export const BROWSE_LINK = MAX_SCENE_PLCS

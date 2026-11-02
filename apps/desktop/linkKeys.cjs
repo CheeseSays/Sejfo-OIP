@@ -2,14 +2,24 @@
 // controller's, and each named controller (`Cell2::%IX0.0`, src/core/io/controllerTag.ts) has a number of its own
 // (src/editor/links/linkHosts.ts). A call without `link` is link 0. plcIo.cjs, opcUaIo.cjs, eipIo.cjs and adsIo.cjs
 // key their links by window and number through this, and opcUaServer.cjs each simulated controller's OPC UA server.
+// A scene has at most 32 controllers (src/core/scene/scenePlcs.ts MAX_SCENE_PLCS, which a unit test ties to MAX_LINKS),
+// links 0-31. One more number, BROWSE_LINK, is for the PLC connections window (src/editor/links/linkHosts.ts): a short
+// connection that lists a PLC's variables while a run may hold the controller's own link. Only the protocols that can
+// list a PLC's variables (adsIo.cjs, eipIo.cjs, opcUaIo.cjs) take it, through listingLinkNo.
 
 const MAX_LINKS = 32
+const BROWSE_LINK = MAX_LINKS
 
 /** The link number a call names: a whole number below {@link MAX_LINKS}, 0 when absent, null when malformed. */
 function linkNo(opts) {
   const raw = opts?.link
   if (raw === undefined) return 0
   return Number.isInteger(raw) && raw >= 0 && raw < MAX_LINKS ? raw : null
+}
+
+/** {@link linkNo}, and BROWSE_LINK as well: for a protocol that lists a PLC's variables. */
+function listingLinkNo(opts) {
+  return opts?.link === BROWSE_LINK ? BROWSE_LINK : linkNo(opts)
 }
 
 /** The map key of a window's link `link`. */
@@ -45,4 +55,4 @@ function onPageGone(sender, watched, close) {
 
 const BAD_LINK = 'not a link number (0-31)'
 
-module.exports = { MAX_LINKS, linkNo, linkKey, windowKeys, onPageGone, BAD_LINK }
+module.exports = { MAX_LINKS, BROWSE_LINK, linkNo, listingLinkNo, linkKey, windowKeys, onPageGone, BAD_LINK }

@@ -22,7 +22,7 @@
 const { execFileSync } = require('node:child_process')
 const { existsSync } = require('node:fs')
 const { join } = require('node:path')
-const { BAD_LINK, linkKey, linkNo, onPageGone, windowKeys } = require('./linkKeys.cjs')
+const { BAD_LINK, linkKey, listingLinkNo, onPageGone, windowKeys } = require('./linkKeys.cjs')
 
 /** How long the router waits for an answer before failing a request (0x745): inside the app's 1 s watchdog. */
 const ANSWER_MS = 500
@@ -425,7 +425,7 @@ async function shutdownAds() {
 function registerAdsIo(ipcMain, { consent }) {
   ipcMain.handle('ads:open', async (event, opts) => {
     const sender = event.sender
-    const n = linkNo(opts)
+    const n = listingLinkNo(opts)
     if (n === null) return { error: BAD_LINK }
     const key = linkKey(sender.id, n)
     const old = links.get(key)
@@ -454,7 +454,7 @@ function registerAdsIo(ipcMain, { consent }) {
     return opened
   })
   const withLink = async (event, opts, fn) => {
-    const n = linkNo(opts)
+    const n = listingLinkNo(opts)
     if (n === null) return { error: BAD_LINK }
     const link = links.get(linkKey(event.sender.id, n))
     if (!link) return { error: 'not connected' }
@@ -468,7 +468,7 @@ function registerAdsIo(ipcMain, { consent }) {
   ipcMain.handle('ads:symbols', (event, opts) => withLink(event, opts, (l) => l.listSymbols()))
   ipcMain.handle('ads:exchange', (event, opts) => withLink(event, opts, (l) => l.exchange(Array.isArray(opts?.writes) ? opts.writes : [], Array.isArray(opts?.reads) ? opts.reads : [])))
   ipcMain.handle('ads:close', async (event, opts) => {
-    const n = linkNo(opts)
+    const n = listingLinkNo(opts)
     if (n === null) return
     const key = linkKey(event.sender.id, n)
     const link = links.get(key)

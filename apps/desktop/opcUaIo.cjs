@@ -15,7 +15,7 @@
 
 const { join } = require('node:path')
 const { opcUaHost } = require('./endpointConsent.cjs')
-const { BAD_LINK, linkKey, linkNo, onPageGone, windowKeys } = require('./linkKeys.cjs')
+const { BAD_LINK, linkKey, listingLinkNo, onPageGone, windowKeys } = require('./linkKeys.cjs')
 
 let lib = null
 function opcua() {
@@ -467,7 +467,7 @@ async function closeFor(id) {
 
 /** Run `fn` on the link a call names, turning a missing link or a library error into `{error}`. */
 async function withLink(event, opts, fn) {
-  const n = linkNo(opts)
+  const n = listingLinkNo(opts)
   if (n === null) return { error: BAD_LINK }
   const link = links.get(linkKey(event.sender.id, n))
   if (!link) return { error: 'not connected' }
@@ -499,7 +499,7 @@ async function withLink(event, opts, fn) {
 function registerOpcUaIo(ipcMain, { pkiRoot, consent }) {
   ipcMain.handle('opcua:connect', async (event, opts) => {
     const sender = event.sender
-    const n = linkNo(opts)
+    const n = listingLinkNo(opts)
     if (n === null) return { error: BAD_LINK }
     const key = linkKey(sender.id, n)
     const mine = bump(key)
@@ -531,13 +531,13 @@ function registerOpcUaIo(ipcMain, { pkiRoot, consent }) {
   ipcMain.handle('opcua:browse', (event, opts) => {
     const roots = browseRoots(opts?.roots)
     if (roots === null) return { error: 'the start points are not browse paths or NodeIds' }
-    const link = linkNo(opts)
+    const link = listingLinkNo(opts)
     return withLink(event, opts, (l) => l.browse(roots, (found) => send(event.sender, 'opcua:progress', { link, found })))
   })
   ipcMain.handle('opcua:describe', (event, opts) => withLink(event, opts, async (l) => ({ nodes: await l.describe(Array.isArray(opts?.nodeIds) ? opts.nodeIds : []) })))
   ipcMain.handle('opcua:exchange', (event, opts) => withLink(event, opts, (l) => l.exchange(Array.isArray(opts?.writes) ? opts.writes : [], Array.isArray(opts?.reads) ? opts.reads : [])))
   ipcMain.handle('opcua:close', (event, opts) => {
-    const n = linkNo(opts)
+    const n = listingLinkNo(opts)
     if (n === null) return
     const key = linkKey(event.sender.id, n)
     bump(key)

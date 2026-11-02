@@ -21,6 +21,8 @@
 // editor/links/externalPlc.ts.
 
 import { looksLikeAddress } from './iecAddress'
+import { groupVariables } from './plcVariables'
+import type { PlcVariable, PlcVariableGroup } from './plcVariables'
 
 /** A scene tag the link carries, and which way. */
 export interface OpcUaPoint {
@@ -178,6 +180,25 @@ export function matchOpcUaTag(tag: string, variables: readonly OpcUaVariable[]):
  * NodeId). A browse name holding a dot is quoted, so it reads back as one segment. Sorted.
  */
 export function opcUaTagNames(variables: readonly OpcUaVariable[]): string[] {
+  return opcUaNamed(variables)
+    .map((n) => n.name)
+    .sort((a, b) => a.localeCompare(b))
+}
+
+/**
+ * The browse as the PLC connections window shows it: the variables {@link opcUaTagNames} names, grouped by the folder or
+ * object they sit in (its browse path, `/` between segments). A browse reads no types, so none is given.
+ */
+export function opcUaVariableGroups(variables: readonly OpcUaVariable[]): PlcVariableGroup[] {
+  const folder = new Map<string, string>()
+  const named: PlcVariable[] = opcUaNamed(variables).map((n) => {
+    folder.set(n.name, n.variable.path.slice(0, -1).join('/'))
+    return { name: n.name, short: n.variable.path[n.variable.path.length - 1]!, typeName: '', kind: null }
+  })
+  return groupVariables(named, (v) => folder.get(v.name) ?? '')
+}
+
+function opcUaNamed(variables: readonly OpcUaVariable[]): { name: string; variable: OpcUaVariable }[] {
   const key = (segs: readonly string[]): string => segs.join('\u0000').toLowerCase()
   // how many variables' paths end in each run of segments: a run held by one variable names it
   const ends = new Map<string, number>()
@@ -191,18 +212,18 @@ export function opcUaTagNames(variables: readonly OpcUaVariable[]): string[] {
   const parents = new Set(variables.map((v) => v.path.slice(0, -1).join('\u0000')))
   // only the segments a name uses must be typeable: a path may run through a device name holding spaces
   const spellable = (seg: string): boolean => seg !== '' && !/[\s/"]/.test(seg)
-  const out: string[] = []
+  const out: { name: string; variable: OpcUaVariable }[] = []
   for (const v of variables) {
     if (v.path.some((seg) => /[[\]]/.test(seg)) || parents.has(v.path.join('\u0000'))) continue
     for (let k = 1; k <= v.path.length; k++) {
       const tail = v.path.slice(v.path.length - k)
       if (ends.get(key(tail)) !== 1) continue
       const name = tail.map((seg) => (seg.includes('.') ? `"${seg}"` : seg)).join('.')
-      if (tail.every(spellable) && !NODE_ID.test(name) && !looksLikeAddress(name)) out.push(name)
+      if (tail.every(spellable) && !NODE_ID.test(name) && !looksLikeAddress(name)) out.push({ name, variable: v })
       break
     }
   }
-  return out.sort((a, b) => a.localeCompare(b))
+  return out
 }
 
 /**

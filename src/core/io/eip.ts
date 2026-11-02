@@ -14,6 +14,8 @@
 
 import { looksLikeAddress } from './iecAddress'
 import type { SceneTagWiring } from './opcUa'
+import { groupVariables } from './plcVariables'
+import type { PlcVariable, PlcVariableGroup } from './plcVariables'
 
 /** A scene tag the link carries, and which way. */
 export interface EipPoint {
@@ -177,13 +179,28 @@ export interface EipListedTag {
  */
 export function eipTagNames(tags: readonly EipListedTag[]): string[] {
   return tags
-    .filter((t) => {
-      const code = t.type & 0xff
-      if ((t.type & 0xf000) !== 0 || !CIP[code] || ((t.type & 0x0f00) !== 0 && code !== 0xc1)) return false
-      return TAG_NAME.test(t.name) && !isBitTag(t.name) && !/(^|\.)__/.test(t.name)
-    })
+    .filter(eipWireable)
     .map((t) => t.name)
     .sort((a, b) => a.localeCompare(b))
+}
+
+function eipWireable(t: EipListedTag): boolean {
+  const code = t.type & 0xff
+  if ((t.type & 0xf000) !== 0 || !CIP[code] || ((t.type & 0x0f00) !== 0 && code !== 0xc1)) return false
+  return TAG_NAME.test(t.name) && !isBitTag(t.name) && !/(^|\.)__/.test(t.name)
+}
+
+/**
+ * The listing as the PLC connections window shows it: the tags {@link eipTagNames} keeps, the controller's own in the
+ * '' group first, then one group per program (`Program:MainProgram`).
+ */
+export function eipVariableGroups(tags: readonly EipListedTag[]): PlcVariableGroup[] {
+  const variables: PlcVariable[] = tags.filter(eipWireable).map((t) => {
+    const scoped = /^(Program:[^.]+)\.(.+)$/.exec(t.name)
+    const c = CIP[t.type & 0xff]!
+    return { name: t.name, short: scoped ? scoped[2]! : t.name, typeName: c.name, kind: c.kind === 'bool' ? 'bool' : 'number' }
+  })
+  return groupVariables(variables, (v) => (v.name === v.short ? '' : v.name.slice(0, v.name.length - v.short.length - 1)), (g) => (g === '' ? 0 : 1))
 }
 
 /** Why the controller's tags could not be listed, from libplctag's status for the listing. */

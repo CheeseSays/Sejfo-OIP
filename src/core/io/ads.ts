@@ -16,6 +16,8 @@
 
 import { looksLikeAddress } from './iecAddress'
 import type { SceneTagWiring } from './opcUa'
+import { groupVariables } from './plcVariables'
+import type { PlcVariable, PlcVariableGroup } from './plcVariables'
 
 /** A scene tag the link carries, and which way. */
 export interface AdsPoint {
@@ -105,9 +107,28 @@ export interface AdsSymbol {
  */
 export function adsTagNames(symbols: readonly AdsSymbol[]): string[] {
   return symbols
-    .filter((s) => SYMBOL.test(s.name) && ADST[s.adsType]?.size === adsBytes(s.adsType, s.size))
+    .filter(adsWireable)
     .map((s) => s.name)
     .sort((a, b) => a.localeCompare(b))
+}
+
+/** Whether a part's tag can be wired to a symbol: a symbol path whose type is a single bit or number at its own size. */
+function adsWireable(s: AdsSymbol): boolean {
+  return SYMBOL.test(s.name) && ADST[s.adsType]?.size === adsBytes(s.adsType, s.size)
+}
+
+/**
+ * The symbol table as the PLC connections window lists it: the symbols {@link adsTagNames} keeps, grouped by the program
+ * or list a name starts with. MAIN comes first, as the program a new TwinCAT project starts with; TwinCAT's own lists
+ * (`TwinCAT_SystemInfoVarList`) come last.
+ */
+export function adsSymbolGroups(symbols: readonly AdsSymbol[]): PlcVariableGroup[] {
+  const variables: PlcVariable[] = symbols.filter(adsWireable).map((s) => {
+    const t = ADST[s.adsType]!
+    return { name: s.name, short: s.name.slice(s.name.indexOf('.') + 1), typeName: s.typeName || t.name, kind: t.kind === 'bool' ? 'bool' : 'number' }
+  })
+  const rank = (g: string): number => (g.toUpperCase() === 'MAIN' ? 0 : g.startsWith('TwinCAT_') ? 2 : 1)
+  return groupVariables(variables, (v) => v.name.slice(0, v.name.indexOf('.')), rank)
 }
 
 /** An ADS code as a sentence, with this PC's AMS Net ID where a route back to it is the cure. */

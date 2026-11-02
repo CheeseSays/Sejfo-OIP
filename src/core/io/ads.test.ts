@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { adsErrorText, adsPointsFromTags, adsRouteText, adsStale, adsSymbolMessage, adsTagNames, adsUnreachable, bindAdsPoint, fromAdsValue, isAmsNetId, toAdsValue } from './ads'
+import { adsErrorText, adsPointsFromTags, adsRouteText, adsStale, adsSymbolGroups, adsSymbolMessage, adsTagNames, adsUnreachable, bindAdsPoint, fromAdsValue, isAmsNetId, toAdsValue } from './ads'
 
 const wired = (name: string, dir: 'w' | 'r', type: 'BOOL' | 'INT' | 'DINT' | 'REAL' | null = 'BOOL') =>
   ({ name, type, writers: dir === 'w' ? ['p.tag'] : [], readers: dir === 'r' ? ['p.tag'] : [] }) as never
@@ -93,5 +93,32 @@ describe('the symbol table as the tag picker lists it', () => {
     expect(adsRouteText(0x7, '10.0.0.5.1.1')).toMatch(/This PC's AMS Net ID is 10\.0\.0\.5\.1\.1$/)
     expect(adsRouteText(0x7, '')).toBe(adsErrorText(0x7))
     expect(adsRouteText(0x710, '10.0.0.5.1.1')).toBe(adsErrorText(0x710))
+  })
+})
+
+describe('the symbol table as the PLC connections window lists it', () => {
+  const sym = (name: string, typeName: string, adsType: number, size: number) => ({ name, typeName, adsType, size })
+
+  it('groups by program or list, MAIN first and the TwinCAT system lists last, keeping bits and numbers only', () => {
+    const groups = adsSymbolGroups([
+      sym('TwinCAT_SystemInfoVarList._AppInfo', 'PlcAppSystemInfo', 65, 120),
+      sym('GVL.Speed', 'REAL', 4, 4),
+      sym('MAIN.tCycle', 'TON', 65, 32),
+      sym('MAIN.Extend', 'BOOL', 33, 1),
+      sym('MAIN.Cycles', 'UDINT', 19, 4),
+      sym('MAIN.Label', 'STRING(80)', 30, 81),
+      sym('TwinCAT_SystemInfoVarList._TaskOid', 'OTCID', 19, 4),
+    ])
+    expect(groups.map((g) => g.name)).toEqual(['MAIN', 'GVL', 'TwinCAT_SystemInfoVarList'])
+    expect(groups[0]!.variables).toEqual([
+      { name: 'MAIN.Cycles', short: 'Cycles', typeName: 'UDINT', kind: 'number' },
+      { name: 'MAIN.Extend', short: 'Extend', typeName: 'BOOL', kind: 'bool' },
+    ])
+  })
+
+  it('lists the same variables as the tag picker', () => {
+    const table = [sym('MAIN.Extend', 'BOOL', 33, 0), sym('Loose', 'BOOL', 33, 1), sym('MAIN.Odd', 'INT', 2, 4), sym('GVL.Speed', 'REAL', 4, 4)]
+    const listed = adsSymbolGroups(table).flatMap((g) => g.variables.map((v) => v.name))
+    expect(listed.sort()).toEqual(adsTagNames(table))
   })
 })

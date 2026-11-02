@@ -15,6 +15,7 @@ import type { LinkFieldOwner, LinkNote } from '../../../core/rig/rigPose'
 import { AUTHORABLE_SHAPE_KINDS, canDeleteRigNode, convertShape, isAuthorableShapeKind, shapeLabel } from '../../rigTree'
 import { keptNodes, movingPartCentre, reparentTargets, rigPivot, splitSourcesFor } from '../../rigSplit'
 import { drawnElsewhere, meshLinkBox, parseGlb } from '../../../core/glbBox'
+import { canSpin, canTwoPositions, DEFAULT_STROKE_TIME, readJointPlcConfig, type JointPlcMode } from '../../jointPlcControl'
 import { base64ToBytes } from '../../../core/parts/partAssets'
 import type { AuthorableShapeKind } from '../../rigTree'
 import type { EditorStore } from '../../store/store'
@@ -119,6 +120,7 @@ const M = defineMessages('inspector.rigNode', {
   name: 'Name',
   jointNameTip: "The name the behavior script drives this joint by: ctx.setJoint('{name}', value), or ctx.joints.{name} = value.",
   jointNameFixed: "The behavior script uses “{name}”, so it can't be renamed here. Change it in the script first (Edit Behavior…), then here.",
+  jointNamePlc: "PLC control drives “{name}”, so it can't be renamed here. Set PLC control to None, rename it, then choose Two positions again.",
   jointNameFreeTip:
     "The name the behavior script drives this joint by: ctx.setJoint('{name}', value), or ctx.joints.{name} = value. The script doesn't use it yet, so it can be renamed freely.",
   jointNeedsName: 'A joint needs a name.',
@@ -165,6 +167,16 @@ const M = defineMessages('inspector.rigNode', {
   testMotion: 'Test motion',
   stopTest: 'Stop test',
   testMotionTip: 'Move the joint from Min to Max and back twice, then return it to rest, to check the axis and limits. Works while the simulation is stopped.',
+  plcControl: 'PLC control',
+  plcControlTip: 'How a PLC drives this joint without code. Two positions and Spin write the behavior script for you; None leaves the script to you.',
+  plcNone: 'None (behavior code)',
+  plcTwoPositions: 'Two positions',
+  plcSpin: 'Spin',
+  plcSpinHint: "On each placed copy, the Comms fields name the PLC variables: Run is a BOOL the program writes (TRUE spins), Speed (rpm) an optional REAL it writes (empty: the copy's own speed, up to {rpm} rpm, the Speed above), At speed a BOOL it reads. Example names: Run, Speed, AtSpeed (MAIN.Run on TwinCAT).",
+  strokeTime: 'Stroke time',
+  strokeTimeTip: 'Time the joint takes from A to B, and back. Each placed copy can change it in its own Inspector.',
+  plcHint: 'A is Min and B is Max. On each placed copy, the Comms fields name the PLC variables: Command (to B) is a BOOL the program writes, At A and At B are BOOLs it reads. Example names: ToB, AtA, AtB (MAIN.ToB on TwinCAT).',
+  plcReplace: 'This part has its own behavior script. Two positions writes a new one in its place. Undo brings yours back. Continue?',
   removeJoint: 'Remove joint',
   addJointTip: 'Make this node articulated: add a joint the behavior script drives with ctx.setJoint(name, …)',
   addJoint: 'Add joint',
@@ -614,6 +626,14 @@ export function RigNodePanel({
       ? editJoint({ min: 0, max: TURN, servo: { maxVelocity: rpmToRad(60), maxAccel: rpmToRad(60) / 0.5, modulo: TURN } })
       : editJoint({ min: -Math.PI / 2, max: Math.PI / 2, servo: null })
   const spinServo = spinning ? joint!.servo! : null
+  // Two positions: the panel writes the behavior (jointPlcControl.ts) and reads the mode back from it
+  const plcConfig = readJointPlcConfig(ownPkg?.behavior ?? '')
+  const plcMode = joint ? (plcConfig?.[joint.name] ?? null) : null
+  const twoPositions = plcMode?.mode === 'twoPositions' ? plcMode : null
+  const spinPlc = plcMode?.mode === 'spin'
+  const setPlcControl = (mode: JointPlcMode | null): void => {
+    if (joint) controller?.rig.setJointPlcControl(part.packageId, joint.name, mode, () => window.confirm(t(M.plcReplace)))
+  }
   const setSpinSpeed = (rpm: number): void => {
     if (!spinServo) return
     const w = rpmToRad(Math.max(1, rpm))
@@ -975,7 +995,7 @@ export function RigNodePanel({
                 {row(t(M.name), joint.name, t(M.jointNameTip, { name: joint.name }))}
                 {jointMentioned && (
                   <p className="inspector-hint" data-testid="joint-name-fixed">
-                    {t(M.jointNameFixed, { name: joint.name })}
+                    {t(plcMode ? M.jointNamePlc : M.jointNameFixed, { name: joint.name })}
                   </p>
                 )}
               </>
@@ -1038,11 +1058,16 @@ export function RigNodePanel({
                   <>
                     <NumberField label={t(M.spinSpeed)} unit="rpm" tooltip={t(M.spinSpeedTip)} value={radToRpm(spinServo.maxVelocity)} decimals={0} step={10} min={1} disabled={!editable} onCommit={setSpinSpeed} />
                     <NumberField label={t(M.spinUp)} unit="s" tooltip={t(M.spinUpTip)} value={spinServo.maxVelocity / spinServo.maxAccel} decimals={2} step={0.1} min={0.01} disabled={!editable} onCommit={setSpinUp} />
-                    <p className="inspector-hint" data-testid="spin-hint">
-                      {t(M.spinHint)}
-                    </p>
-                    {/* i18n-ok: behavior code, as the script spells it */}
-                    <pre className="rig-code" data-testid="spin-code">{`servos: [${JSON.stringify(joint.name)}],\nstep(ctx) {\n  const on = true\n  const s = ctx.servos[${JSON.stringify(joint.name)}]\n  s.power(true)\n  s.moveVelocity(on ? ${Number(spinServo.maxVelocity.toFixed(3))} : 0) // rad/s\n},`}</pre>
+                    {/* with Spin as its PLC control the panel writes these lines itself (jointPlcControl.ts) */}
+                    {!spinPlc && (
+                      <>
+                        <p className="inspector-hint" data-testid="spin-hint">
+                          {t(M.spinHint)}
+                        </p>
+                        {/* i18n-ok: behavior code, as the script spells it */}
+                        <pre className="rig-code" data-testid="spin-code">{`servos: [${JSON.stringify(joint.name)}],\nstep(ctx) {\n  const on = true\n  const s = ctx.servos[${JSON.stringify(joint.name)}]\n  s.power(true)\n  s.moveVelocity(on ? ${Number(spinServo.maxVelocity.toFixed(3))} : 0) // rad/s\n},`}</pre>
+                      </>
+                    )}
                   </>
                 ) : (
                   <>
@@ -1085,6 +1110,38 @@ export function RigNodePanel({
                 <NumberField label={t(M.min)} unit="m" tooltip={t(M.minTravelTip)} value={joint.min} decimals={3} step={lenStep} disabled={!editable} onCommit={(v) => editJoint({ min: v })} />
                 <NumberField label={t(M.max)} unit="m" tooltip={t(M.maxTravelTip)} value={joint.max} decimals={3} step={lenStep} disabled={!editable} onCommit={(v) => editJoint({ max: v })} />
               </>
+            )}
+            {(plcMode || canTwoPositions(joint) || canSpin(joint)) && (
+              <label className="field">
+                <span className="field-label" title={t(M.plcControlTip)}>
+                  {t(M.plcControl)}
+                </span>
+                <span className="field-control">
+                  <select
+                    className="rig-select"
+                    data-testid="plc-control"
+                    value={plcMode?.mode ?? 'none'}
+                    disabled={!editable}
+                    onChange={(e) => setPlcControl(e.target.value === 'twoPositions' ? { mode: 'twoPositions', time: DEFAULT_STROKE_TIME } : e.target.value === 'spin' ? { mode: 'spin' } : null)}
+                  >
+                    <option value="none">{t(M.plcNone)}</option>
+                    {canSpin(joint) ? <option value="spin">{t(M.plcSpin)}</option> : <option value="twoPositions">{t(M.plcTwoPositions)}</option>}
+                  </select>
+                </span>
+              </label>
+            )}
+            {twoPositions && (
+              <>
+                <NumberField label={t(M.strokeTime)} unit="s" tooltip={t(M.strokeTimeTip)} value={twoPositions.time} decimals={2} step={0.1} min={0.05} disabled={!editable} onCommit={(v) => setPlcControl({ mode: 'twoPositions', time: Math.max(0.05, v) })} />
+                <p className="inspector-hint" data-testid="plc-hint">
+                  {t(M.plcHint)}
+                </p>
+              </>
+            )}
+            {spinPlc && spinServo && (
+              <p className="inspector-hint" data-testid="plc-spin-hint">
+                {t(M.plcSpinHint, { rpm: Math.round(radToRpm(spinServo.maxVelocity)) })}
+              </p>
             )}
             {poseRange &&
               (revolute ? (

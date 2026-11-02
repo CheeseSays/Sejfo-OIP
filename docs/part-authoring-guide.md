@@ -1030,6 +1030,18 @@ The Part Editor writes the same carving for you. Import the model onto a node (*
    **Speed** in rpm (`maxVelocity`) and a **Spin-up time** (`maxVelocity / maxAccel`). A servo is posed by the host,
    so the behavior runs it with `ctx.servos[name].moveVelocity(...)` instead of `setJoint`. The panel shows those
    lines with the speed filled in. Test motion then turns it at that speed.
+7. **PLC control** sets how a PLC moves the joint without code. **None** (the default) leaves the behavior to you.
+   **Two positions** writes the whole behavior script: per joint, a BOOL `Command (to B)` tag in, `At A` and `At B`
+   BOOL tags out and a **Stroke time** (s). The joint moves from A (Min) to B (Max) at a constant speed while the
+   command is TRUE and back while it is FALSE. A joint whose limits follow a param (`minParam` / `maxParam`) can't
+   take it, since the script writes Min and Max as numbers. On each placed copy the Comms fields name the PLC variables (`ToB`
+   for the built-in PLC, `MAIN.ToB` over ADS). On a joint that spins endlessly the mode is **Spin** instead: a BOOL
+   `Run` tag in (TRUE spins), an optional REAL `Speed (rpm)` tag in (empty: the copy's own Speed, up to the joint's
+   Speed), and a BOOL `At speed` tag out; the host runs the servo. The script keeps its settings on an `// oip-panel` line and is
+   written again when a joint's PLC control or limits change or its node is deleted or merged back, so edits to it
+   are lost. Each joint's param keys are kept on that line too, so a placed copy's tag names stay bound when other
+   joints change. A script you wrote is replaced
+   only after a confirm, and setting every joint back to None gives the empty template.
 
 A piece split under the wrong node can be fixed two ways. **Merge back into model** removes the piece with its
 joint, so the model draws it again, and the pieces under it move up. **Delete** does the same for the node and

@@ -1,14 +1,20 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import type { PartPackage, RigJoint } from '../../core/parts/partPackage'
 import { registerPackage, unregisterPackage } from '../../core/parts/partRegistry'
-import { buildPackage } from '../../sim/buildPackage'
-import { setRigJoint, type AuthoringDeps } from './partAuthoring'
+import { buildPackage, manifestOfPackage } from '../../sim/buildPackage'
+import { validatePart } from '../../sim/validatePart'
+import { jointPlcBehavior, readJointPlcConfig } from '../jointPlcControl'
+import { deleteRigNode, setRigJoint, type AuthoringDeps } from './partAuthoring'
 
 const ID = 'test.joint-fields'
 const turn = 2 * Math.PI
 
 // a part whose joints carry the fields the Joint section does not edit
 function register(...joints: RigJoint[]): void {
+  registerWith("definePart({ params: { angleDeg: { type: 'number', default: 0 } }, step(ctx) {} })", ...joints)
+}
+
+function registerWith(behavior: string, ...joints: RigJoint[]): void {
   const pkg = buildPackage(
     {
       id: ID,
@@ -23,7 +29,7 @@ function register(...joints: RigJoint[]): void {
         joints,
       },
     },
-    "definePart({ params: { angleDeg: { type: 'number', default: 0 } }, step(ctx) {} })",
+    behavior,
   )
   registerPackage(pkg)
 }
@@ -87,5 +93,23 @@ describe('setRigJoint', () => {
     register({ name: 'spindle', link: 'arm', type: 'revolute', axis: [0, 1, 0], min: 0, max: turn, servo })
     const off = edit({ type: 'revolute', axis: [0, 1, 0], min: -1, max: 1, servo: null })
     expect(off.geometry.kind === 'rig' && off.geometry.joints[0]!.servo).toBeUndefined()
+  })
+})
+
+describe('deleteRigNode', () => {
+  afterEach(() => void unregisterPackage(ID))
+
+  it('writes the PLC control script again without a joint whose node is deleted, so the part still builds', () => {
+    const shoulder: RigJoint = { name: 'shoulder', link: 'arm', type: 'revolute', axis: [0, 1, 0], min: -1, max: 1 }
+    const wrist: RigJoint = { name: 'wrist', link: 'hand', type: 'revolute', axis: [0, 1, 0], min: -1, max: 1 }
+    const config = { shoulder: { mode: 'twoPositions' as const, time: 1 }, wrist: { mode: 'twoPositions' as const, time: 1 } }
+    registerWith(jointPlcBehavior('Joint fields', config, [shoulder, wrist]), shoulder, wrist)
+    let committed: PartPackage | undefined
+    const ec = {
+      store: { commitPackage: (_label: string, pkg: PartPackage) => void (committed = pkg), getState: () => ({ focusedPartId: null }) },
+    } as unknown as AuthoringDeps
+    deleteRigNode(ec, ID, 'hand')
+    expect(Object.keys(readJointPlcConfig(committed!.behavior)!)).toEqual(['shoulder'])
+    expect(validatePart(manifestOfPackage(committed!), committed!.behavior).diagnostics).toEqual([])
   })
 })

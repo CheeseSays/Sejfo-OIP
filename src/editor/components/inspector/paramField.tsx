@@ -908,12 +908,12 @@ function useProgramTagWord(tag: string, spec: TagMarkSpec, replaces: string | un
 /**
  * When the scene's OPC UA PLC has been read: a tag the PLC does not hold, or holds more than once, with the names
  * closest to it. The link would refuse it at Play anyway (core/io/opcUa.ts matchOpcUaTag); this is the same verdict,
- * before Play.
+ * before Play. Not over ADS or EtherNet/IP: their lists leave out the members of structures, which a tag may still name.
  */
 function usePlcTagWarning(tag: string): TagWarning | null {
   const plc = useContext(TagSourcesContext)?.plc
   return useMemo(() => {
-    if (!plc || plc.state !== 'ready' || tag === '' || tag.includes('/') || controllerOf(tag) !== null) return null
+    if (!plc || plc.protocol !== 'opcua' || plc.state !== 'ready' || tag === '' || tag.includes('/') || controllerOf(tag) !== null) return null
     const m = matchOpcUaTag(tag, plc.variables)
     if (!('error' in m)) return null
     const missing = m.error.startsWith('the PLC has no tag')

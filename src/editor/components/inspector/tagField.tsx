@@ -14,7 +14,7 @@
 import { createContext, useContext, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import { controllerSpelledAs, controllerTag, splitControllerTag } from '../../../core/io/controllerTag'
-import type { PlcTagList } from '../../links/externalPlc'
+import type { PlcTagList, PlcTagProtocol } from '../../links/externalPlc'
 import type { ProgramCheck, ProgramTag } from '../../program/tagVerdicts'
 import { loadProgramTags, programTagChoices, rankTagNames, tagMisfit } from './tagSuggest'
 import { defineMessages, t } from '../../../core/i18n'
@@ -29,6 +29,7 @@ const M = defineMessages('inspector.tagField', {
   onPlc: 'On the PLC',
   onPlcCount: { one: 'On the PLC ({n} tag)', other: 'On the PLC ({n} tags)' },
   readOnRun: "The PLC's tags are read when the scene runs.",
+  readWhenStopped: "Stop the scene to read the PLC's tags.",
   reading: 'Reading the tags of {endpoint}…',
   readFailed: "Could not read the PLC's tags: {error}",
   noAnswer: 'no answer',
@@ -56,13 +57,15 @@ const M = defineMessages('inspector.tagField', {
 export interface TagSources {
   /** the program with what it is compiled under: what a field suggests and says about its tag (program/tagVerdicts.ts) */
   check: ProgramCheck
-  /** the PLC's tag list, when the link is OPC UA and the list is of the PLC the settings name; else null */
+  /** the PLC's tag list, when the link is OPC UA, ADS or EtherNet/IP and the list is of the PLC the settings name; else null */
   plc: Readonly<PlcTagList> | null
-  /** the PLC's tags can be read from here (desktop app, OPC UA link, no run holding the link) */
+  /** the PLC's tags can be read from here (desktop app, a link that lists them, no run holding the link) */
   canReadPlc: boolean
   readPlc: () => void
-  /** the link is OPC UA, so a PLC section belongs in the list (it may still be empty) */
+  /** the link is one whose PLC lists its tags, so a PLC section belongs in the list (it may still be empty) */
   plcLinked: boolean
+  /** which link: an OPC UA run browses the PLC itself, while the others are read only while stopped. Absent: OPC UA */
+  plcProtocol?: PlcTagProtocol
   /** an external PLC link is on (any protocol): parts may be wired to its tags, so an empty program is not a gap */
   external: boolean
   /** the named controllers a tag may be put on: the ones the project lists and the ones the scene's tags name */
@@ -486,7 +489,7 @@ function plcSection(query: string, sources: TagSources, taken: ReadonlySet<strin
   const plc = sources.plc
   const read: Row | null = sources.canReadPlc ? { kind: 'action', label: t(plc ? M.readAgain : M.read), run: sources.readPlc } : null
   if (!plc) {
-    return { id: 'plc', title: t(M.onPlc), rows: read ? [read] : [], notes: read ? [] : [t(M.readOnRun)] }
+    return { id: 'plc', title: t(M.onPlc), rows: read ? [read] : [], notes: read ? [] : [t(sources.plcProtocol && sources.plcProtocol !== 'opcua' ? M.readWhenStopped : M.readOnRun)] }
   }
   if (plc.state === 'reading') return { id: 'plc', title: t(M.onPlc), rows: [], notes: [t(M.reading, { endpoint: plc.endpoint })] }
   if (plc.state === 'failed') return { id: 'plc', title: t(M.onPlc), rows: read ? [read] : [], notes: [t(M.readFailed, { error: plc.error ?? t(M.noAnswer) })] }

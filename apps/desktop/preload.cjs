@@ -220,6 +220,8 @@ contextBridge.exposeInMainWorld('oipEip', {
   bind: (opts) => ipcRenderer.invoke('eip:bind', opts),
   /** @param {{writes: {name: string, value: boolean|number}[], reads: string[]}} opts */
   exchange: (opts) => ipcRenderer.invoke('eip:exchange', opts),
+  /** @param {{link?: number}} [opts] @returns {Promise<{error: string, status?: string, tags?: {name: string, type: number}[]}>} */
+  tags: (opts) => ipcRenderer.invoke('eip:tags', opts),
   /** @param {{link?: number}} [opts] */
   close: (opts) => ipcRenderer.invoke('eip:close', opts),
 })
@@ -233,6 +235,8 @@ contextBridge.exposeInMainWorld('oipAds', {
   bind: (opts) => ipcRenderer.invoke('ads:bind', opts),
   /** @param {{writes: {name: string, value: boolean|number}[], reads: string[]}} opts */
   exchange: (opts) => ipcRenderer.invoke('ads:exchange', opts),
+  /** @param {{link?: number}} [opts] @returns {Promise<{error: string, code?: number, symbols?: {name: string, adsType: number, size: number, typeName: string}[]}>} */
+  symbols: (opts) => ipcRenderer.invoke('ads:symbols', opts),
   /** @param {{link?: number}} [opts] */
   close: (opts) => ipcRenderer.invoke('ads:close', opts),
 })

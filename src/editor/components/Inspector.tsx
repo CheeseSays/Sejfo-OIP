@@ -38,6 +38,7 @@ import { PartSceneProperties, SceneProperties } from './inspector/scene'
 import { TagSourcesContext } from './inspector/tagField'
 import type { TagSources } from './inspector/tagField'
 import type { PlcTagList } from '../links/externalPlc'
+import { adsEndpoint, eipEndpoint } from '../links/externalPlcStatus'
 import { defineMessages, t } from '../../core/i18n'
 import { tNodes } from '../i18nNodes'
 
@@ -187,8 +188,8 @@ export function Inspector(props: InspectorProps) {
 
 /**
  * What a tag field suggests beyond the scene (inspector/tagField.tsx): the program, and the PLC's tags when the
- * external link is OPC UA. The PLC's list is shown only while it is of the PLC the settings name: change the address
- * and the old list is not offered as the new PLC's.
+ * external link is OPC UA, ADS or EtherNet/IP. The PLC's list is shown only while it is of the PLC the settings name:
+ * change the address and the old list is not offered as the new PLC's.
  */
 function useTagSources(controller: EditorController | null, state: EditorState): TagSources {
   const [plcList, setPlcList] = useState<Readonly<PlcTagList> | null>(() => controller?.plcTagList ?? null)
@@ -199,11 +200,14 @@ function useTagSources(controller: EditorController | null, state: EditorState):
     return controller.onExternalPlcStatus(read)
   }, [controller])
   const settings = state.externalPlc
-  const linked = !!controller?.plcTagsAvailable && settings.mode === 'opcua'
+  const protocol = settings.mode === 'opcua' || settings.mode === 'ads' || settings.mode === 'eip' ? settings.mode : null
+  const linked = !!controller?.plcTagsAvailable && protocol !== null
   // a list read from another server, or from other start points, is not this link's
-  const from = settings.opcUaBrowseFrom
-  const plc = linked && plcList?.endpoint === settings.opcUaEndpoint && plcList.from.join(',') === from.join(',') ? plcList : null
-  const canReadPlc = linked && !state.running && settings.opcUaEndpoint.trim() !== ''
+  const from = protocol === 'opcua' ? settings.opcUaBrowseFrom.join(',') : ''
+  const endpoint = protocol === 'ads' ? adsEndpoint(settings.adsNetId, settings.adsPort) : protocol === 'eip' ? eipEndpoint(settings.eipGateway, settings.eipPath) : settings.opcUaEndpoint
+  const plc = linked && plcList?.protocol === protocol && plcList.endpoint === endpoint && plcList.from.join(',') === from ? plcList : null
+  // an empty AMS Net ID is this PC's runtime, so ADS can always be read
+  const canReadPlc = linked && !state.running && (protocol === 'ads' || (protocol === 'eip' ? settings.eipGateway : settings.opcUaEndpoint).trim() !== '')
   const program = state.stProgram
   const { stDialect: dialect, controller: table, stScanMs: scanMs } = state
   const check = useMemo(() => ({ source: program, dialect, controller: table, scanMs }), [program, dialect, table, scanMs])
@@ -215,8 +219,8 @@ function useTagSources(controller: EditorController | null, state: EditorState):
     return [...names, ...controllersUsed(parts).filter((n) => !names.includes(n))]
   }, [setUp, parts])
   return useMemo(
-    () => ({ check, plc, plcLinked: linked, external: settings.enabled, canReadPlc, readPlc: () => controller?.readPlcTags(), controllers, defaultName: settings.mainName }),
-    [check, plc, linked, settings.enabled, canReadPlc, controller, controllers, settings.mainName],
+    () => ({ check, plc, plcLinked: linked, plcProtocol: protocol ?? undefined, external: settings.enabled, canReadPlc, readPlc: () => controller?.readPlcTags(), controllers, defaultName: settings.mainName }),
+    [check, plc, linked, protocol, settings.enabled, canReadPlc, controller, controllers, settings.mainName],
   )
 }
 

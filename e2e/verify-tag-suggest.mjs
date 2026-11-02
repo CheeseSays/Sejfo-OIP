@@ -1,10 +1,11 @@
 // Verify a tag field's suggestions (src/editor/components/inspector/tagField.tsx): the scene's tags, the program's
-// (of the field's type only), and, when the external link is OPC UA, the PLC's. The PLC's tags are read on request
-// while stopped, listed only once something is typed, and picked by click or keyboard into the param. A tag the
-// PLC does not hold gets a "not on PLC" chip. The field's mark says what a binding does: a warning (undeclared, wrong
-// type, undriven), connected, or no program; the Speed field says a
-// bound speed tag replaces it. The PLC is a fake OPC UA host handed to the controller
-// (controller.opcUaHost is public for this): this tests the field, not the wire, which verify-external-plc-electron covers.
+// (of the field's type only), and, when the external link is OPC UA, ADS or EtherNet/IP, the PLC's. The PLC's tags are
+// read on request while stopped, listed only once something is typed, and picked by click or keyboard into the param.
+// A tag an OPC UA PLC does not hold gets a "not on PLC" chip; over ADS it gets none, since the symbol table leaves out
+// structure members. The field's mark says what a binding does: a warning (undeclared, wrong type, undriven),
+// connected, or no program; the Speed field says a bound speed tag replaces it. Each PLC is a fake host handed to the
+// controller (controller.opcUaHost, adsHost and eipHost are public for this): this tests the field, not the wire,
+// which verify-external-plc-electron covers.
 // Run: node e2e/verify-tag-suggest.mjs [--headed]
 /* global process, console, window, localStorage, document */
 import { startServer } from './_server.mjs'
@@ -164,6 +165,95 @@ async function main() {
     await page.evaluate(() => window.__oip.store.setExternalPlc({ mode: 'serve' }))
     await page.waitForTimeout(200)
     check('no PLC warning once the link is not OPC UA', (await badge.count()) === 0)
+
+    // ---- a fake TwinCAT PLC over ADS: its symbol table, read on request while stopped, as OPC UA's tree is
+    await page.evaluate(() => {
+      const { store, controller } = window.__oip
+      const sym = (name, typeName, adsType, size) => ({ name, typeName, adsType, size })
+      window.__fakeAds = { opens: 0, closes: 0 }
+      controller.adsHost = {
+        open: async () => {
+          window.__fakeAds.opens++
+          return { error: '', localNetId: '10.0.0.5.1.1' }
+        },
+        bind: async () => ({ error: '' }),
+        exchange: async () => ({ error: '' }),
+        symbols: async () => ({ error: '', code: 0, symbols: [sym('MAIN.Extend', 'BOOL', 33, 1), sym('GVL.Extend2', 'BOOL', 33, 1), sym('MAIN.tCycle', 'TON', 65, 32), sym('GVL.Speed', 'REAL', 4, 4)] }),
+        close: async () => {
+          window.__fakeAds.closes++
+        },
+      }
+      store.setExternalPlc({ mode: 'ads', adsNetId: '', adsPort: 851 })
+    })
+    await field.click()
+    await list.waitFor({ timeout: 5000 })
+    const adsRead = list.getByTestId('tag-suggest-plc').getByTestId('tag-suggest-action')
+    check('over ADS the PLC section offers to read its tags', (await adsRead.textContent())?.includes('Read the PLC') === true, (await adsRead.textContent()) ?? '')
+    await adsRead.click()
+    await page.waitForFunction(() => /On the PLC \(\d+ tags?\)/.test(document.querySelector('[data-testid="tag-suggest-plc"]')?.textContent ?? ''), { timeout: 5000 }).catch(() => {})
+    const adsText = (await list.getByTestId('tag-suggest-plc').textContent()) ?? ''
+    // MAIN.Extend, GVL.Extend2, GVL.Speed: the TON is left out
+    check("the ADS PLC's bit and number symbols were read", /On the PLC \(3 tags\)/.test(adsText), adsText.slice(0, 120))
+    const fakeAds = await page.evaluate(() => window.__fakeAds)
+    check('the ADS read opened once and let go', fakeAds.opens === 1 && fakeAds.closes === 1, JSON.stringify(fakeAds))
+    await field.fill('')
+    await page.keyboard.type('exte')
+    const adsNames = await names('plc')
+    check('typing lists the ADS matches', JSON.stringify(adsNames) === JSON.stringify(['GVL.Extend2', 'MAIN.Extend']), JSON.stringify(adsNames))
+    await list.getByTestId('tag-suggest-item').filter({ hasText: 'GVL.Extend2' }).click()
+    tag = await page.evaluate(() => window.__oip.store.getState().scene.parts.find((p) => p.id === 'b2').params.runTag)
+    check('a click writes the ADS symbol into the param', tag === 'GVL.Extend2', tag)
+    // the symbol table lists no structure members, so a name it lacks may still be on the PLC: no warning
+    await field.click()
+    await field.fill('MAIN.Station.Run')
+    await page.keyboard.press('Enter')
+    await page.waitForTimeout(200)
+    check('no "not on the PLC" warning over ADS', (await badge.count()) === 0)
+
+    // ---- a fake Logix controller over EtherNet/IP: its tags and its programs', read the same way
+    await page.evaluate(() => {
+      const { store, controller } = window.__oip
+      window.__fakeEip = { opens: 0, closes: 0 }
+      controller.eipHost = {
+        open: async () => {
+          window.__fakeEip.opens++
+          return { error: '' }
+        },
+        bind: async () => ({ error: '' }),
+        exchange: async () => ({ error: '' }),
+        tags: async () => ({
+          error: '',
+          status: 'ok',
+          tags: [
+            { name: 'Extend', type: 0xc1 },
+            { name: 'Program:MainProgram.Extend3', type: 0xc1 },
+            { name: 'Recipe', type: 0x8f21 },
+            { name: 'Speed', type: 0xca },
+          ],
+        }),
+        close: async () => {
+          window.__fakeEip.closes++
+        },
+      }
+      store.setExternalPlc({ mode: 'eip', eipGateway: '10.0.0.9', eipPath: '1,0' })
+    })
+    await field.click()
+    await list.waitFor({ timeout: 5000 })
+    await list.getByTestId('tag-suggest-plc').getByTestId('tag-suggest-action').click()
+    await page.waitForFunction(() => /On the PLC \(\d+ tags?\)/.test(document.querySelector('[data-testid="tag-suggest-plc"]')?.textContent ?? ''), { timeout: 5000 }).catch(() => {})
+    const eipText = (await list.getByTestId('tag-suggest-plc').textContent()) ?? ''
+    // Extend, Program:MainProgram.Extend3, Speed: the structure is left out
+    check("the controller's bit and number tags were read", /On the PLC \(3 tags\)/.test(eipText), eipText.slice(0, 120))
+    const fakeEip = await page.evaluate(() => window.__fakeEip)
+    check('the EtherNet/IP read opened once and let go', fakeEip.opens === 1 && fakeEip.closes === 1, JSON.stringify(fakeEip))
+    await field.fill('')
+    await page.keyboard.type('exte')
+    const eipNames = await names('plc')
+    check('typing lists the EtherNet/IP matches', JSON.stringify(eipNames) === JSON.stringify(['Extend', 'Program:MainProgram.Extend3']), JSON.stringify(eipNames))
+    await list.getByTestId('tag-suggest-item').filter({ hasText: 'Program:MainProgram.Extend3' }).click()
+    tag = await page.evaluate(() => window.__oip.store.getState().scene.parts.find((p) => p.id === 'b2').params.runTag)
+    check('a click writes the program-scoped tag into the param', tag === 'Program:MainProgram.Extend3', tag)
+    await page.evaluate(() => window.__oip.store.setExternalPlc({ mode: 'serve' }))
 
     // ---- the field's own tag is offered while it is retyped (it stays the saved value until a commit), with its uses
     await page.evaluate(() => {

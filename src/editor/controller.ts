@@ -396,22 +396,23 @@ export class EditorController {
   }
 
   /**
-   * The PLC's tag names over OPC UA, for the tag picker, or null when none have been read. From the last browse of
-   * a run's link (kept after Stop) or of {@link readPlcTags}. Its `endpoint` says which PLC: a caller compares it to
-   * the settings, since the address may have changed since. Changes notify through {@link onExternalPlcStatus}.
+   * The PLC's tag names, for the tag picker, or null when none have been read. Over OPC UA from the last browse of
+   * a run's link (kept after Stop) or of {@link readPlcTags}; over ADS and EtherNet/IP from {@link readPlcTags} alone. Its `protocol`
+   * and `endpoint` say which PLC: a caller compares them to the settings, since the link may have changed since. Changes notify through {@link onExternalPlcStatus}.
    */
   get plcTagList(): Readonly<PlcTagList> | null {
     return this.links.plcTags
   }
 
-  /** Whether the tag picker can read a PLC's tags (the desktop app can, over OPC UA; a browser tab cannot). */
+  /** Whether the tag picker can read the default controller's PLC's tags: the desktop app can, over OPC UA, ADS or EtherNet/IP. */
   get plcTagsAvailable(): boolean {
-    return this.opcUaHost !== null
+    const mode = this.store.getState().externalPlc.mode
+    return mode === 'opcua' ? this.opcUaHost !== null : mode === 'ads' ? !!this.adsHost?.symbols : mode === 'eip' ? !!this.eipHost?.tags : false
   }
 
   /**
-   * Read the OPC UA PLC's tag names now, for the tag picker. While a run holds the link this does nothing: that
-   * link's own browse is the fresher answer, and it goes into {@link plcTagList} by itself.
+   * Read the default controller's PLC's tag names now, over OPC UA, ADS or EtherNet/IP, for the tag picker. While a run holds the
+   * link this does nothing: an OPC UA run's own browse is the fresher answer, and it goes into {@link plcTagList} by itself.
    */
   readPlcTags(): void {
     linkOps.readPlcTags(this.links, this)

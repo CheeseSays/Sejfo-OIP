@@ -15,7 +15,7 @@ import { controllerFor, controllerRuns, LocalPlcLink, runnableSource } from '../
 // deep import: the wiring check is a checker, not part of the runtime PLC surface the barrel exposes
 import { checkWiring } from '../../plc/wiring'
 // the link's sessions are loaded on use (loadExternalPlc): only what the first frame shows is static
-import { EXTERNAL_PLC_OFF, flattenFrameTags } from '../links/externalPlcStatus'
+import { adsEndpoint, eipEndpoint, EXTERNAL_PLC_OFF, flattenFrameTags } from '../links/externalPlcStatus'
 import type { ExternalPlcLink, ExternalPlcStatus, PlcTagList } from '../links/externalPlcStatus'
 import { adsForLink, controllerLink, eipForLink, opcUaForLink, opcUaServerForLink, plcIoForLink } from '../links/linkHosts'
 import { OPC_UA_SERVER_OFF, OpcUaServerSession, publishedVariables } from '../links/opcUaServer'
@@ -121,15 +121,31 @@ export function startExternalPlc(l: PlcLinkState, p: ProgramState, ec: PlcLinkDe
   return true
 }
 
+/** Read the default controller's PLC's tag names for the tag picker, over OPC UA, ADS or EtherNet/IP, while no run holds its link. */
 export function readPlcTags(l: PlcLinkState, ec: PlcLinkDeps): void {
-  const host = ec.opcUaHost
-  const { opcUaEndpoint: endpoint, opcUaBrowseFrom: from } = ec.store.getState().externalPlc
-  if (!host || l.externalSession || l.plcTags?.state === 'reading') return
-  const reading: PlcTagList = { endpoint, from, state: 'reading', names: [], variables: [], truncated: false, error: null }
+  const settings = ec.store.getState().externalPlc
+  if (l.externalSession || l.plcTags?.state === 'reading') return
+  const mayClose = (): boolean => l.externalSession === null
+  const list = (protocol: PlcTagList['protocol'], endpoint: string, from: readonly string[] = []): PlcTagList => ({ protocol, endpoint, from, state: 'reading', names: [], variables: [], truncated: false, error: null })
+  const { adsHost: ads, eipHost: eip, opcUaHost: ua } = ec
+  let reading: PlcTagList
+  let read: (m: ExternalPlcModule) => Promise<PlcTagList>
+  if (settings.mode === 'ads' && ads) {
+    reading = list('ads', adsEndpoint(settings.adsNetId, settings.adsPort))
+    read = (m) => m.readAdsTagList(ads, settings.adsNetId, settings.adsPort, mayClose)
+  } else if (settings.mode === 'eip' && eip) {
+    reading = list('eip', eipEndpoint(settings.eipGateway, settings.eipPath))
+    read = (m) => m.readEipTagList(eip, settings.eipGateway, settings.eipPath, mayClose)
+  } else if (settings.mode === 'opcua' && ua) {
+    reading = list('opcua', settings.opcUaEndpoint, settings.opcUaBrowseFrom)
+    read = (m) => m.readOpcUaTagList(ua, settings.opcUaEndpoint, settings.opcUaBrowseFrom, mayClose)
+  } else {
+    return
+  }
   l.plcTags = reading
   notifyExternal(l)
   void loadExternalPlc(l)
-    .then((m) => m.readOpcUaTagList(host, endpoint, from, () => l.externalSession === null))
+    .then(read)
     .then(
       (list) => {
         // a run that started meanwhile has taken the link over, and its browse is the one to keep

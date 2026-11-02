@@ -85,6 +85,37 @@ export function adsTypeName(adsType: number): string {
   return `ADS type ${adsType}`
 }
 
+/** A symbol's size on the wire: a BOOL may report size 0 (oip-comms init_ads_tag), and it is still one byte. */
+function adsBytes(adsType: number, size: number): number {
+  return ADST[adsType]?.kind === 'bool' ? Math.max(1, size) : size
+}
+
+/** One entry of the runtime's symbol table, as the desktop shell lists it (apps/desktop/adsIo.cjs `ads:symbols`). */
+export interface AdsSymbol {
+  name: string
+  adsType: number
+  size: number
+  typeName: string
+}
+
+/**
+ * The names in a symbol table a part's tag can be wired to, sorted: a symbol path whose type is a single bit or number
+ * at its own size, the same rule {@link bindAdsPoint} binds by. The table lists each variable whole, so the members of
+ * a structure or function block instance (`MAIN.Station.Run`) are not among them.
+ */
+export function adsTagNames(symbols: readonly AdsSymbol[]): string[] {
+  return symbols
+    .filter((s) => SYMBOL.test(s.name) && ADST[s.adsType]?.size === adsBytes(s.adsType, s.size))
+    .map((s) => s.name)
+    .sort((a, b) => a.localeCompare(b))
+}
+
+/** An ADS code as a sentence, with this PC's AMS Net ID where a route back to it is the cure. */
+export function adsRouteText(code: number, localNetId: string): string {
+  const text = adsErrorText(code)
+  return (code === 0x7 || code === 0x749) && localNetId ? `${text}. This PC's AMS Net ID is ${localNetId}` : text
+}
+
 /**
  * Bind a point to the symbol the runtime described. Refused, with the reason: a structure, a string, a 64-bit integer
  * (a scene number cannot hold one exactly), a size that does not match the type, and a bit where the parts carry a
@@ -93,8 +124,7 @@ export function adsTypeName(adsType: number): string {
 export function bindAdsPoint(p: AdsPoint, adsType: number, size: number, typeName: string): { binding: AdsBinding } | { error: string } {
   const t = ADST[adsType]
   if (!t) return { error: `${p.tag}: the PLC holds it as ${typeName || adsTypeName(adsType)}, not a single bit or number` }
-  // a BOOL may report size 0 (oip-comms init_ads_tag): it is still one byte on the wire
-  const bytes = t.kind === 'bool' ? Math.max(1, size) : size
+  const bytes = adsBytes(adsType, size)
   if (bytes !== t.size) return { error: `${p.tag}: the PLC says it is ${typeName} in ${size} bytes, which a ${t.name} is not` }
   if (p.type !== null && (p.type === 'BOOL') !== (t.kind === 'bool')) {
     return { error: `${p.tag}: the parts carry a ${p.type === 'BOOL' ? 'bit' : 'number'}, and the PLC holds it as ${typeName || t.name}` }

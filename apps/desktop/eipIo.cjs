@@ -34,6 +34,10 @@ const STATUS_OK = 0
 const POLL_MS = 2
 /** How long one request may take before it is abandoned: the app's watchdog has de-energised the PLC's outputs after a second. */
 const ANSWER_MS = 1000
+/** How long one tag listing may take: a single read carrying every tag's name, far larger than a cycle's. */
+const LIST_MS = 10000
+/** A program as the controller's listing names it; its own tags are listed by reading `<name>.@tags`. */
+const PROGRAM = /^Program:[A-Za-z_][A-Za-z0-9_]*$/
 
 let lib = null
 let loadError = null
@@ -53,6 +57,8 @@ function plctag() {
       read: so.func('int plc_tag_read(int32_t tag, int timeout)'),
       write: so.func('int plc_tag_write(int32_t tag, int timeout)'),
       decode: so.func('const char *plc_tag_decode_error(int err)'),
+      size: so.func('int plc_tag_get_size(int32_t tag)'),
+      rawBytes: so.func('int plc_tag_get_raw_bytes(int32_t tag, int start, _Out_ uint8_t *buf, int len)'),
       intAttr: so.func('int plc_tag_get_int_attribute(int32_t tag, const char *name, int dflt)'),
       bytesAttr: so.func('int plc_tag_get_byte_array_attribute(int32_t tag, const char *name, _Out_ uint8_t *buf, int len)'),
       shutdown: so.func('void plc_tag_shutdown(void)'),
@@ -116,10 +122,29 @@ function checkTarget(gateway, path) {
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 
+/**
+ * libplctag's tag listing (a read of `@tags`, or `Program:Main.@tags` for one program's), entries back to back: the
+ * tag's instance id (u32), symbol type (u16), element size (u16), three array dimensions (u32 each), then the name's
+ * length (u16) and the name. An entry that runs past the buffer ends the walk: what came before it stands.
+ */
+function parseTagListing(buf) {
+  const out = []
+  let at = 0
+  while (at + 22 <= buf.length) {
+    const length = buf.readUInt16LE(at + 20)
+    if (at + 22 + length > buf.length) break
+    out.push({ name: buf.toString('latin1', at + 22, at + 22 + length), type: buf.readUInt16LE(at + 4) })
+    at += 22 + length
+  }
+  return out
+}
+
 class EipLink {
   constructor() {
     /** @type {Map<string, {handle: number, bit: boolean, cip: number | null}>} */
     this.tags = new Map()
+    /** the controller's attributes; `base` adds the element count a tag's handle takes */
+    this.where = ''
     this.base = ''
     this.closed = false
   }
@@ -130,14 +155,15 @@ class EipLink {
     if (bad) return { error: bad }
     const f = plctag()
     if (!f) return { error: loadError }
-    this.base = `protocol=ab-eip&gateway=${gateway}${path ? `&path=${path}` : ''}&plc=ControlLogix&elem_count=1`
+    this.where = `protocol=ab-eip&gateway=${gateway}${path ? `&path=${path}` : ''}&plc=ControlLogix`
+    this.base = `${this.where}&elem_count=1`
     return { error: '' }
   }
 
-  /** Wait until every handle has finished its request (or the deadline passes, which aborts it); their statuses by name. */
-  async settle(handles) {
+  /** Wait until every handle has finished its request (or `ms` passes, which aborts it); their statuses by name. */
+  async settle(handles, ms = ANSWER_MS) {
     const f = lib
-    const until = Date.now() + ANSWER_MS
+    const until = Date.now() + ms
     const status = handles.map((h) => (h < 0 ? h : STATUS_PENDING))
     for (;;) {
       let pending = false
@@ -188,6 +214,44 @@ class EipLink {
       out.push({ status, cip })
     }
     return { error: '', tags: out }
+  }
+
+  /**
+   * Every tag the controller lists, as `{name, type}` with the symbol type as the listing gives it, for the tag picker:
+   * the controller's own tags, then each program's (`Program:Main.Run`). `status` is 'ok', or libplctag's status for
+   * the controller's own list; a program whose list fails is left out.
+   */
+  async listTags() {
+    if (!lib || !this.where) return { error: loadError ?? 'not connected' }
+    const top = await this.readListing('@tags')
+    if (top.status !== 'ok') return { error: '', status: top.status }
+    const programs = top.entries.filter((e) => PROGRAM.test(e.name)).map((e) => e.name)
+    const scoped = await Promise.all(programs.map((p) => this.readListing(`${p}.@tags`)))
+    const tags = top.entries.filter((e) => !e.name.includes(':'))
+    scoped.forEach((list, i) => {
+      for (const e of list.entries) tags.push({ name: `${programs[i]}.${e.name}`, type: e.type })
+    })
+    return { error: '', status: 'ok', tags }
+  }
+
+  /** Read one listing (`@tags`, `Program:Main.@tags`) through a handle of its own, let go after. */
+  async readListing(name) {
+    const f = lib
+    const h = f.create(`${this.where}&name=${name}`, 0)
+    try {
+      let [status] = await this.settle([h], LIST_MS)
+      if (status === 'ok') {
+        f.read(h, 0)
+        ;[status] = await this.settle([h], LIST_MS)
+      }
+      if (status !== 'ok') return { status, entries: [] }
+      const size = Math.max(0, f.size(h))
+      const buf = Buffer.alloc(size)
+      if (size > 0) f.rawBytes(h, 0, buf, size)
+      return { status, entries: parseTagListing(buf) }
+    } finally {
+      if (h >= 0) f.destroy(h)
+    }
   }
 
   /** One cycle: every write and every read started together, then waited on. Per-item statuses as in `bind`. */
@@ -252,7 +316,8 @@ function shutdownEip() {
  *   eip:bind     {tags: [{name, bit}]} -> {error, tags: [{status, cip}]}
  *                                                            a handle per tag, read once for its CIP type
  *   eip:exchange {writes: [{name, value}], reads: [name]} -> {error, writes: [status], reads: [{value, status}]}
- *   eip:close                                                let every tag go
+ *   eip:tags     {} -> {error, status, tags: [{name, type}]}    every tag the controller lists, for the tag picker
+ *   eip:close                                               let every tag go
  * A status is 'ok' or libplctag's name for what went wrong (PLCTAG_ERR_NOT_FOUND, PLCTAG_ERR_TIMEOUT ...).
  * `consent` (endpointConsent.cjs `allows`) is asked before opening a link to another host.
  */
@@ -296,6 +361,7 @@ function registerEipIo(ipcMain, { consent }) {
   }
   ipcMain.handle('eip:bind', (event, opts) => withLink(event, opts, (l) => l.bind(Array.isArray(opts?.tags) ? opts.tags : [])))
   ipcMain.handle('eip:exchange', (event, opts) => withLink(event, opts, (l) => l.exchange(Array.isArray(opts?.writes) ? opts.writes : [], Array.isArray(opts?.reads) ? opts.reads : [])))
+  ipcMain.handle('eip:tags', (event, opts) => withLink(event, opts, (l) => l.listTags()))
   ipcMain.handle('eip:close', (event, opts) => {
     const n = linkNo(opts)
     if (n === null) return
@@ -305,4 +371,4 @@ function registerEipIo(ipcMain, { consent }) {
   })
 }
 
-module.exports = { registerEipIo, EipLink, shutdownEip, checkTarget, libraryPath }
+module.exports = { registerEipIo, EipLink, shutdownEip, checkTarget, libraryPath, parseTagListing }

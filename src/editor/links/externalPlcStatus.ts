@@ -4,6 +4,8 @@
 // warms at startup when one is), so a browser tab, which can never run a link, never parses them. That module
 // re-exports everything here, so a caller that already loads it imports from either.
 
+import type { AdsSymbol } from '../../core/io/ads'
+import type { EipListedTag } from '../../core/io/eip'
 import type { DiscoveredServer, OpcUaBrowseRoot, OpcUaNodeInfo, OpcUaVariable } from '../../core/io/opcUa'
 import type { TagValue } from '../../plc/types'
 import type { PlcLinkSettings } from '../store/storePrefs'
@@ -56,6 +58,8 @@ export interface EipHost {
   /** a handle per tag, read once: the controller's CIP type for each */
   bind(opts: { tags: { name: string; bit: boolean }[] } & LinkOpt): Promise<{ error: string; tags?: { status: string; cip: number | null }[] }>
   exchange(opts: { writes: { name: string; value: boolean | number }[]; reads: string[] } & LinkOpt): Promise<{ error: string; writes?: string[]; reads?: { value: unknown; status: string }[] }>
+  /** every tag the controller lists, for the tag picker; `status` is libplctag's for the listing. Absent on an older shell */
+  tags?(opts?: LinkOpt): Promise<{ error: string; status?: string; tags?: EipListedTag[] }>
   close(opts?: LinkOpt): Promise<void>
 }
 
@@ -69,6 +73,8 @@ export interface AdsHost {
   /** each symbol's info and a handle */
   bind(opts: { tags: { name: string }[] } & LinkOpt): Promise<{ error: string; tags?: { code: number; adsType?: number; size?: number; typeName?: string }[] }>
   exchange(opts: { writes: { name: string; value: boolean | number }[]; reads: string[] } & LinkOpt): Promise<{ error: string; writes?: number[]; reads?: { value: unknown; status: number }[] }>
+  /** the runtime's whole symbol table, for the tag picker; `code` is the ADS code when the runtime refused. Absent on an older shell */
+  symbols?(opts?: LinkOpt): Promise<{ error: string; code?: number; symbols?: AdsSymbol[] }>
   close(opts?: LinkOpt): Promise<void>
 }
 
@@ -104,6 +110,10 @@ export function desktopAdsHost(): AdsHost | null {
 /** "this PC's TwinCAT runtime, AMS port 851" or "192.168.1.20.1.1, AMS port 851": where an ADS link goes. */
 export function adsEndpoint(netId: string, port: number): string {
   return `${netId || "this PC's TwinCAT runtime"}, AMS port ${port}`
+}
+
+export function eipEndpoint(gateway: string, path: string): string {
+  return `${gateway}${path ? ` (path ${path})` : ''}`
 }
 
 export interface ExternalPlcStatus {
@@ -149,12 +159,19 @@ export interface ExternalPlcLink {
   status(): ExternalPlcStatus
 }
 
+/** The links whose PLC can list its tags for the tag picker. */
+export type PlcTagProtocol = 'opcua' | 'ads' | 'eip'
+
 /**
- * The PLC's tag names over OPC UA, for the Inspector's tag picker: what a run's link last browsed (kept after Stop),
- * or what {@link readOpcUaTagList} read while stopped. `names` are the ones a pick may write (core/io/opcUa.ts
- * opcUaTagNames); `variables` is the tree they came from, which says whether a typed name is on the PLC.
+ * The PLC's tag names, for the Inspector's tag picker. Over OPC UA: what a run's link last browsed (kept after Stop),
+ * or what readOpcUaTagList read while stopped; `names` are the ones a pick may write (core/io/opcUa.ts
+ * opcUaTagNames), and `variables` is the tree they came from, which says whether a typed name is on the PLC. Over ADS
+ * and EtherNet/IP: the PLC's own list as readAdsTagList or readEipTagList read it while stopped (core/io/ads.ts
+ * adsTagNames, core/io/eip.ts eipTagNames), with no tree.
  */
 export interface PlcTagList {
+  protocol: PlcTagProtocol
+  /** which PLC: the OPC UA endpoint, or the target as adsEndpoint or eipEndpoint words it */
   endpoint: string
   /** the start points the browse began at (PlcLinkSettings.opcUaBrowseFrom); empty: Objects */
   from: readonly string[]
@@ -185,7 +202,7 @@ export function statusLine(s: ExternalPlcStatus, running: boolean, settings: Plc
     if (mode === 'ads') return `Press Play to connect to ${adsEndpoint(settings.adsNetId, settings.adsPort)} over ADS${end}`
     if (mode === 's7') return `Press Play to connect to the S7 CPU at ${settings.s7Host}${settings.s7Port === 102 ? '' : `:${settings.s7Port}`} (rack ${settings.s7Rack}, slot ${settings.s7Slot}) over S7 PUT/GET${end}`
     if (mode === 'slmp') return `Press Play to connect to the MELSEC CPU at ${settings.slmpHost}${settings.slmpPort === 5000 ? '' : `:${settings.slmpPort}`} over SLMP${end}`
-    if (mode === 'eip') return `Press Play to connect to the controller at ${settings.eipGateway}${settings.eipPath ? ` (path ${settings.eipPath})` : ''} over EtherNet/IP${end}`
+    if (mode === 'eip') return `Press Play to connect to the controller at ${eipEndpoint(settings.eipGateway, settings.eipPath)} over EtherNet/IP${end}`
     if (mode === 'opcua') return `Press Play to connect to the PLC's OPC UA server at ${settings.opcUaEndpoint}${end}`
     return poll
       ? `Press Play to poll the PLC at ${settings.plcHost}:${settings.plcPort}${end}`

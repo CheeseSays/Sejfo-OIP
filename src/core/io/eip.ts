@@ -157,8 +157,41 @@ const MISSING_OR_ROUTE = new Set(['PLCTAG_ERR_NOT_FOUND', 'PLCTAG_ERR_BAD_PARAM'
 export function eipNothingAnswered(tags: readonly string[], statuses: readonly string[], path: string): string | null {
   if (tags.length === 0 || statuses.length !== tags.length || !statuses.every((s) => MISSING_OR_ROUTE.has(s))) return null
   const shown = tags.length <= 3 ? tags.join(', ') : `${tags.slice(0, 3).join(', ')} and ${tags.length - 3} more`
-  const route = path ? `the path (${path}: the backplane, then the controller's slot)` : 'that the address is the controller itself (the path is empty)'
-  return `the address answered, but none of the tags did (${shown}; ${statuses[0]}). Check ${route} first: a route to the wrong slot makes every tag look missing, then check the tag names`
+  return `the address answered, but none of the tags did (${shown}; ${statuses[0]}). Check ${routeText(path)} first: a route to the wrong slot makes every tag look missing, then check the tag names`
+}
+
+function routeText(path: string): string {
+  return path ? `the path (${path}: the backplane, then the controller's slot)` : 'that the address is the controller itself (the path is empty)'
+}
+
+/** A tag as the controller lists it (apps/desktop/eipIo.cjs listTags): its name and its symbol type. */
+export interface EipListedTag {
+  name: string
+  type: number
+}
+
+/**
+ * The listed tags a part can be wired to, sorted: a BOOL or a number each. In a symbol type, bit 15 marks a
+ * structure, bit 12 a system tag and bits 13-14 array dimensions, so any of those is left out. Otherwise the low byte
+ * is the CIP type code, and bits 8-10 hold a BOOL's bit position. A hidden name (`__`) is left out too.
+ */
+export function eipTagNames(tags: readonly EipListedTag[]): string[] {
+  return tags
+    .filter((t) => {
+      const code = t.type & 0xff
+      if ((t.type & 0xf000) !== 0 || !CIP[code] || ((t.type & 0x0f00) !== 0 && code !== 0xc1)) return false
+      return TAG_NAME.test(t.name) && !isBitTag(t.name) && !/(^|\.)__/.test(t.name)
+    })
+    .map((t) => t.name)
+    .sort((a, b) => a.localeCompare(b))
+}
+
+/** Why the controller's tags could not be listed, from libplctag's status for the listing. */
+export function eipListingFailure(status: string, path: string): string {
+  if (status === 'PLCTAG_ERR_UNSUPPORTED') return `the controller does not list its tags (${status}); type them as the program names them`
+  if (eipUnreachable(status)) return `the controller did not answer (${status})`
+  if (MISSING_OR_ROUTE.has(status)) return `the address answered, but no controller did (${status}). Check ${routeText(path)}`
+  return `the controller refused to list its tags (${status})`
 }
 
 /** What a libplctag status means for one tag, in a sentence. */

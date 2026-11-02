@@ -3,8 +3,8 @@ import { declaredTags, programTagChoices, rankTagNames, tagMisfit } from './tagS
 import { buildSections } from './tagField'
 import type { TagSources } from './tagField'
 import type { TagRow } from '../../../plc/tags'
-import { plcTagListOf, readOpcUaTagList } from '../../links/externalPlc'
-import type { OpcUaHost } from '../../links/externalPlc'
+import { plcTagListOf, readAdsTagList, readEipTagList, readOpcUaTagList } from '../../links/externalPlc'
+import type { AdsHost, EipHost, OpcUaHost } from '../../links/externalPlc'
 
 describe('ranking a tag field\'s suggestions', () => {
   const names = ['Sorter.Motor', 'Sorter.MotorFault', 'Packer.Motor', 'Line2.ConveyorMotor', 'MotorSpeed', 'Sorter.Eye']
@@ -95,7 +95,15 @@ describe('the sections of the list', () => {
     expect(buildSections('e', new Map(), [], undefined, sources({ plc, canReadPlc: false }))[0]!.notes).toEqual([expect.stringContaining('more tags than were read')])
   })
 
-  it('leaves the PLC out when the link is not OPC UA', () => {
+  it('says to stop the scene to read an ADS PLC, which a run does not browse', () => {
+    expect(buildSections('', new Map(), [], undefined, sources({ plcProtocol: 'ads', canReadPlc: false }))[0]!.notes).toEqual(["Stop the scene to read the PLC's tags."])
+  })
+
+  it('says the same for an EtherNet/IP controller', () => {
+    expect(buildSections('', new Map(), [], undefined, sources({ plcProtocol: 'eip', canReadPlc: false }))[0]!.notes).toEqual(["Stop the scene to read the PLC's tags."])
+  })
+
+  it('leaves the PLC out when the link does not list its tags', () => {
     expect(buildSections('', new Map(), [], undefined, sources({ plcLinked: false }))).toEqual([])
   })
 
@@ -158,5 +166,81 @@ describe('reading the PLC\'s tags while stopped', () => {
     expect(await readOpcUaTagList(host({ connect: async () => ({ error: 'refused' }) }), 'opc.tcp://plc:4840', [], () => true)).toMatchObject({ state: 'failed', error: 'refused' })
     const lds = await readOpcUaTagList(host({ connect: async () => ({ error: '', discovery: [] }) }), 'opc.tcp://pc:4840', [], () => true)
     expect(lds.error).toMatch(/discovery server/)
+  })
+})
+
+describe('reading an ADS PLC\'s tags while stopped', () => {
+  const host = (over: Partial<AdsHost> = {}): AdsHost & { calls: string[] } => {
+    const calls: string[] = []
+    return {
+      calls,
+      open: async (o) => (calls.push(`open ${o.netId}:${o.port}`), { error: '', localNetId: '10.0.0.5.1.1' }),
+      bind: async () => ({ error: '' }),
+      exchange: async () => ({ error: '' }),
+      symbols: async () => (calls.push('symbols'), { error: '', code: 0, symbols: [{ name: 'MAIN.Extend', adsType: 33, size: 1, typeName: 'BOOL' }, { name: 'MAIN.tCycle', adsType: 65, size: 32, typeName: 'TON' }] }),
+      close: async () => void calls.push('close'),
+      ...over,
+    }
+  }
+
+  it('opens, lists the symbol table and lets go', async () => {
+    const h = host()
+    const list = await readAdsTagList(h, '5.1.2.3.1.1', 851, () => true)
+    expect(list).toMatchObject({ protocol: 'ads', state: 'ready', names: ['MAIN.Extend'], endpoint: '5.1.2.3.1.1, AMS port 851' })
+    expect(h.calls).toEqual(['open 5.1.2.3.1.1:851', 'symbols', 'close'])
+  })
+
+  it('never closes a link a run has taken over meanwhile', async () => {
+    const h = host()
+    await readAdsTagList(h, '', 851, () => false)
+    expect(h.calls).not.toContain('close')
+  })
+
+  it('says why it could not read, naming this PC where a route is missing', async () => {
+    expect(await readAdsTagList(host({ open: async () => ({ error: 'no router' }) }), '', 851, () => true)).toMatchObject({ state: 'failed', error: 'no router' })
+    const route = await readAdsTagList(host({ symbols: async () => ({ error: '', code: 0x7 }) }), '5.1.2.3.1.1', 851, () => true)
+    expect(route.error).toMatch(/This PC's AMS Net ID is 10\.0\.0\.5\.1\.1$/)
+    const old = host()
+    delete old.symbols
+    expect(await readAdsTagList(old, '', 851, () => true)).toMatchObject({ state: 'failed' })
+    expect(old.calls).toEqual([])
+  })
+})
+
+describe('reading an EtherNet/IP controller\'s tags while stopped', () => {
+  const host = (over: Partial<EipHost> = {}): EipHost & { calls: string[] } => {
+    const calls: string[] = []
+    return {
+      calls,
+      open: async (o) => (calls.push(`open ${o.gateway} ${o.path}`), { error: '' }),
+      bind: async () => ({ error: '' }),
+      exchange: async () => ({ error: '' }),
+      tags: async () => (calls.push('tags'), { error: '', status: 'ok', tags: [{ name: 'Program:MainProgram.Eye', type: 0xc1 }, { name: 'Recipe', type: 0x8f21 }, { name: 'Speed', type: 0xca }] }),
+      close: async () => void calls.push('close'),
+      ...over,
+    }
+  }
+
+  it('opens, lists the controller\'s and its programs\' tags and lets go', async () => {
+    const h = host()
+    const list = await readEipTagList(h, '10.0.0.5', '1,0', () => true)
+    expect(list).toMatchObject({ protocol: 'eip', state: 'ready', names: ['Program:MainProgram.Eye', 'Speed'], endpoint: '10.0.0.5 (path 1,0)' })
+    expect(h.calls).toEqual(['open 10.0.0.5 1,0', 'tags', 'close'])
+  })
+
+  it('never closes a link a run has taken over meanwhile', async () => {
+    const h = host()
+    await readEipTagList(h, '10.0.0.5', '', () => false)
+    expect(h.calls).not.toContain('close')
+  })
+
+  it('says why it could not read', async () => {
+    expect(await readEipTagList(host({ open: async () => ({ error: 'no libplctag' }) }), '10.0.0.5', '1,0', () => true)).toMatchObject({ state: 'failed', error: 'no libplctag' })
+    const unsupported = await readEipTagList(host({ tags: async () => ({ error: '', status: 'PLCTAG_ERR_UNSUPPORTED' }) }), '10.0.0.5', '1,0', () => true)
+    expect(unsupported.error).toMatch(/does not list its tags/)
+    const old = host()
+    delete old.tags
+    expect(await readEipTagList(old, '10.0.0.5', '1,0', () => true)).toMatchObject({ state: 'failed' })
+    expect(old.calls).toEqual([])
   })
 })

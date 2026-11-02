@@ -8,6 +8,7 @@ import { upgradeStoredPackage } from '../core/parts/partUpgrade'
 import type { PartPackage } from '../core/parts/partPackage'
 import { validateController } from '../core/controller'
 import { validateScenePlcs } from '../core/scene/scenePlcs'
+import { readSavedUnits } from '../core/scene/sceneUnits'
 import type { Controller } from '../core/controller'
 import { storedDialect } from '../core/dialect'
 import { changedSpan } from '../core/textDiff'
@@ -195,22 +196,27 @@ export function writeStDoc(
   }, origin)
 }
 
-/** `meta` key holding the room's scene's unit system (SceneJSON.units). Unlike the step rate it IS part of the scene
- *  (a document edit, undoable), so docToScene reads it and a change to it rebuilds the scene like a part edit does
- *  (bridge.ts `movedScene`). Absent = imperial. */
+/** `meta` keys holding the room's scene's Units and Length (SceneJSON.units, .lengthUnit). Unlike the step rate they
+ *  ARE part of the scene (a document edit, undoable), so docToScene reads them and a change to either rebuilds the
+ *  scene like a part edit does (bridge.ts `movedScene`). Absent = metric, each length in its own unit. */
 export const UNITS_META = 'units'
+export const LENGTH_UNIT_META = 'lengthUnit'
 
-/** the room scene's unit system, as SceneJSON carries it (absent = imperial) */
-export function readUnits(ydoc: Y.Doc): SceneJSON['units'] {
-  const v = metaMap(ydoc).get(UNITS_META)
-  return v === 'metric' || v === 'metric-mm' || v === 'imperial' ? v : undefined
+/** the room scene's Units and Length, as SceneJSON carries them (a room holding `'metric-mm'` reads as metric in mm) */
+export function readUnits(ydoc: Y.Doc): Pick<SceneJSON, 'units' | 'lengthUnit'> {
+  const meta = metaMap(ydoc)
+  return readSavedUnits(meta.get(UNITS_META), meta.get(LENGTH_UNIT_META))
 }
 
-/** write the room scene's unit system; a no-op when unchanged. Call inside the caller's transaction. */
-export function writeUnits(ydoc: Y.Doc, units: SceneJSON['units']): void {
-  if (readUnits(ydoc) === units) return
-  if (units === undefined) metaMap(ydoc).delete(UNITS_META)
-  else metaMap(ydoc).set(UNITS_META, units)
+/** write the room scene's Units and Length, each a no-op when unchanged. Both keys are written as given, so a room
+ *  that held `'metric-mm'` takes the two values it reads as. Call inside the caller's transaction. */
+export function writeUnits(ydoc: Y.Doc, scene: Pick<SceneJSON, 'units' | 'lengthUnit'>): void {
+  const meta = metaMap(ydoc)
+  for (const [key, v] of [[UNITS_META, scene.units], [LENGTH_UNIT_META, scene.lengthUnit]] as const) {
+    if (meta.get(key) === v) continue
+    if (v === undefined) meta.delete(key)
+    else meta.set(key, v)
+  }
 }
 
 /** `meta` key holding the room's scene's controllers (SceneJSON.plcs, core/scene/scenePlcs.ts) as JSON. Part of the
@@ -625,8 +631,7 @@ export function docToScene(ydoc: Y.Doc): SceneJSON {
   const packages = readPackages(ydoc)
   const scene: SceneJSON = { version: SCENE_VERSION, parts: reconcileBuildings(sanitizeParents(list)) }
   if (packages.length > 0) scene.packages = packages
-  const units = readUnits(ydoc)
-  if (units !== undefined) scene.units = units
+  Object.assign(scene, readUnits(ydoc))
   const plcs = readPlcs(ydoc)
   if (plcs !== undefined) scene.plcs = plcs
   return scene
@@ -650,7 +655,7 @@ export function sceneToDoc(scene: SceneJSON, ydoc: Y.Doc, origin: unknown = LOCA
     // its definition (not just its packageId reference)
     for (const pkg of scene.packages ?? []) writePackage(packages, pkg, { edited: edited?.has(pkg.id) })
     meta.set('version', scene.version)
-    writeUnits(ydoc, scene.units)
+    writeUnits(ydoc, scene)
     writePlcs(ydoc, scene.plcs)
   }, origin)
 }

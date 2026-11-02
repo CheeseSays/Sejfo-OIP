@@ -314,7 +314,7 @@ export function RigNodePanel({
   const toggle = (path: string): void => setFolds((c) => ({ ...c, [path]: !(c[path] ?? false) }))
   const editable = controller !== null
   const lengthUnit = useShownLengthUnit()
-  // lengths are stored in metres and shown in the scene's Units by the fields; a 1 mm arrow step suits part-sized nodes
+  // lengths are stored in metres and shown in the scene's Length by the fields; a 1 mm arrow step suits part-sized nodes
   const lenStep = 0.001
   // a part needs one node (controller.deleteRigNode refuses to empty a rig, as the scene tree's Delete does)
   const pkgGeometry = getPackage(part.packageId)?.geometry

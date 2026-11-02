@@ -1047,8 +1047,8 @@ A piece split under the wrong node can be fixed two ways. **Merge back into mode
 joint, so the model draws it again, and the pieces under it move up. **Delete** does the same for the node and
 everything under it. **Parent** moves any node under another one, changing its offset so it stays where it is.
 
-Lengths show in the scene's Units. **Metric (mm, m/s)** in Scene Properties shows them in millimetres, which suits
-a machine's dimensions. The part always stores metres.
+Lengths show in the scene's Length. Setting **Length** to **Millimeters (mm)** in Scene Properties shows them in
+millimetres, which suits a machine's dimensions. The part always stores metres.
 
 Pieces are offered only where they still line up: the nodes between the model node and the selected node must
 carry plain offsets (no rotation, no param-driven placement).
@@ -1100,8 +1100,8 @@ and a length or speed field converts typed units (`5ft`, `600mm`; `394 fpm` in a
 trailing `(m)` in the label is also read as the unit, but only when it is exactly that: with
 `'Speed (m/s, − reverses)'` the field has no unit, no suffix and no conversion (typed `394 fpm` becomes 394).
 Put extra explanation in `desc`. `unit: 'rpm'`, `'°'` and `'°/s'` show as suffixes without converting. A
-length or speed field displays in the scene's Units (a metre field reads inches in an imperial scene, an
-`'FPM'` one reads m/s in a metric one); `step()` always reads the unit you declared.
+length field displays in the scene's Length and a speed field in its Speed (a metre field reads inches in an
+imperial scene, an `'FPM'` one reads m/s in a metric one); `step()` always reads the unit you declared.
 
 A `tag` param's `unit` is the unit of the value on the wire, shown after its type in the field's badge
 (`READ REAL m/s`) and in Device Tags, so a program declares and scales it right. Put it there, not in the label.
@@ -1127,7 +1127,7 @@ These declarations change how a field is edited without changing the value the p
 | `product: true` | `string` | the value is a cargo part's package id (`'oip.tote'`): a dropdown of the cargo parts, and the project holds a copy of the part named |
 | `settings: 'key'` | `string` with `product` | names a hidden `string` param holding the chosen product's settings as JSON; the Inspector shows the product's own params under the dropdown |
 | `values: [{ value: 1, label: 'red' }, ...]` | `INT` / `DINT` `tag` | what each code means, listed on the field and by `npm run catalog` |
-| `imperialUnits: true` | `boolean` | the part's units switch (true = imperial). The scene's Units (Scene Properties) write it on every part and carry each pair of values it switches between (same-label `number` twins, and `tag` twins through `setpointFor`); the Inspector never shows it. Pair it with `whenAbsent` |
+| `imperialUnits: true` | `boolean` | the part's units switch (true = imperial). The scene's Speed (Scene Properties) writes it on every part and carry each pair of values it switches between (same-label `number` twins, and `tag` twins through `setpointFor`); the Inspector never shows it. Pair it with `whenAbsent` |
 
 **Groups and labels.** Follow the Inspector's conventions so every part reads the same:
 
@@ -1159,7 +1159,7 @@ does not count it.
 **`whenAbsent`** (boolean params) is the value a part takes when its saved params lack the key; `default` is
 what a newly placed part gets. Use it only when a new switch changes what existing numbers mean. The conveyors'
 `fpmUnits` has `whenAbsent: false`, so a belt saved before the switch existed stays in m/s instead of reading
-its `speedTag := 2.0` as two feet per minute; a newly dropped belt takes the scene's Units, as any
+its `speedTag := 2.0` as two feet per minute; a newly dropped belt takes the scene's Speed, as any
 `imperialUnits` switch does. An ordinary new param needs only `default`.
 
 **Tag params.** Every `'tag'` param declares `dir` and `stType`, or the part is refused.

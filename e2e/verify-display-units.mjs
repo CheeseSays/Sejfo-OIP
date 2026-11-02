@@ -1,7 +1,7 @@
-// Gate: the scene's Units are one choice that decides both how the scene is shown and what its conveyors' speed tags
-// carry (core/scene/sceneUnits.ts). Scene Properties > Units converts every conveyor as one undoable edit, the Inspector
-// shows and takes lengths and speeds in those units while the document keeps its own, and no conveyor offers a
-// units switch of its own.
+// Gate: the scene's Units are one choice that decides both how speeds are shown and what its conveyors' speed tags
+// carry, and its Length a second, display-only one for lengths (core/scene/sceneUnits.ts). Scene Properties > Units
+// converts every conveyor as one undoable edit, the Inspector shows and takes lengths and speeds in those units while
+// the document keeps its own, and no conveyor offers a units switch of its own.
 //
 // The failure it guards is quiet: a field that doesn't convert back would store inches as metres, a conveyor
 // with its own units switch would read the wrong tag, and every number on screen would still look plausible.
@@ -14,7 +14,9 @@
 //                   no per-part units switch.
 //   D. typed - a value typed in the shown unit is stored in the stored unit (48 in of stand height is 1.2192 m).
 //   E. back - Metric converts the conveyor back exactly (FPM is not rounded on the way) and reads m/s again.
-//   F. mm - Metric (mm) shows and takes lengths in millimetres, and leaves conveyors and their tags in m/s.
+//   F. mm - Length mm shows and takes lengths in millimetres, and leaves conveyors and their tags in m/s.
+//   G. separate - Speed Imperial keeps the Length (speeds in FPM, lengths in mm), and a scene saved with Units 'metric-mm'
+//                   opens as Metric with Length mm.
 // Run: node e2e/verify-display-units.mjs
 /* global process, console, window, document, localStorage */
 import { chromium } from 'playwright'
@@ -123,14 +125,17 @@ try {
   const m = await readField(page, 'speed')
   check(m?.unit === 'm/s', `the speed field reads m/s again (got "${m?.unit}")`)
 
-  // --- F: Metric (mm) shows lengths in millimetres and leaves conveyors as metric ---
+  // --- F: Length mm shows lengths in millimetres and leaves conveyors as they are ---
   await page.evaluate(() => window.__oip.store.setState({ selectedIds: [] }))
-  await select.waitFor({ timeout: 10000 })
-  await select.selectOption('metric-mm')
+  const length = page.locator('[data-testid="scene-length"]')
+  await length.waitFor({ timeout: 10000 })
+  check((await length.inputValue()) === '', 'Length starts at Default')
+  await length.selectOption('mm')
   await page.waitForTimeout(200)
   const mm = await paramsOf(page, 'b1')
-  check(mm?.fpmUnits === false && mm?.speed === 2 && mm?.speedTag === 'Line1Speed', `Metric (mm) leaves the conveyor in m/s (speed ${mm?.speed}, tag "${mm?.speedTag}")`)
-  check((await page.evaluate(() => window.__oip.store.getState().scene.units)) === 'metric-mm', 'the scene saves Metric (mm)')
+  check(mm?.fpmUnits === false && mm?.speed === 2 && mm?.speedTag === 'Line1Speed', `Length mm leaves the conveyor in m/s (speed ${mm?.speed}, tag "${mm?.speedTag}")`)
+  const saved = await page.evaluate(() => { const s = window.__oip.store.getState().scene; return [s.units, s.lengthUnit] })
+  check(saved[0] === 'metric' && saved[1] === 'mm', `the scene saves Metric with Length mm (got ${JSON.stringify(saved)})`)
   await page.evaluate(() => window.__oip.store.select('b1'))
   await page.waitForSelector('.inspector .prop-row[data-param="standHeight"] input.spin-input', { timeout: 10000 })
   const standMm = await readField(page, 'standHeight')
@@ -143,6 +148,24 @@ try {
   await page.waitForTimeout(300)
   const h2 = (await paramsOf(page, 'b1'))?.standHeight
   check(typeof h2 === 'number' && Math.abs(h2 - 0.8) < 1e-9, `800 typed into the mm field stores 0.8 m (got ${h2})`)
+
+  // --- G: Units and Length are separate: Imperial keeps the Length, and a scene saved as 'metric-mm' opens in mm ---
+  await page.evaluate(() => window.__oip.store.setState({ selectedIds: [] }))
+  await select.waitFor({ timeout: 10000 })
+  await select.selectOption('imperial')
+  await page.waitForTimeout(200)
+  check((await length.inputValue()) === 'mm', 'switching Speed to Imperial keeps Length at mm')
+  await page.evaluate(() => window.__oip.store.select('b1'))
+  await page.waitForSelector('.inspector .prop-row[data-param="speedFpm"] input.spin-input', { timeout: 10000 })
+  check((await readField(page, 'speedFpm'))?.unit === 'FPM', 'the speed reads FPM')
+  check((await readField(page, 'standHeight'))?.unit === 'mm', 'while lengths still read mm')
+  const legacyErr = await page.evaluate(() =>
+    window.__oip.loadSceneText(JSON.stringify({ version: window.__oip.store.getState().scene.version, parts: [], units: 'metric-mm' })),
+  )
+  await page.evaluate(() => window.__oip.store.setState({ selectedIds: [] }))
+  await select.waitFor({ timeout: 10000 })
+  const legacy = [legacyErr, await select.inputValue(), await length.inputValue()]
+  check(JSON.stringify(legacy) === '[null,"metric","mm"]', `a scene saved as 'metric-mm' opens as Metric with Length mm (got ${JSON.stringify(legacy)})`)
   check(pageErrors.length === 0, `no page errors (${pageErrors.join(' | ')})`)
 } catch (e) {
   console.log(`FAIL  ${e instanceof Error ? e.message : String(e)}`)

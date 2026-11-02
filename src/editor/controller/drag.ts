@@ -43,7 +43,7 @@ import {
   snapArc,
   sweepOpening,
 } from '../../core/guards/guardOpeningEdit'
-import { sceneUnits } from '../../core/scene/sceneUnits'
+import { sceneDisplayUnits } from '../../core/scene/sceneUnits'
 import { formatLength } from '../../core/units'
 import type { DisplayUnits } from '../../core/units'
 import { FLOOR_SURFACE_Y } from '../../core/types'
@@ -413,7 +413,7 @@ export function moveGuardOpening(ec: EditorController, drag: Drag & { kind: 'gua
   drag.last = { specs, index }
   ec.store.setTransient(withOpenings(drag.start, drag.id, specs))
   const o = specs[index]
-  ec.view.setTransformReadout(o ? openingReadout(o.arcStart, o.arcEnd, sceneUnits(s.scene)) : null)
+  ec.view.setTransformReadout(o ? openingReadout(o.arcStart, o.arcEnd, sceneDisplayUnits(s.scene)) : null)
 }
 
 /** the live readout while an opening is dragged: where it starts and ends along the guard, and its width */

@@ -4,7 +4,7 @@
 import { clamp, isHexColor, isHexColorA, normalizeHexColorList, splitHexAlpha } from '../../../core/math'
 import { isRealBound, partParamSpecs } from '../../../core/packageParams'
 import { locatedVariables } from '../../../plc/locatedIndex'
-import { unitView, type DisplayUnits } from '../../../core/units'
+import { METRIC_DISPLAY, unitView, type DisplayUnits } from '../../../core/units'
 import type { BuildingWallRule, NumberParamSpec, ParamSpec, ParamValue, PartInstance } from '../../../core/types'
 
 export function isArrayKind(k: ParamSpec['kind']): boolean {
@@ -40,7 +40,7 @@ function shownQuantity(spec: NumberParamSpec, v: number, system: DisplayUnits): 
 }
 
 /** a stored number with its unit, as the viewer's display units show it: '23.62 in', '2 m/s', '42 %' */
-export function formatQuantity(spec: NumberParamSpec, v: number, system: DisplayUnits = 'metric'): string {
+export function formatQuantity(spec: NumberParamSpec, v: number, system: DisplayUnits = METRIC_DISPLAY): string {
   const u = unitView(spec.unit, system).unit
   return `${shownQuantity(spec, v, system)}${u ? ` ${u}` : ''}`
 }
@@ -73,7 +73,7 @@ function formatParamDefault(spec: ParamSpec, system: DisplayUnits): string {
  * default. Build that multi-line string (the native title attribute renders
  * the newlines) from the spec + its registered description.
  */
-export function buildParamTooltip(spec: ParamSpec, label: string, desc: string | undefined, system: DisplayUnits = 'metric'): string {
+export function buildParamTooltip(spec: ParamSpec, label: string, desc: string | undefined, system: DisplayUnits = METRIC_DISPLAY): string {
   // a tag's first line says what it carries, as the row's badge does: `Speed tag · REAL, m/s`
   const carries = spec.kind === 'tagRef' ? [spec.stType, spec.unit].filter(Boolean).join(', ') : ''
   const lines: string[] = [carries ? `${label} · ${carries}` : label]

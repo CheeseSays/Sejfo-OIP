@@ -11,7 +11,7 @@
 // each a controller of its own.
 
 import { isControllerName } from '../io/controllerTag'
-import type { SceneUnits } from '../types'
+import type { SceneJSON } from '../types'
 
 /**
  * How Play reaches a PLC. `serve`: the simulator is a Modbus TCP server the PLC polls. `poll`: the simulator polls the
@@ -80,12 +80,14 @@ export function validateScenePlcs(raw: unknown, repairs: string[]): ScenePlc[] |
 }
 
 /**
- * The fields a scene carries besides its parts and packages, which every copy of a scene keeps: its Units and its
- * controllers. Spread into a scene being rebuilt, so a new field cannot be dropped by one copy that forgot it.
+ * The fields a scene carries besides its parts and packages, which every copy of a scene keeps: its Units, its Length
+ * and its controllers. Spread into a scene being rebuilt, so a new field cannot be dropped by one copy that forgot it.
  */
-export function sceneSettings(scene: { units?: SceneUnits; plcs?: ScenePlc[] }): { units?: SceneUnits; plcs?: ScenePlc[] } {
+type SceneSettings = Pick<SceneJSON, 'units' | 'lengthUnit' | 'plcs'>
+export function sceneSettings(scene: SceneSettings): SceneSettings {
   return {
     ...(scene.units !== undefined ? { units: scene.units } : {}),
+    ...(scene.lengthUnit !== undefined ? { lengthUnit: scene.lengthUnit } : {}),
     ...(scene.plcs !== undefined ? { plcs: scene.plcs } : {}),
   }
 }

@@ -1,8 +1,8 @@
 import { useState } from 'react'
 import type { ReactElement } from 'react'
-import { sceneUnits, setSceneUnits } from '../../../core/scene/sceneUnits'
+import { sceneUnits, setSceneLengthUnit, setSceneUnits } from '../../../core/scene/sceneUnits'
 import { MAX_SIM_HZ, MIN_SIM_HZ } from '../../../core/types'
-import type { SceneUnits } from '../../../core/types'
+import type { SceneLengthUnit, SceneUnits } from '../../../core/types'
 import type { EditorState, EditorStore } from '../../store/store'
 import type { EditorController } from '../../controller'
 import { LIMIT_LOAD, loadAtRate, sustainableHz, useStepMeter } from '../../simLoad'
@@ -38,11 +38,17 @@ const M = defineMessages('inspector.scene', {
   msPerStep:
     '{ms} ms per step. The world moves and sensors update once per step, so this is also the soonest a PLC output can follow an input.',
   unitsTip:
-    "How this scene shows and takes every length and speed, and what its conveyors' speed tags carry. Imperial: inches and feet per minute. Metric: meters and meters per second, or millimeters and meters per second for machine work. Speed tags are REALs either way. Changing it converts every conveyor, as one undoable edit.",
-  units: 'Units',
-  imperial: 'Imperial (in, FPM)',
-  metric: 'Metric (m, m/s)',
-  metricMm: 'Metric (mm, m/s)',
+    "How this scene shows speeds, and what its conveyors' speed tags carry. Speed tags are REALs either way. Changing it converts every conveyor, as one undoable edit.",
+  units: 'Speed',
+  imperial: 'Imperial (FPM)',
+  metric: 'Metric (m/s)',
+  lengthTip:
+    'The unit every length is shown and typed in. Default shows meters, or inches when Speed is Imperial. Display only: the scene keeps its lengths as they are.',
+  length: 'Length',
+  lengthDefault: 'Default ({unit})',
+  meters: 'Meters (m)',
+  millimeters: 'Millimeters (mm)',
+  inches: 'Inches (in)',
   fpm: 'feet per minute',
   mps: 'meters per second',
   conveyorsNowRun: { one: '{count} conveyor now runs in {unit}.', other: '{count} conveyors now run in {unit}.' },
@@ -64,10 +70,11 @@ const M = defineMessages('inspector.scene', {
  * layout makes the user's own. A running sim is not a lock: a world keeps the rate it was built at, so a change
  * applies on the next run, and the panel says so.
  *
- * And the scene's Units (SceneJSON.units, core/scene/sceneUnits.ts): how every length and speed is shown and typed, and
- * what every conveyor's speed tag carries (FPM or m/s, a REAL either way). A plant runs one convention, so this is
- * the only place it is chosen: part of the scene document, and an ordinary, undoable edit that converts every
- * conveyor with it. It cannot rewrite the program, so after a switch that moved bound speed tags it says so.
+ * And the scene's Units (SceneJSON.units, core/scene/sceneUnits.ts): how every speed is shown and typed, and what
+ * every conveyor's speed tag carries (FPM or m/s, a REAL either way). A plant runs one convention, so this is the
+ * only place it is chosen: part of the scene document, and an ordinary, undoable edit that converts every conveyor
+ * with it. It cannot rewrite the program, so after a switch that moved bound speed tags it says so. Beside it, the
+ * scene's Length (SceneJSON.lengthUnit): the unit every length shows in, display only, so it converts nothing.
  */
 
 /** what the last Units switch in this panel did, for the note under it: shown until Units change again (an undo
@@ -188,7 +195,28 @@ export function SceneProperties({ store, state, controller }: { store: EditorSto
           >
             <option value="imperial">{t(M.imperial)}</option>
             <option value="metric">{t(M.metric)}</option>
-            <option value="metric-mm">{t(M.metricMm)}</option>
+          </select>
+        </span>
+      </label>
+      <label className="field">
+        <span className="field-label" title={t(M.lengthTip)}>
+          {t(M.length)}
+        </span>
+        <span className="field-control">
+          <select
+            data-testid="scene-length"
+            value={state.scene.lengthUnit ?? ''}
+            disabled={state.readOnly || state.demoSession}
+            onChange={(e) => {
+              const next = (e.target.value || undefined) as SceneLengthUnit | undefined
+              store.commit('Set scene length unit', setSceneLengthUnit(store.getState().scene, next))
+            }}
+          >
+            {/* i18n-ok: unit symbols */}
+            <option value="">{t(M.lengthDefault, { unit: units === 'imperial' ? 'in' : 'm' })}</option>
+            <option value="m">{t(M.meters)}</option>
+            <option value="mm">{t(M.millimeters)}</option>
+            <option value="in">{t(M.inches)}</option>
           </select>
         </span>
       </label>

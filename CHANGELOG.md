@@ -24,6 +24,8 @@ The first public source release. The [README](README.md#features) lists what it 
 - Each node of an imported model is drawn by one mesh link, the nearest that keeps it (`keepNode`), so a split
   piece needs no `hideNodes` entry on the model, a piece can be split from inside another, and deleting a piece
   gives it back to the model (Part SDK level 13).
-- Scene Properties > Units offers **Metric (mm, m/s)**: every length shown in millimetres, speeds in m/s.
+- Scene Properties splits **Units** into **Speed** and **Length**. Speed is m/s or FPM, which its conveyors' speed
+  tags carry. Length shows every length in metres, millimetres or inches, display only. A scene saved with Units
+  **Metric (mm, m/s)** opens as Metric (m/s) with Length in millimetres.
 
 Earlier development history is not part of this repository.

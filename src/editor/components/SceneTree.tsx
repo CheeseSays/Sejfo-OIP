@@ -10,7 +10,7 @@ import { resolveKeyAction } from '../../core/keymap'
 import { runCommand, runCommandOn } from '../commands'
 import { preloadBehaviorEditor } from './behaviorEditorChunk'
 import { flattenRigForest, jointRange, rigGeometryOf, shapeLabel } from '../rigTree'
-import { sceneUnits } from '../../core/scene/sceneUnits'
+import { sceneDisplayUnits } from '../../core/scene/sceneUnits'
 import type { RigJoint, RigLink } from '../../core/parts/partPackage'
 import { partLinkOwnership } from '../../core/rig/rigPose'
 import type { EditorState, EditorStore } from '../store/store'
@@ -1037,7 +1037,7 @@ export function SceneTree({ store, state, controller }: SceneTreeProps) {
                 depth={rigDepth}
                 icon={joint ? (joint.type === 'revolute' ? 'revolute' : 'prismatic') : 'node'}
                 typeLabel={state.treeTypes ? (joint ? joint.name : shapeLabel(link.shape)) : ''}
-                rowTitle={[joint ? `${joint.name}: ${joint.type} · ${jointRange(joint, sceneUnits(state.scene))}` : shapeLabel(link.shape), ...badges.why].join('\n')}
+                rowTitle={[joint ? `${joint.name}: ${joint.type} · ${jointRange(joint, sceneDisplayUnits(state.scene))}` : shapeLabel(link.shape), ...badges.why].join('\n')}
                 nodeBadges={badges.tags}
                 hasChildren={false}
                 grouped={false}

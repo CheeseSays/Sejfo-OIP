@@ -23,7 +23,7 @@ import type { WebGPURenderer } from 'three/webgpu'
  *
  * ## Safety / rollback
  *
- * Reaches into three's internal `_pipelines.programs` maps (three 0.186); feature-detects and no-ops if
+ * Reaches into three's internal `_pipelines.programs` maps (three 0.187); feature-detects and no-ops if
  * the shape moves (stock per-mesh compile: slower, never wrong). Kill-switch `?nopipelinededup`. Install
  * once right after `renderer.init()`, before any program compiles, so load-time programs are stored under
  * the normalized key. Retire when three keys render pipelines structurally (docs/webgpu-instancing.md).

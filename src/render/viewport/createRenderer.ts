@@ -180,7 +180,7 @@ export async function createWebGPURenderer(): Promise<WebGPURenderer> {
   // pipeline instead of cold-compiling one on the draw path (the roller-conveyor duplicate hitch). Must
   // run before any program compiles, so load-time programs are stored under the normalized key.
   installInstancePipelineDedup(renderer)
-  // Per-pass _projectObject visit counters on globalThis.__oipProjStats: shows which render pass
+  // Per-pass projection visit counters on globalThis.__oipProjStats: shows which render pass
   // incurs the scene-graph traversal cost (sub-passes run with bundles inert, so they walk the
   // full graph). About one counter increment per visited node.
   installProjectionStats(renderer)

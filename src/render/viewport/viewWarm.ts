@@ -214,11 +214,14 @@ export async function pumpWarm(view: WarmHost): Promise<void> {
       // or via a hover warm that landed while this id was queued
       const kind = entry0 ? partKindKey(entry0.part) : null
       if (obj && kind !== null && !view.warm.kindWarm.has(kind)) {
-        obj.visible = true // reveal for compileAsync's synchronous projection…
-        const warm = gpu.compileAsync(obj, view.camera, view.scene) // …captured synchronously (scoped to this part)…
-        obj.visible = false // …then hidden before any live frame draws it cold
         try {
-          await warm
+          // in the compile lane: two overlapping compileAsync calls corrupt each other (inCompileLane)
+          await inCompileLane(view, () => {
+            obj.visible = true // reveal for compileAsync's synchronous projection…
+            const warm = gpu.compileAsync(obj, view.camera, view.scene) // …captured synchronously (scoped to this part)…
+            obj.visible = false // …then hidden before any live frame draws it cold
+            return warm
+          })
           view.warm.kindWarm.add(kind) // compiled clean → later adds of this kind skip the hold outright
         } catch { /* compile failed: fall through and reveal; the draw path recompiles */ }
       }
@@ -348,7 +351,12 @@ export async function compileSwap(view: WarmHost): Promise<void> {
   }
 }
 
-/** run `fn` once every earlier compile in the lane has settled (see compileLane) */
+/**
+ * Run `fn` once every earlier compile in the lane has settled (see compileLane). Every WebGPU
+ * compileAsync goes through the lane: three 0.187 keeps a compile's state (`_precompilationState`, the
+ * render context and target) on the renderer while it waits on a node build, so a second call started
+ * then overwrites it and the first throws on resume ("Cannot destructure property 'useFrameBufferTarget'").
+ */
 export function inCompileLane<T>(view: WarmHost, fn: () => Promise<T>): Promise<T> {
   const run = view.warm.compileLane.then(fn, fn)
   view.warm.compileLane = run.then(
@@ -452,8 +460,10 @@ export function warmPart(view: WarmHost, part: PartInstance, opts?: { pipeline?:
       // on completion the kind's pipelines sit in the shared cache → register kind warmth, so a
       // subsequent ADD of this kind (the hovered part being placed, duplicates) skips the warm-hold
       if (warmPipeline) {
-        void view.renderer
-          .compileAsync(visual.object, view.camera, view.scene)
+        // the projection happens when the lane reaches this call; the detached visual needs no reveal
+        void inCompileLane(view, async () => {
+          await view.renderer.compileAsync(visual.object, view.camera, view.scene)
+        })
           .then(() => { view.warm.kindWarm.add(key) })
           .catch(() => {})
       }
@@ -492,7 +502,7 @@ export function scheduleWebGLInteractionWarm(view: WarmHost): void {
  * never fades onto a black, still-compiling frame, in two phases that reach an interactive scene
  * ~2-3x sooner than one whole-scene compile:
  *
- *  1. Building first. three's _projectObject skips visible=false subtrees, so hide every non-
+ *  1. Building first. three's drawingPipeline.project skips visible=false subtrees, so hide every non-
  *     building part and compileAsync only the building shell + env: heavy shared pipelines first.
  *  2. Parts. Reveal the parts and compile them. The loop is held (stagedReveal) until they're warm
  *     so no frame draws an un-compiled pipeline, which the render path would compile synchronously
@@ -576,7 +586,7 @@ export async function compileStaged(view: WarmHost, gpu: WebGPURenderer): Promis
     // phase 1: building shell + env only. Concurrent feed by default (?serialphase1 reverts to
     // three's one-pipeline-in-flight loop) - the staging is what prioritises the heavy shared
     // building pipelines, and it survives un-serialising the feed underneath it.
-    if (wantsSerialPhase1()) await gpu.compileAsync(view.scene, view.camera)
+    if (wantsSerialPhase1()) await inCompileLane(view, () => gpu.compileAsync(view.scene, view.camera))
     else await withConcurrentPipelines(view, gpu, () => gpu.compileAsync(view.scene, view.camera), 'phase1', held)
   } catch (err) {
     // A phase-1 failure must never strand the deferred parts hidden: the caller's .catch only
@@ -716,18 +726,18 @@ export async function warmInteractionExtras(view: WarmHost, gpu: WebGPURenderer)
   // gear (unreachable without selecting) follows in tier 2.
   const poolSources = (view.instancePool?.hiddenSourceMeshes() ?? []).filter((m) => m.visible === false)
   const burst = (roots: Object3D[], label: string): Promise<void> =>
-    withConcurrentPipelines(view, gpu, () => {
-      const pending: Promise<unknown>[] = []
-      // One synchronous burst: every reveal is undone before control returns to the event loop,
-      // so no frame can draw an overlay at the origin (or a pooled source doubling its merged copy)
+    withConcurrentPipelines(view, gpu, async () => {
+      // One root at a time: two overlapping compileAsync calls corrupt each other (inCompileLane).
+      // The pipelines still compile in parallel, since withConcurrentPipelines collects them unawaited.
+      // Each reveal is undone before control returns to the event loop, so no frame can draw an
+      // overlay at the origin (or a pooled source doubling its merged copy)
       for (const root of roots) {
         const was = root.visible
         root.visible = true
         const p = gpu.compileAsync(root, view.camera, view.scene) // projection captured synchronously…
         root.visible = was // …so re-hiding now cannot un-schedule it
-        pending.push(p)
+        await p
       }
-      return Promise.all(pending)
     }, label)
   try {
     // tier 1 - everything a first select touches: the gizmo handles, and the outline mask pass.
@@ -820,7 +830,7 @@ export function warmSelectionOutline(view: WarmHost): void {
  * remaining piece, the per-instance colour path.)
  */
 export async function compileSerial(view: WarmHost, gpu: WebGPURenderer): Promise<void> {
-  await gpu.compileAsync(view.scene, view.camera) // caller's .finally lifts the cover either way
+  await inCompileLane(view, () => gpu.compileAsync(view.scene, view.camera)) // caller's .finally lifts the cover either way
 }
 
 /**
@@ -831,7 +841,7 @@ export async function compileSerial(view: WarmHost, gpu: WebGPURenderer): Promis
  * compile, scene byte-identical. Changes when we await, never what compiles. Unbounded is fastest (a
  * semaphore only starves the pool).
  *
- * Coupling: three's internal Pipelines.getForRender shape (three 0.186). The feature-detect falls back
+ * Coupling: three's internal Pipelines.getForRender shape (three 0.187). The feature-detect falls back
  * to the stock serial compile (slower, never broken), but re-verify on any three bump.
  */
 export async function compileConcurrent(view: WarmHost, gpu: WebGPURenderer): Promise<void> {

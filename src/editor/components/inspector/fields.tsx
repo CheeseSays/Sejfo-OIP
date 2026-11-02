@@ -4,7 +4,7 @@ import { createContext, useContext, useEffect, useRef, useState } from 'react'
 import type { MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent, ReactNode } from 'react'
 import { clamp } from '../../../core/math'
 import { isRealBound, isRealRange } from '../../../core/packageParams'
-import { displayUnitFor, niceStep, toStored, unitView, type DisplayUnits } from '../../../core/units'
+import { displayUnitFor, METRIC_DISPLAY, niceStep, toStored, unitView, type DisplayUnits } from '../../../core/units'
 import { evalNumeric, parseOffset, snapToStep } from './shared'
 import { FoldIcon } from '../toolbarIcons'
 import { defineMessages, t } from '../../../core/i18n'
@@ -43,9 +43,9 @@ export interface LiveEditGate {
 }
 export const LiveEditContext = createContext<LiveEditGate | null>(null)
 
-/** The scene's Units (core/scene/sceneUnits.ts), as fields show them. The Inspector provides it; a field outside
- *  one shows metric, which is what everything is stored in. */
-export const DisplayUnitsContext = createContext<DisplayUnits>('metric')
+/** The scene's Speed and Length (core/scene/sceneUnits.ts), as fields show them. The Inspector provides it; a field
+ *  outside one shows metric, which is what everything is stored in. */
+export const DisplayUnitsContext = createContext<DisplayUnits>(METRIC_DISPLAY)
 
 /** Whether guard-openings mode (G) is on, so the Guard openings table's button can say "Done editing" while it is. */
 export const GuardOpeningsModeContext = createContext(false)

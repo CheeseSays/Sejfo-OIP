@@ -816,7 +816,7 @@
       ]
     },
     "RigMeshShape": {
-      "description": "A visual mesh from a GLB (see PartPackage.assets). **Render-only unless `collision` is set** - for anything\ncargo must hit, prefer hidden (`hidden: true`) primitive `box` links sized to the real surfaces: the visual\nmesh / primitive collider split every built-in uses.\n\nTwo ways to take geometry from the GLB, and they place it differently:\n- **`node`** takes one named node's geometry in its mesh-local frame (its node transform is reset), so the\n  link's `offset`/`rotation` alone place it. One GLB of an articulated model (a robot) supplies a mesh per rig\n  link this way; you transcribe each node's transform into the rig.\n- **Whole scene** (no `node`): the GLB as authored, optionally normalised by `fitHeight`, then carved by\n  `hideNodes` / `keepNode`. Carved pieces keep identical scale and placement, so links cut from the same GLB\n  line up without transcribing anything. This is the simplest route for an imported device: `hideNodes` the moving nodes\n  on the base link, and put them on a second mesh link under a `frame` that carries the joint.",
+      "description": "A visual mesh from a GLB (see PartPackage.assets). **Render-only unless `collision` is set** - for anything\ncargo must hit, prefer hidden (`hidden: true`) primitive `box` links sized to the real surfaces: the visual\nmesh / primitive collider split every built-in uses.\n\nTwo ways to take geometry from the GLB, and they place it differently:\n- **`node`** takes one named node's geometry in its mesh-local frame (its node transform is reset), so the\n  link's `offset`/`rotation` alone place it. One GLB of an articulated model (a robot) supplies a mesh per rig\n  link this way; you transcribe each node's transform into the rig.\n- **Whole scene** (no `node`): the GLB as authored, optionally normalised by `fitHeight`, then carved by\n  `hideNodes` / `keepNode`. Carved pieces keep identical scale and placement, so links cut from the same GLB\n  line up without transcribing anything. This is the simplest route for an imported device: put each moving\n  node on a second mesh link (`keepNode`) under a `frame` that carries the joint. Each node is drawn by one link,\n  the nearest that keeps it, so the base link leaves a kept node out on its own, and a piece kept from inside\n  another piece is left out of that one too.",
       "type": "object",
       "properties": {
         "kind": {
@@ -865,14 +865,14 @@
           }
         },
         "hideNodes": {
-          "description": "whole-scene refs: remove these nodes and their subtrees (applied after `fitHeight`)",
+          "description": "whole-scene refs: never draw these nodes and their subtrees (applied after `fitHeight`). A node another link\nkeeps needs no entry here: it is left out on its own.",
           "type": "array",
           "items": {
             "type": "string"
           }
         },
         "keepNode": {
-          "description": "whole-scene refs: keep only this one node's subtree, re-based into the fitted frame (works even when the\nnode is nested under a housing node). A moving piece made of several sibling nodes can't be named here -\nuse `hideNodes` listing everything else instead.",
+          "description": "whole-scene refs: keep only this one node's subtree, re-based into the fitted frame (works even when the\nnode is nested under a housing node). Every other whole-scene link of the same asset then leaves the node out,\nand this link leaves out any node inside it that a further link keeps. A moving piece made of several sibling\nnodes can't be named here - use `hideNodes` listing everything else instead.",
           "type": "string"
         }
       },

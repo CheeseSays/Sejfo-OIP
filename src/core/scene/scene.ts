@@ -3,6 +3,7 @@ import { reseatOlderStairs } from '../stairReseat'
 import { canonicalAddress, looksLikeAddress } from '../io/iecAddress'
 import { controllerTag, splitControllerTag } from '../io/controllerTag'
 import { sceneSettings, validateScenePlcs } from './scenePlcs'
+import { readSavedUnits } from './sceneUnits'
 import { packageParamSpecs } from '../packageParams'
 import { getPackage, isAuthoritativePackage } from '../parts/partRegistry'
 import { validatePartPackage } from '../parts/partValidate'
@@ -630,9 +631,11 @@ export function validateScene(data: unknown, runsAsEmbedded: ReadonlySet<string>
   if (root.simHz !== undefined && root.simHz !== simHz) {
     repairs.push(`simHz ${JSON.stringify(root.simHz)} is not a whole number from ${MIN_SIM_HZ} to ${MAX_SIM_HZ}, so the scene steps at ${simHz} Hz`)
   }
-  // the scene's Units (SceneJSON.units): absent = metric (core/scene/sceneUnits.ts); anything else is dropped, and said
-  const units = root.units === 'metric' || root.units === 'imperial' ? root.units : undefined
+  // the scene's Units and Length (SceneJSON.units, .lengthUnit): absent = metric, each field in its own unit
+  // (core/scene/sceneUnits.ts); anything else is dropped, and said
+  const { units, lengthUnit } = readSavedUnits(root.units, root.lengthUnit)
   if (root.units !== undefined && units === undefined) repairs.push(`units ${JSON.stringify(root.units)} is not "imperial" or "metric", so the scene is metric`)
+  if (root.lengthUnit !== undefined && root.lengthUnit !== lengthUnit) repairs.push(`lengthUnit ${JSON.stringify(root.lengthUnit)} is not "m", "mm" or "in", so each length shows in its own unit`)
   // the scene's controllers (SceneJSON.plcs): an entry that cannot be read is dropped, and said
   const plcs = validateScenePlcs(root.plcs, repairs)
   // a stair an older app seated by its own top landing moves in onto the deck edge it met (core/stairReseat.ts)
@@ -653,7 +656,7 @@ export function validateScene(data: unknown, runsAsEmbedded: ReadonlySet<string>
       version: SCENE_VERSION,
       parts: sanitized,
       ...(packages.length > 0 ? { packages } : {}),
-      ...sceneSettings({ units, plcs }),
+      ...sceneSettings({ units, lengthUnit, plcs }),
     },
     ...(stProgram !== undefined ? { stProgram } : {}),
     ...(stScanMs !== undefined ? { stScanMs } : {}),

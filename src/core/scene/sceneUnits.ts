@@ -7,16 +7,44 @@
 // tag in FPM, or in m/s; the tag is a REAL either way). The switch is still a param, because the part's step()
 // reads it, but no one sets it by hand. The Inspector hides it, and changing the scene's Units rewrites it on every
 // part, with the values it selects.
+//
+// The scene's Length (SceneJSON.lengthUnit) is a second, display-only setting: one unit every length shows in, such
+// as millimetres for machine work in a metric scene. It changes no part and no tag.
 
 import { partParamSpecs } from '../packageParams'
-import type { BooleanParamSpec, NumberParamSpec, ParamSpec, PartInstance, SceneJSON, SceneUnits, TagRefParamSpec } from '../types'
-import { convertUnit } from '../units'
+import { SCENE_LENGTH_UNITS } from '../types'
+import type { BooleanParamSpec, NumberParamSpec, ParamSpec, PartInstance, SceneJSON, SceneLengthUnit, SceneUnits, TagRefParamSpec } from '../types'
+import { convertUnit, displayUnits, type DisplayUnits } from '../units'
 
 /** The scene's unit system. Metric unless the scene says imperial: the default for everyone (the audience is
  *  worldwide). A scene with no `units`, new or saved without the setting, is metric, which matches its conveyors
  *  reading m/s when they have no FPM switch (the switch's `whenAbsent`). */
 export function sceneUnits(scene: Pick<SceneJSON, 'units'>): SceneUnits {
   return scene.units ?? 'metric'
+}
+
+/** A saved Units and Length read back; one that is not a known value comes back undefined. `'metric-mm'`, the
+ *  single Units value one release saved for millimetres, reads as metric with a Length of mm. */
+export function readSavedUnits(units: unknown, lengthUnit: unknown): { units?: SceneUnits; lengthUnit?: SceneLengthUnit } {
+  const length = (SCENE_LENGTH_UNITS as readonly unknown[]).includes(lengthUnit) ? (lengthUnit as SceneLengthUnit) : undefined
+  if (units === 'metric-mm') return { units: 'metric', lengthUnit: length ?? 'mm' }
+  return {
+    ...(units === 'metric' || units === 'imperial' ? { units } : {}),
+    ...(length ? { lengthUnit: length } : {}),
+  }
+}
+
+/** How the scene shows lengths and speeds: its Units and its Length (core/units.ts). */
+export function sceneDisplayUnits(scene: Pick<SceneJSON, 'units' | 'lengthUnit'>): DisplayUnits {
+  return displayUnits(sceneUnits(scene), scene.lengthUnit)
+}
+
+/** The scene with its Length set, or cleared with undefined so each field shows in the Units' own. */
+export function setSceneLengthUnit(scene: SceneJSON, lengthUnit: SceneLengthUnit | undefined): SceneJSON {
+  const next: SceneJSON = { ...scene }
+  if (lengthUnit) next.lengthUnit = lengthUnit
+  else delete next.lengthUnit
+  return next
 }
 
 /** A part's units switch: its boolean param marked `imperialUnits`, or undefined for a part with none. */

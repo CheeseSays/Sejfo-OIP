@@ -961,6 +961,28 @@ describe('the scene unit system in a room (UNITS_META)', () => {
     ydoc.transact(() => applySceneDiff(ydoc, { ...scene, units: 'imperial' }, { version: SCENE_VERSION, parts: [] }), LOCAL_ORIGIN)
     expect('units' in docToScene(ydoc)).toBe(false)
   })
+
+  it('carries the Length beside it', () => {
+    const ydoc = new Y.Doc()
+    const scene: SceneJSON = { version: SCENE_VERSION, parts: [], units: 'imperial', lengthUnit: 'mm' }
+    sceneToDoc(scene, ydoc)
+    expect(docToScene(ydoc)).toMatchObject({ units: 'imperial', lengthUnit: 'mm' })
+    ydoc.transact(() => applySceneDiff(ydoc, scene, { ...scene, lengthUnit: 'in' }), LOCAL_ORIGIN)
+    expect(docToScene(ydoc).lengthUnit).toBe('in')
+    ydoc.transact(() => applySceneDiff(ydoc, { ...scene, lengthUnit: 'in' }, { ...scene, lengthUnit: undefined }), LOCAL_ORIGIN)
+    expect('lengthUnit' in docToScene(ydoc)).toBe(false)
+  })
+
+  it("reads a room holding 'metric-mm' as metric in mm, and a Length cleared there stays cleared", () => {
+    const ydoc = new Y.Doc()
+    metaMap(ydoc).set('units', 'metric-mm')
+    const read = docToScene(ydoc)
+    expect(read).toMatchObject({ units: 'metric', lengthUnit: 'mm' })
+    const cleared: SceneJSON = { ...read, lengthUnit: undefined }
+    ydoc.transact(() => applySceneDiff(ydoc, read, cleared), LOCAL_ORIGIN)
+    expect(docToScene(ydoc).units).toBe('metric')
+    expect('lengthUnit' in docToScene(ydoc)).toBe(false)
+  })
 })
 
 describe("the scene's controllers in a room (PLCS_META)", () => {

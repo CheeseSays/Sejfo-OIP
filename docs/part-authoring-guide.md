@@ -977,6 +977,9 @@ from the `inspect-glb` boxes before choosing the range.
 
 - `keepNode` keeps one node's subtree. A moving piece made of several sibling nodes needs `hideNodes` listing
   everything else, as above.
+- Each node is drawn by one link, the nearest that keeps it. A node a `keepNode` link keeps is left out of the
+  other whole-scene links of that asset without a `hideNodes` entry, and a piece kept from inside another piece
+  (a bit inside a motor head) is left out of that piece too. `hideNodes` is for nodes no link should draw.
 - A `node` ref (one node's mesh in its mesh-local frame, its transform reset) is for re-assembling pieces
   yourself, like a robot's links. You then transcribe each node's transform into the link's `offset` /
   `rotation`, the work carving avoids.
@@ -1004,6 +1007,51 @@ from the `inspect-glb` boxes before choosing the range.
   (`'z'` its width, `'y'` its height), whatever `bounds` says. So hardware past the body the handle sizes (a ramp, an
   indicator head) is outside the footprint. Leave the handle off a param that is not the whole extent, and tie
   `bounds` to it with `bounds.params` instead.
+
+#### Carving in the editor
+
+The Part Editor writes the same carving for you. Import the model onto a node (**Import model…**), then:
+
+1. **Split into pieces** on that node lists the model's nodes. Click one to give it its own node, which keeps only
+   that node (`keepNode`) from the same asset, at the offset that keeps it in place. The model node stops drawing
+   it because another node keeps it. Nothing is imported twice.
+2. To make several pieces move together, select the first split piece and click the others under its own
+   **Split into pieces**. They become its children and follow its joint. A node inside a split piece (a bit inside
+   a motor head) can be split out too, and the piece stops drawing it.
+3. **Add joint** on the piece and set its type, axis and limits.
+4. For a revolute joint, **Pivot** sets the point it turns about, in part coordinates, and **Pivot at centre**
+   puts it at the centre of everything the joint moves. A node that draws something gets a `frame` inserted
+   above it to carry the joint, with the same joint name, so the rest pose and the behavior script are unchanged.
+
+5. **Test motion** moves the joint from Min to Max and back twice, then returns it to rest, without running the
+   simulation or writing anything to the part. **Position** poses it by hand: drag across the field between Min
+   and Max (0 to 360° for a spinning joint), or type a value. Both go back to rest when another node is selected.
+6. **Spins endlessly** on a revolute joint makes it a wrapping servo (`servo.modulo` 2π, limits 0 to 2π) with a
+   **Speed** in rpm (`maxVelocity`) and a **Spin-up time** (`maxVelocity / maxAccel`). A servo is posed by the host,
+   so the behavior runs it with `ctx.servos[name].moveVelocity(...)` instead of `setJoint`. The panel shows those
+   lines with the speed filled in. Test motion then turns it at that speed.
+7. **PLC control** sets how a PLC moves the joint without code. **None** (the default) leaves the behavior to you.
+   **Two positions** writes the whole behavior script: per joint, a BOOL `Command (to B)` tag in, `At A` and `At B`
+   BOOL tags out and a **Stroke time** (s). The joint moves from A (Min) to B (Max) at a constant speed while the
+   command is TRUE and back while it is FALSE. A joint whose limits follow a param (`minParam` / `maxParam`) can't
+   take it, since the script writes Min and Max as numbers. On each placed copy the Comms fields name the PLC variables (`ToB`
+   for the built-in PLC, `MAIN.ToB` over ADS). On a joint that spins endlessly the mode is **Spin** instead: a BOOL
+   `Run` tag in (TRUE spins), an optional REAL `Speed (rpm)` tag in (empty: the copy's own Speed, up to the joint's
+   Speed), and a BOOL `At speed` tag out; the host runs the servo. The script keeps its settings on an `// oip-panel` line and is
+   written again when a joint's PLC control or limits change or its node is deleted or merged back, so edits to it
+   are lost. Each joint's param keys are kept on that line too, so a placed copy's tag names stay bound when other
+   joints change. A script you wrote is replaced
+   only after a confirm, and setting every joint back to None gives the empty template.
+
+A piece split under the wrong node can be fixed two ways. **Merge back into model** removes the piece with its
+joint, so the model draws it again, and the pieces under it move up. **Delete** does the same for the node and
+everything under it. **Parent** moves any node under another one, changing its offset so it stays where it is.
+
+Lengths show in the scene's Length. Setting **Length** to **Millimeters (mm)** in Scene Properties shows them in
+millimetres, which suits a machine's dimensions. The part always stores metres.
+
+Pieces are offered only where they still line up: the nodes between the model node and the selected node must
+carry plain offsets (no rotation, no param-driven placement).
 
 ### 4. Behavior and verify
 
@@ -1052,8 +1100,8 @@ and a length or speed field converts typed units (`5ft`, `600mm`; `394 fpm` in a
 trailing `(m)` in the label is also read as the unit, but only when it is exactly that: with
 `'Speed (m/s, − reverses)'` the field has no unit, no suffix and no conversion (typed `394 fpm` becomes 394).
 Put extra explanation in `desc`. `unit: 'rpm'`, `'°'` and `'°/s'` show as suffixes without converting. A
-length or speed field displays in the scene's Units (a metre field reads inches in an imperial scene, an
-`'FPM'` one reads m/s in a metric one); `step()` always reads the unit you declared.
+length field displays in the scene's Length and a speed field in its Speed (a metre field reads inches in an
+imperial scene, an `'FPM'` one reads m/s in a metric one); `step()` always reads the unit you declared.
 
 A `tag` param's `unit` is the unit of the value on the wire, shown after its type in the field's badge
 (`READ REAL m/s`) and in Device Tags, so a program declares and scales it right. Put it there, not in the label.
@@ -1079,7 +1127,7 @@ These declarations change how a field is edited without changing the value the p
 | `product: true` | `string` | the value is a cargo part's package id (`'oip.tote'`): a dropdown of the cargo parts, and the project holds a copy of the part named |
 | `settings: 'key'` | `string` with `product` | names a hidden `string` param holding the chosen product's settings as JSON; the Inspector shows the product's own params under the dropdown |
 | `values: [{ value: 1, label: 'red' }, ...]` | `INT` / `DINT` `tag` | what each code means, listed on the field and by `npm run catalog` |
-| `imperialUnits: true` | `boolean` | the part's units switch (true = imperial). The scene's Units (Scene Properties) write it on every part and carry each pair of values it switches between (same-label `number` twins, and `tag` twins through `setpointFor`); the Inspector never shows it. Pair it with `whenAbsent` |
+| `imperialUnits: true` | `boolean` | the part's units switch (true = imperial). The scene's Speed (Scene Properties) writes it on every part and carry each pair of values it switches between (same-label `number` twins, and `tag` twins through `setpointFor`); the Inspector never shows it. Pair it with `whenAbsent` |
 
 **Groups and labels.** Follow the Inspector's conventions so every part reads the same:
 
@@ -1111,7 +1159,7 @@ does not count it.
 **`whenAbsent`** (boolean params) is the value a part takes when its saved params lack the key; `default` is
 what a newly placed part gets. Use it only when a new switch changes what existing numbers mean. The conveyors'
 `fpmUnits` has `whenAbsent: false`, so a belt saved before the switch existed stays in m/s instead of reading
-its `speedTag := 2.0` as two feet per minute; a newly dropped belt takes the scene's Units, as any
+its `speedTag := 2.0` as two feet per minute; a newly dropped belt takes the scene's Speed, as any
 `imperialUnits` switch does. An ordinary new param needs only `default`.
 
 **Tag params.** Every `'tag'` param declares `dir` and `stType`, or the part is refused.

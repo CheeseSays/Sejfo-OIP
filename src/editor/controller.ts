@@ -11,7 +11,7 @@ import { onCurrentDocumentChange, SCENE_SLOT, sceneSlotKey, slotDocumentId } fro
 import type { SnapCandidate, SnapPose } from '../core/snap/snapFeatures'
 import type { PartInstance, PartType, SceneJSON } from '../core/types'
 import type { DisplayUnits } from '../core/units'
-import { sceneUnits } from '../core/scene/sceneUnits'
+import { sceneDisplayUnits } from '../core/scene/sceneUnits'
 import type { BoxPick, IRenderView, ResizeHandle } from '../render/api'
 import type { PlcFault, SimClient, StepDone } from '../sim/client'
 import type { StepStats } from '../sim/protocol'
@@ -292,7 +292,7 @@ export class EditorController {
     this.prevSpace = s.space
     this.prevFlowArrows = s.flowArrows
     this.prevShowGrid = s.showGrid
-    this.prevDisplayUnits = sceneUnits(s.scene)
+    this.prevDisplayUnits = sceneDisplayUnits(s.scene)
     this.camera.projection = s.projection
     this.prevSceneLoads = store.sceneLoads
     view.syncScene(s.scene)
@@ -300,7 +300,7 @@ export class EditorController {
     view.setRunning(s.running)
     view.setFlowArrowsVisible(s.flowArrows)
     view.setGridVisible(s.showGrid)
-    view.setDisplayUnits(sceneUnits(s.scene))
+    view.setDisplayUnits(sceneDisplayUnits(s.scene))
     view.setProjection(s.projection)
 
     // Put the camera back where this scene was left (workspace state, like the dock sizes), falling
@@ -1011,14 +1011,14 @@ export class EditorController {
     authoringOps.deleteRigNode(this, packageId, linkName)
   }
 
-  /**
-   * Author mode: add, edit, or remove (pass null) the kinematic joint that drives a link. A joint makes
-   * the node articulated - the part's behavior script commands it by name via ctx.setJoint(name, value). The
-   * joint name is kept stable across edits so an existing setJoint reference stays valid. Applied live.
-   */
-  setRigJoint(packageId: string, linkName: string, joint: { type: 'revolute' | 'prismatic'; axis: [number, number, number]; min: number; max: number } | null): void {
+  /** Author mode: add, edit, or remove (null) the joint that drives a link; the behavior commands it by name
+   *  via ctx.setJoint, and the name stays stable across edits so those references stay valid. Applied live. */
+  setRigJoint(packageId: string, linkName: string, joint: Parameters<typeof authoringOps.setRigJoint>[3]): void {
     authoringOps.setRigJoint(this, packageId, linkName, joint)
   }
+
+  /** Author mode: the Part Editor's rig edits (split, pivot, merge back, parent, PLC control), in controller/partAuthoring.ts. */
+  readonly rig = authoringOps.rigEdits(this)
 
   /**
    * Author mode (in-browser behavior editor): validate a candidate behavior script against the part's own
@@ -1315,7 +1315,7 @@ export class EditorController {
       this.prevShowGrid = s.showGrid
     }
     // the measure tool reads lengths in the scene's Units, so a switch (or a scene with other Units) re-labels it
-    const units = sceneUnits(s.scene)
+    const units = sceneDisplayUnits(s.scene)
     if (units !== this.prevDisplayUnits) {
       this.view.setDisplayUnits(units)
       this.prevDisplayUnits = units

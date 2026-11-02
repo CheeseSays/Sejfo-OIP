@@ -3,7 +3,7 @@ import type { ReactElement } from 'react'
 import { keymapRev, subscribeKeymap } from '../../core/keymap'
 import { DEFAULT_ROTATE_SNAP_DEG } from '../../core/types'
 import { defaultTranslateSnap, toStored, unitView } from '../../core/units'
-import { sceneUnits } from '../../core/scene/sceneUnits'
+import { sceneDisplayUnits } from '../../core/scene/sceneUnits'
 import type { EditorController } from '../controller'
 import { keyHint, withKey } from '../keyHint'
 import type { EditorState, EditorStore, ToolMode } from '../store/store'
@@ -418,8 +418,8 @@ function SnapConfig({ store, state, onClose }: SnapConfigProps) {
   useDismiss(ref, onClose, { ignore: '[data-snap-gear]' })
 
   const { translate, rotate } = state.gridSnap
-  // stored in metres, shown in the scene's Units (1 ft reads 12 in)
-  const units = sceneUnits(state.scene)
+  // stored in metres, shown in the scene's Length (1 ft reads 12 in)
+  const units = sceneDisplayUnits(state.scene)
   const tv = unitView('m', units)
 
   return (

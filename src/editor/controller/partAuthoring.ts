@@ -11,8 +11,10 @@ import { bytesToBase64 } from '../../core/parts/partAssets'
 import { fitRigToModel } from '../../core/parts/modelFit'
 import { meshLinkBox, parseGlb, type Box3Like } from '../../core/glbBox'
 import { canDeleteRigNode, defaultShape, rigSubtree } from '../rigTree'
+import { mergeRigPiece as mergedGeometry, releaseKeptNodes, reparentRigLink as reparentedGeometry, setRigPivot as pivotedGeometry, splitRigNode as splitGeometry } from '../rigSplit'
+import { isReplaceableBehavior, jointPlcBehavior, readJointPlcConfig, type JointPlcMode } from '../jointPlcControl'
 import type { AuthorableShapeKind } from '../rigTree'
-import type { PartPackage, RigJoint, RigLink, RigShape } from '../../core/parts/partPackage'
+import type { PartPackage, RigJoint, RigLink, RigServo, RigShape } from '../../core/parts/partPackage'
 import { buildPackage, manifestOfPackage } from '../../sim/buildPackage'
 import type { PackageManifest } from '../../sim/buildPackage'
 import { parsePartBytes, parsePartText } from '../parts/partFile'
@@ -156,6 +158,55 @@ export function addRigNode(ec: AuthoringDeps, packageId: string, parentLinkName:
   if (focused) ec.store.selectRigNode(focused, name)
 }
 
+/** Split a GLB node out of a whole-scene mesh link into a new node under `parentLinkName` (rigSplit.splitRigNode),
+ *  and select the new node so its joint can be added next. False when the split would not line up. */
+export function splitRigMeshNode(ec: AuthoringDeps, packageId: string, sourceLinkName: string, glbNode: string, parentLinkName: string): boolean {
+  const pkg = getPackage(packageId)
+  if (!pkg || pkg.geometry.kind !== 'rig') return false
+  const out = splitGeometry(pkg.geometry, sourceLinkName, glbNode, parentLinkName)
+  if (!out) return false
+  ec.store.commitPackage('Split out node', { ...pkg, geometry: out.geometry })
+  const focused = ec.store.getState().focusedPartId
+  if (focused) ec.store.selectRigNode(focused, out.name)
+  return true
+}
+
+/** Move the pivot of a link's joint to a point in part coordinates, keeping the rest pose (rigSplit.setRigPivot).
+ *  When a frame had to be inserted to carry the joint, it is selected, since the joint now lives there. */
+export function setRigJointPivot(ec: AuthoringDeps, packageId: string, linkName: string, pivot: [number, number, number]): boolean {
+  const pkg = getPackage(packageId)
+  if (!pkg || pkg.geometry.kind !== 'rig') return false
+  const out = pivotedGeometry(pkg.geometry, linkName, pivot)
+  if (!out) return false
+  if (out.geometry === pkg.geometry) return true
+  ec.store.commitPackage('Move pivot', { ...pkg, geometry: out.geometry }, { coalesceKey: `pivot:${packageId}:${out.jointLink}` })
+  const focused = ec.store.getState().focusedPartId
+  if (focused && out.jointLink !== linkName) ec.store.selectRigNode(focused, out.jointLink)
+  return true
+}
+
+/** Put a split piece back into the model node it came from (rigSplit.mergeRigPiece), selecting that node. */
+export function mergeRigPiece(ec: AuthoringDeps, packageId: string, linkName: string): boolean {
+  const pkg = getPackage(packageId)
+  if (!pkg || pkg.geometry.kind !== 'rig') return false
+  const out = mergedGeometry(pkg.geometry, linkName)
+  if (!out) return false
+  ec.store.commitPackage('Merge node back', withJointPlcScript({ ...pkg, geometry: out.geometry }))
+  const focused = ec.store.getState().focusedPartId
+  if (focused) ec.store.selectRigNode(focused, out.select)
+  return true
+}
+
+/** Move a node under another (undefined = the part root) without it moving at rest (rigSplit.reparentRigLink). */
+export function reparentRigLink(ec: AuthoringDeps, packageId: string, linkName: string, parent: string | undefined): boolean {
+  const pkg = getPackage(packageId)
+  if (!pkg || pkg.geometry.kind !== 'rig') return false
+  const geometry = reparentedGeometry(pkg.geometry, linkName, parent)
+  if (!geometry) return false
+  ec.store.commitPackage('Change parent', { ...pkg, geometry })
+  return true
+}
+
 export function captureRigPose(ec: AuthoringDeps, partId: string): number[] | null {
   const part = ec.store.getState().scene.parts.find((p) => p.id === partId)
   if (!part || part.type !== 'part') return null
@@ -185,8 +236,12 @@ export function deleteRigNode(ec: AuthoringDeps, packageId: string, linkName: st
   const { links, joints } = pkg.geometry
   if (!canDeleteRigNode(pkg.geometry, linkName)) return // never empty a rig
   const remove = rigSubtree(pkg.geometry, linkName)
-  const remaining = links.filter((l) => !remove.has(l.name))
-  ec.store.commitPackage('Delete node', { ...pkg, geometry: { ...pkg.geometry, links: remaining, joints: joints.filter((j) => !remove.has(j.link)) } })
+  // a removed piece of an imported model is drawn by the model again (rigSplit.releaseKeptNodes)
+  const remaining = releaseKeptNodes(
+    links.filter((l) => !remove.has(l.name)),
+    links.filter((l) => remove.has(l.name)),
+  )
+  ec.store.commitPackage('Delete node', withJointPlcScript({ ...pkg, geometry: { ...pkg.geometry, links: remaining, joints: joints.filter((j) => !remove.has(j.link)) } }))
   const parent = links.find((l) => l.name === linkName)?.parent
   const next = parent && remaining.some((l) => l.name === parent) ? parent : remaining[0]!.name
   const focused = ec.store.getState().focusedPartId
@@ -197,7 +252,7 @@ export function setRigJoint(
   ec: AuthoringDeps,
   packageId: string,
   linkName: string,
-  joint: { type: 'revolute' | 'prismatic'; axis: [number, number, number]; min: number; max: number } | null,
+  joint: { type: 'revolute' | 'prismatic'; axis: [number, number, number]; min: number; max: number; servo?: RigServo | null } | null,
 ): void {
   const pkg = getPackage(packageId)
   if (!pkg || pkg.geometry.kind !== 'rig') return
@@ -217,10 +272,61 @@ export function setRigJoint(
       const { modulo: _modulo, ...servo } = next.servo
       next.servo = servo
     }
+    // a servo the panel sets or clears itself (Spins endlessly) comes after those rules
+    if (joint.servo === null) delete next.servo
+    else if (joint.servo) next.servo = joint.servo
     // in place: the idle pose rows and the servo list follow the joints' order
     joints = existing ? all.map((j) => (j === existing ? next : j)) : [...joints, next]
   }
-  ec.store.commitPackage(joint ? 'Edit joint' : 'Remove joint', { ...pkg, geometry: { ...pkg.geometry, joints } })
+  ec.store.commitPackage(joint ? 'Edit joint' : 'Remove joint', withJointPlcScript({ ...pkg, geometry: { ...pkg.geometry, joints } }))
+}
+
+/** `pkg` with a panel-written PLC control script written again for its joints (their limits, or their removal).
+ *  Every edit that changes or removes joints commits through this: a script still naming a removed joint does not
+ *  build. Any other script, or a rewrite that does not build, leaves `pkg` as it is. */
+function withJointPlcScript(pkg: PartPackage): PartPackage {
+  const config = readJointPlcConfig(pkg.behavior)
+  if (!config || pkg.geometry.kind !== 'rig') return pkg
+  const result = validatePart(manifestOfPackage(pkg), jointPlcBehavior(pkg.name, config, pkg.geometry.joints))
+  return result.ok && result.package ? result.package : pkg
+}
+
+/**
+ * Set the panel's PLC control for one joint (Two positions with its stroke time, or Spin) or turn it off (null), by
+ * writing the behavior script. A script the panel did not write is replaced only after `confirmReplace`.
+ */
+export function setJointPlcControl(
+  ec: AuthoringDeps,
+  packageId: string,
+  jointName: string,
+  mode: JointPlcMode | null,
+  confirmReplace?: () => boolean,
+): boolean {
+  const pkg = getPackage(packageId)
+  if (!pkg || pkg.geometry.kind !== 'rig') return false
+  if (!isReplaceableBehavior(pkg.behavior) && !confirmReplace?.()) return false
+  const config = { ...readJointPlcConfig(pkg.behavior) }
+  const key = config[jointName]?.key
+  if (mode === null) delete config[jointName]
+  // a joint already driven keeps its key stem, so its placed copies' tag names stay bound
+  else config[jointName] = key ? { ...mode, key } : mode
+  const result = validatePart(manifestOfPackage(pkg), jointPlcBehavior(pkg.name, config, pkg.geometry.joints))
+  if (!result.ok || !result.package) return false
+  ec.store.commitPackage('PLC control', result.package, { coalesceKey: `plc:${packageId}:${jointName}` })
+  return true
+}
+
+/** The rig edits the Inspector calls, bound to the controller (EditorController.rig, kept off the class itself). */
+export function rigEdits(ec: AuthoringDeps) {
+  return {
+    splitRigMeshNode: (packageId: string, sourceLinkName: string, glbNode: string, parentLinkName: string): boolean =>
+      splitRigMeshNode(ec, packageId, sourceLinkName, glbNode, parentLinkName),
+    setRigJointPivot: (packageId: string, linkName: string, pivot: [number, number, number]): boolean => setRigJointPivot(ec, packageId, linkName, pivot),
+    mergeRigPiece: (packageId: string, linkName: string): boolean => mergeRigPiece(ec, packageId, linkName),
+    reparentRigLink: (packageId: string, linkName: string, parent: string | undefined): boolean => reparentRigLink(ec, packageId, linkName, parent),
+    setJointPlcControl: (packageId: string, jointName: string, mode: JointPlcMode | null, confirmReplace?: () => boolean): boolean =>
+      setJointPlcControl(ec, packageId, jointName, mode, confirmReplace),
+  }
 }
 
 /**

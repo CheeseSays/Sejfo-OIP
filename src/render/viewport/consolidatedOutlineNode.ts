@@ -31,7 +31,7 @@ import { beginPassCapture, endPassCapture } from './subPassCache'
 import type { ISelectionOutline } from './outline'
 import type { OutlineMaskMergeSurface } from './outlineMaskMerge'
 
-/** three r186 gives `texture()` a generic overload, so `ReturnType<typeof texture>` resolves against
+/** three 0.187 gives `texture()` a generic overload, so `ReturnType<typeof texture>` resolves against
  *  it and widens to `TextureNode<unknown>`, which `textureLoad` (vec4) does not accept. Name the
  *  vec4 instantiation once; @types/three does not export TextureNode by name. */
 type Vec4TextureNode = ReturnType<typeof texture<'vec4'>>
@@ -556,7 +556,7 @@ function collectMeshes(roots: readonly Object3D[]): Set<Object3D> {
 
 /**
  * Identity + visibility hash of the overlay subtrees, used as the overlay pass's projection-cache sig.
- * traverseVisible mirrors _projectObject's visit set exactly (both skip invisible subtrees), so
+ * traverseVisible mirrors drawingPipeline.project's visit set exactly (both skip invisible subtrees), so
  * any change to what would be projected (a manipulator mode switch, a handle-pool relayout, a
  * root joining/leaving the overlays list) changes the hash. The subtrees are small (a few dozen
  * nodes), so hashing per frame is trivial next to the full-graph traversal it avoids.

@@ -13,8 +13,8 @@ import { makePartMap, orderArray, paramEntries, partScalars, partsMap, writePlcs
 export function applySceneDiff(ydoc: Y.Doc, prev: SceneJSON, next: SceneJSON): void {
   const parts = partsMap(ydoc)
   const order = orderArray(ydoc)
-  // the scene's unit system and its controllers ride in `meta` (schema.ts UNITS_META, PLCS_META)
-  if (prev.units !== next.units) writeUnits(ydoc, next.units)
+  // the scene's Units, Length and controllers ride in `meta` (schema.ts UNITS_META, LENGTH_UNIT_META, PLCS_META)
+  if (prev.units !== next.units || prev.lengthUnit !== next.lengthUnit) writeUnits(ydoc, next)
   if (prev.plcs !== next.plcs) writePlcs(ydoc, next.plcs)
   const prevById = new Map(prev.parts.map((p) => [p.id, p]))
   const nextById = new Map(next.parts.map((p) => [p.id, p]))

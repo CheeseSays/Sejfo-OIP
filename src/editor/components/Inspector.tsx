@@ -18,7 +18,7 @@ import type { EditorState, EditorStore } from '../store/store'
 import type { EditorController } from '../controller'
 import type { LiveSetpoints } from '../controller/setpoints'
 import { BoolRow, DisplayUnitsContext, GuardOpeningsModeContext, LiveEditContext, RevertSlot, TextField } from './inspector/fields'
-import { sceneUnits } from '../../core/scene/sceneUnits'
+import { sceneDisplayUnits } from '../../core/scene/sceneUnits'
 import type { LiveEditGate } from './inspector/fields'
 import { ContextMenu, menuItemsFor } from './inspector/menu'
 import type { OpenCtx, PropMenuState } from './inspector/menu'
@@ -175,7 +175,7 @@ export function Inspector(props: InspectorProps) {
   const tagSources = useTagSources(props.controller, props.state)
   return (
     <LiveEditContext.Provider value={liveGate}>
-      <DisplayUnitsContext.Provider value={sceneUnits(props.state.scene)}>
+      <DisplayUnitsContext.Provider value={sceneDisplayUnits(props.state.scene)}>
         <GuardOpeningsModeContext.Provider value={props.state.sideGuardMode}>
           <TagSourcesContext.Provider value={tagSources}>
             <InspectorBody {...props} />
@@ -319,6 +319,7 @@ function InspectorBody({ store, state, controller, packageThumbnails }: Inspecto
             placedCopies={placedCopiesOf(state, (rigPart as SdkPart).packageId)}
             definitionSession={state.packageEdit?.partId === rigPart.id}
             focused={state.focusedPartId === rigPart.id}
+            running={state.running}
           />
         </Suspense>
       )

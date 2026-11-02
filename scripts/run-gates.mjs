@@ -233,6 +233,10 @@ const GATES = [
     why: "a USD model imports through a rig node's Import model..., as one file or as its folder: the USD reader (@huggingface/usd-web-viewer, 2.3 MB of wasm in its own worker) loads only when a model is converted, and the node becomes an embedded GLB with composition honoured (a payload, a reference, a variant, an override from the stronger layer, centimetres and Z up) and one mesh per material. A lone root layer whose payload is elsewhere imports nothing and says to pick the folder. The model is written by the gate itself, first-party.",
   },
   {
+    script: 'verify-split-pieces.mjs',
+    why: "the Part Editor's Split into pieces (editor/rigSplit.ts): each node of an imported model is drawn by one link, the nearest that keeps it (core/glbBox.ts drawnElsewhere). Read from the rendered part: a split piece is drawn once and stays in place, a piece split from inside another is not drawn twice, a joint with a centred pivot moves nothing at rest, and deleting or merging a piece gives it back to the model. The model is written by the gate itself",
+  },
+  {
     script: 'verify-named-plcs-electron.mjs',
     why: "several PLCs in one run (src/plc/DEVICE-IO.md, \"Several controllers\"): the program here runs one line while two Modbus masters stand in for Cell2 and Cell3 on the same addresses, each on a port of its own, and each drives only its own belt. It caught the in-worker program wiping what the links wrote, which no unit test saw. Then the authoring side: Controller Properties' free ports and clash warning, the Inspector's Controller row, a name written in its set-up spelling, the Scene tree's badges, Assign to Controller and rename. Launches the dev Electron shell on a throwaway profile",
   },

@@ -87,6 +87,7 @@ export interface SceneJSON {
   /**
    * The scene's Units (core/scene/sceneUnits.ts): how every length and speed is shown and typed, and every part's units
    * switch (the SDK's `ParamSpec.imperialUnits`, a conveyor's `fpmUnits`: its speed and speed tag in FPM or m/s).
+   * `'metric-mm'` shows lengths in millimetres and is metric otherwise.
    * Authored in Scene Properties, where changing it converts every part with it. Absent = `'metric'`: the default for
    * a new scene, and what a scene saved before it existed already is (its conveyors predate the switch).
    */
@@ -99,7 +100,8 @@ export interface SceneJSON {
   plcs?: ScenePlc[]
 }
 
-export type SceneUnits = 'imperial' | 'metric'
+/** `metric-mm` is metric shown in millimetres: lengths in mm, speeds and conveyor speed tags in m/s, like `metric`. */
+export type SceneUnits = 'imperial' | 'metric' | 'metric-mm'
 
 export const PART_DEFS: Record<PartType, PartDef> = {
   ...STRUCTURE_DEFS,

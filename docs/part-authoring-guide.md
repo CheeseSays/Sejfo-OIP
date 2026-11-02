@@ -977,6 +977,9 @@ from the `inspect-glb` boxes before choosing the range.
 
 - `keepNode` keeps one node's subtree. A moving piece made of several sibling nodes needs `hideNodes` listing
   everything else, as above.
+- Each node is drawn by one link, the nearest that keeps it. A node a `keepNode` link keeps is left out of the
+  other whole-scene links of that asset without a `hideNodes` entry, and a piece kept from inside another piece
+  (a bit inside a motor head) is left out of that piece too. `hideNodes` is for nodes no link should draw.
 - A `node` ref (one node's mesh in its mesh-local frame, its transform reset) is for re-assembling pieces
   yourself, like a robot's links. You then transcribe each node's transform into the link's `offset` /
   `rotation`, the work carving avoids.
@@ -1009,11 +1012,12 @@ from the `inspect-glb` boxes before choosing the range.
 
 The Part Editor writes the same carving for you. Import the model onto a node (**Import model…**), then:
 
-1. **Split into pieces** on that node lists the model's nodes. Click one to give it its own node: the model
-   node hides it (`hideNodes`) and the new node keeps only it (`keepNode`) from the same asset, at the offset
-   that keeps it in place. Nothing is imported twice.
+1. **Split into pieces** on that node lists the model's nodes. Click one to give it its own node, which keeps only
+   that node (`keepNode`) from the same asset, at the offset that keeps it in place. The model node stops drawing
+   it because another node keeps it. Nothing is imported twice.
 2. To make several pieces move together, select the first split piece and click the others under its own
-   **Split into pieces**. They become its children and follow its joint.
+   **Split into pieces**. They become its children and follow its joint. A node inside a split piece (a bit inside
+   a motor head) can be split out too, and the piece stops drawing it.
 3. **Add joint** on the piece and set its type, axis and limits.
 4. For a revolute joint, **Pivot** sets the point it turns about, in part coordinates, and **Pivot at centre**
    puts it at the centre of everything the joint moves. A node that draws something gets a `frame` inserted
@@ -1027,10 +1031,12 @@ The Part Editor writes the same carving for you. Import the model onto a node (*
    so the behavior runs it with `ctx.servos[name].moveVelocity(...)` instead of `setJoint`. The panel shows those
    lines with the speed filled in. Test motion then turns it at that speed.
 
-A piece split under the wrong node can be fixed two ways. **Merge back into model** puts it back into the model
-node and removes it with its joint, and the pieces under it move up. **Parent** moves any node under another one,
-changing its offset so it stays where it is. **Length unit** (in the Joint section) shows the panel's lengths in
-m, cm or mm. The part always stores metres.
+A piece split under the wrong node can be fixed two ways. **Merge back into model** removes the piece with its
+joint, so the model draws it again, and the pieces under it move up. **Delete** does the same for the node and
+everything under it. **Parent** moves any node under another one, changing its offset so it stays where it is.
+
+Lengths show in the scene's Units. **Metric (mm, m/s)** in Scene Properties shows them in millimetres, which suits
+a machine's dimensions. The part always stores metres.
 
 Pieces are offered only where they still line up: the nodes between the model node and the selected node must
 carry plain offsets (no rotation, no param-driven placement).

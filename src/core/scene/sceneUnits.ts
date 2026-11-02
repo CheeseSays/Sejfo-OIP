@@ -6,7 +6,7 @@
 // document stays SI). Second, each conveyor's units switch (the SDK's `imperialUnits` boolean: its speed and speed
 // tag in FPM, or in m/s; the tag is a REAL either way). The switch is still a param, because the part's step()
 // reads it, but no one sets it by hand. The Inspector hides it, and changing the scene's Units rewrites it on every
-// part, with the values it selects.
+// part, with the values it selects. `metric-mm` is metric shown in millimetres: its conveyors run in m/s like `metric`.
 
 import { partParamSpecs } from '../packageParams'
 import type { BooleanParamSpec, NumberParamSpec, ParamSpec, PartInstance, SceneJSON, SceneUnits, TagRefParamSpec } from '../types'

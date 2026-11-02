@@ -1,9 +1,10 @@
 // Splitting an imported model into moving pieces, and placing a joint's pivot, without hand-written offsets.
-// A whole-scene mesh link (no `node`) draws the GLB as authored. Splitting a GLB node out of it hides that node
-// there (`hideNodes`) and adds a link that keeps only that node (`keepNode`) from the same asset. Carved pieces
-// keep the GLB's own placement, so the new link lines up as long as its frame coincides with the source link's
-// frame at rest. That holds when every link between them carries a plain offset (no rotation, no param-driven
-// placement), which is what these helpers check.
+// A whole-scene mesh link (no `node`) draws the GLB as authored. Splitting a GLB node out of it adds a link that
+// keeps only that node (`keepNode`) from the same asset. Each GLB node is drawn by one link, the nearest that keeps
+// it (core/glbBox.ts drawnElsewhere), so the model stops drawing the piece without being edited, and deleting the
+// piece gives it back. Carved pieces keep the GLB's own placement, so the new link lines up as long as its frame
+// coincides with the source link's frame at rest. That holds when every link between them carries a plain offset
+// (no rotation, no param-driven placement), which is what these helpers check.
 
 import type { RigJoint, RigLink, RigShape } from '../core/parts/partPackage'
 import type { RigGeometry } from './rigTree'
@@ -71,16 +72,45 @@ function freeLinkName(geometry: RigGeometry, wanted: string): string {
   return `${base}-${n}`
 }
 
+/** The GLB nodes of `asset` a link already keeps, so each is offered for splitting once. */
+export function keptNodes(geometry: RigGeometry, asset: string): Set<string> {
+  return new Set(geometry.links.flatMap((l) => (l.shape.kind === 'mesh' && l.shape.asset === asset && l.shape.node === undefined && l.shape.keepNode ? [l.shape.keepNode] : [])))
+}
+
 /**
- * Split GLB node `glbNode` out of the whole-scene mesh link `sourceName` into a new link under `parentName`. The
- * source hides the node, and the new link keeps only that node from the same asset with the same scale, fit and
- * material choices, so nothing is copied and nothing moves on screen. Null when the split would not line up or
- * the node is already hidden there.
+ * `links` with the nodes the `removed` pieces kept taken out of every `hideNodes` on their asset, so a removed
+ * piece is drawn by the model again. A part split before pieces were derived lists them there.
+ */
+export function releaseKeptNodes(links: readonly RigLink[], removed: readonly RigLink[]): RigLink[] {
+  const freed = new Map<string, Set<string>>() // asset -> nodes
+  for (const r of removed) {
+    if (r.shape.kind !== 'mesh' || !r.shape.keepNode) continue
+    const set = freed.get(r.shape.asset) ?? new Set<string>()
+    set.add(r.shape.keepNode)
+    freed.set(r.shape.asset, set)
+  }
+  if (freed.size === 0) return [...links]
+  return links.map((l): RigLink => {
+    const free = l.shape.kind === 'mesh' ? freed.get(l.shape.asset) : undefined
+    if (l.shape.kind !== 'mesh' || !free || !l.shape.hideNodes?.some((n) => free.has(n))) return l
+    const shape: MeshShape = { ...l.shape }
+    const hideNodes = (l.shape.hideNodes ?? []).filter((n) => !free.has(n))
+    if (hideNodes.length > 0) shape.hideNodes = hideNodes
+    else delete shape.hideNodes
+    return { ...l, shape }
+  })
+}
+
+/**
+ * Split GLB node `glbNode` out of the whole-scene mesh link `sourceName` into a new link under `parentName`. The new
+ * link keeps only that node from the same asset with the same scale, fit and material choices, so nothing is copied
+ * and nothing moves on screen, and the source stops drawing it because another link keeps it. Null when the split
+ * would not line up, or the node is hidden on the source or already kept by a link.
  */
 export function splitRigNode(geometry: RigGeometry, sourceName: string, glbNode: string, parentName: string): { geometry: RigGeometry; name: string } | null {
   const source = geometry.links.find((l) => l.name === sourceName)
   if (!source || !isWholeSceneMesh(source.shape)) return null
-  if (source.shape.hideNodes?.includes(glbNode)) return null
+  if (source.shape.hideNodes?.includes(glbNode) || keptNodes(geometry, source.shape.asset).has(glbNode)) return null
   const offset = offsetUnder(geometry, sourceName, parentName)
   if (!offset) return null
   const s = source.shape
@@ -90,8 +120,7 @@ export function splitRigNode(geometry: RigGeometry, sourceName: string, glbNode:
   if (s.material !== undefined) shape.material = s.material
   if (s.materials !== undefined) shape.materials = { ...s.materials }
   const name = freeLinkName(geometry, glbNode)
-  const links = geometry.links.map((l): RigLink => (l.name === sourceName ? { ...l, shape: { ...s, hideNodes: [...(s.hideNodes ?? []), glbNode] } } : l))
-  links.push({ name, parent: parentName, shape, offset })
+  const links: RigLink[] = [...geometry.links, { name, parent: parentName, shape, offset }]
   return { geometry: { ...geometry, links }, name }
 }
 
@@ -147,21 +176,19 @@ export function reparentRigLink(geometry: RigGeometry, linkName: string, parent:
 }
 
 /**
- * Undo a split: put a `keepNode` piece back into the whole-scene model node that hides it, and delete it with its
- * joint. Its children move up to its parent and keep their place. A `<name>-pivot` frame left holding nothing
- * goes too, since only the pivot editor made it. Returns the node to select next.
+ * Undo a split: delete a `keepNode` piece with its joint, so the model it came from draws it again. Its children move
+ * up to its parent and keep their place. A `<name>-pivot` frame left holding nothing goes too, since only the pivot
+ * editor made it. Returns the node to select next: the model the piece came from, else the piece's parent.
  */
 export function mergeRigPiece(geometry: RigGeometry, linkName: string): { geometry: RigGeometry; select: string } | null {
   const link = geometry.links.find((l) => l.name === linkName)
   if (!link || link.shape.kind !== 'mesh' || !link.shape.keepNode || !isPlainOffset(link)) return null
-  const { asset, keepNode } = link.shape
+  const { asset } = link.shape
   const source = chainToRoot(geometry, linkName)
     .slice(1)
-    .find((l) => isWholeSceneMesh(l.shape) && l.shape.asset === asset && (l.shape.hideNodes ?? []).includes(keepNode))
-  if (!source || source.shape.kind !== 'mesh') return null
-  const hideNodes = (source.shape.hideNodes ?? []).filter((n) => n !== keepNode)
+    .find((l) => isWholeSceneMesh(l.shape) && l.shape.asset === asset)
   const pivotFrame = geometry.links.find(
-    (l) => l.name === link.parent && l.name === `${linkName}-pivot` && l.shape.kind === 'frame' && geometry.links.filter((c) => c.parent === l.name).length === 1,
+    (l) => l.name === link.parent && l.name === `${linkName}-pivot` && l.shape.kind === 'frame' && isPlainOffset(l) && geometry.links.filter((c) => c.parent === l.name).length === 1,
   )
   const gone = new Set([linkName, ...(pivotFrame ? [pivotFrame.name] : [])])
   // the children's new parent: the piece's parent, or above the pivot frame when that goes too
@@ -170,22 +197,18 @@ export function mergeRigPiece(geometry: RigGeometry, linkName: string): { geomet
     ? [link.offset[0] + pivotFrame.offset[0], link.offset[1] + pivotFrame.offset[1], link.offset[2] + pivotFrame.offset[2]]
     : [link.offset[0], link.offset[1], link.offset[2]]
   const links: RigLink[] = []
-  for (const l of geometry.links) {
+  for (const l of releaseKeptNodes(geometry.links, [link])) {
     if (gone.has(l.name)) continue
-    if (l.name === source.name) {
-      const shape: MeshShape = { ...(l.shape as MeshShape) }
-      if (hideNodes.length > 0) shape.hideNodes = hideNodes
-      else delete shape.hideNodes
-      links.push({ ...l, shape })
-    } else if (l.parent === linkName) {
+    if (l.parent === linkName) {
       const next: RigLink = { ...l, offset: [l.offset[0] + shift[0], l.offset[1] + shift[1], l.offset[2] + shift[2]] }
       if (up === undefined) delete next.parent
       else next.parent = up
       links.push(next)
     } else links.push(l)
   }
+  if (links.length === 0) return null // a rig keeps one node
   const joints = geometry.joints.filter((j) => !gone.has(j.link))
-  return { geometry: { ...geometry, links, joints }, select: source.name }
+  return { geometry: { ...geometry, links, joints }, select: source?.name ?? up ?? links[0]!.name }
 }
 
 /**

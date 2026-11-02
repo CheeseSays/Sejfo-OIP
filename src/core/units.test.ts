@@ -18,6 +18,17 @@ describe('displayUnitFor', () => {
     expect(displayUnitFor('FPM', 'metric')).toBe('m/s')
   })
 
+  it('shows every length in millimetres under metric-mm, and speeds as metric', () => {
+    expect(displayUnitFor('m', 'metric-mm')).toBe('mm')
+    expect(displayUnitFor('cm', 'metric-mm')).toBe('mm')
+    expect(displayUnitFor('in', 'metric-mm')).toBe('mm')
+    expect(displayUnitFor('m/s', 'metric-mm')).toBe('m/s')
+    expect(displayUnitFor('FPM', 'metric-mm')).toBe('m/s')
+    const v = unitView('m', 'metric-mm')
+    expect(v).toEqual({ unit: 'mm', k: 1000, decimals: 1 })
+    expect(toStored(35, v.k)).toBe(0.035)
+  })
+
   it('never touches a unit that is not a length or a speed', () => {
     for (const u of ['°', 's', '%', 'kg', 'Hz', '']) {
       expect(displayUnitFor(u, 'imperial')).toBe(u)
@@ -72,6 +83,7 @@ describe('formatLength', () => {
     expect(formatLength(0.1524, 'imperial')).toBe('6.00"')
     expect(formatLength(3.7465, 'imperial')).toBe(`12' 3.50"`)
     expect(formatLength(0, 'imperial')).toBe('0.00"')
+    expect(formatLength(0.0355, 'metric-mm')).toBe('35.5 mm')
   })
 })
 
@@ -80,6 +92,7 @@ describe('formatSpeed', () => {
     expect(formatSpeed(5, 'metric')).toBe('5.0 m/s')
     expect(formatSpeed(0.2, 'metric')).toBe('0.20 m/s')
     expect(formatSpeed(5, 'imperial')).toBe('984 FPM')
+    expect(formatSpeed(5, 'metric-mm')).toBe('5.0 m/s')
   })
 })
 

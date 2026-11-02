@@ -631,8 +631,8 @@ export function validateScene(data: unknown, runsAsEmbedded: ReadonlySet<string>
     repairs.push(`simHz ${JSON.stringify(root.simHz)} is not a whole number from ${MIN_SIM_HZ} to ${MAX_SIM_HZ}, so the scene steps at ${simHz} Hz`)
   }
   // the scene's Units (SceneJSON.units): absent = metric (core/scene/sceneUnits.ts); anything else is dropped, and said
-  const units = root.units === 'metric' || root.units === 'imperial' ? root.units : undefined
-  if (root.units !== undefined && units === undefined) repairs.push(`units ${JSON.stringify(root.units)} is not "imperial" or "metric", so the scene is metric`)
+  const units = root.units === 'metric' || root.units === 'metric-mm' || root.units === 'imperial' ? root.units : undefined
+  if (root.units !== undefined && units === undefined) repairs.push(`units ${JSON.stringify(root.units)} is not "imperial", "metric" or "metric-mm", so the scene is metric`)
   // the scene's controllers (SceneJSON.plcs): an entry that cannot be read is dropped, and said
   const plcs = validateScenePlcs(root.plcs, repairs)
   // a stair an older app seated by its own top landing moves in onto the deck edge it met (core/stairReseat.ts)

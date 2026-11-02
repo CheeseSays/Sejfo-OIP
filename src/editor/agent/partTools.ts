@@ -7,7 +7,7 @@
 import { getPackage, hasPackage, registerPackage } from '../../core/parts/partRegistry'
 import { manifestOfPackage, type PackageManifest, type PartPackage } from '../../core/parts/partPackage'
 import { partFootprint } from '../../core/parts/partGeometry'
-import { emptyBox, growBox, meshLinkBox, parseGlb } from '../../core/glbBox'
+import { drawnElsewhere, emptyBox, growBox, meshLinkBox, parseGlb } from '../../core/glbBox'
 import { qApply, rigWorldPoses, type RigParams } from '../../core/rig/rigPose'
 import { createSdkPart } from '../../core/scene/scene'
 import { checkManifestAgainst, type SchemaProblem } from '../../core/manifestSchemaCheck'
@@ -359,7 +359,7 @@ function modelFit(pkg: PartPackage, linkName: string, glb: Uint8Array): { model:
   if (!link || link.shape.kind !== 'mesh') return null
   let local: ReturnType<typeof meshLinkBox>
   try {
-    local = meshLinkBox(parseGlb(glb).json, link.shape)
+    local = meshLinkBox(parseGlb(glb).json, { ...link.shape, drawnElsewhere: drawnElsewhere(pkg.geometry.links, link) })
   } catch {
     return null
   }

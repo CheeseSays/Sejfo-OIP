@@ -203,7 +203,7 @@ export const UNITS_META = 'units'
 /** the room scene's unit system, as SceneJSON carries it (absent = imperial) */
 export function readUnits(ydoc: Y.Doc): SceneJSON['units'] {
   const v = metaMap(ydoc).get(UNITS_META)
-  return v === 'metric' || v === 'imperial' ? v : undefined
+  return v === 'metric' || v === 'metric-mm' || v === 'imperial' ? v : undefined
 }
 
 /** write the room scene's unit system; a no-op when unchanged. Call inside the caller's transaction. */

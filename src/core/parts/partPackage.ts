@@ -149,8 +149,10 @@ export interface RigFrameShape {
  *   link this way; you transcribe each node's transform into the rig.
  * - **Whole scene** (no `node`): the GLB as authored, optionally normalised by `fitHeight`, then carved by
  *   `hideNodes` / `keepNode`. Carved pieces keep identical scale and placement, so links cut from the same GLB
- *   line up without transcribing anything. This is the simplest route for an imported device: `hideNodes` the moving nodes
- *   on the base link, and put them on a second mesh link under a `frame` that carries the joint.
+ *   line up without transcribing anything. This is the simplest route for an imported device: put each moving
+ *   node on a second mesh link (`keepNode`) under a `frame` that carries the joint. Each node is drawn by one link,
+ *   the nearest that keeps it, so the base link leaves a kept node out on its own, and a piece kept from inside
+ *   another piece is left out of that one too.
  */
 export interface RigMeshShape {
   kind: 'mesh'
@@ -183,11 +185,13 @@ export interface RigMeshShape {
   /** remap per GLB material name → a PartPackage.materials[].id, so a model that ships several named materials
    *  can recolour each one individually */
   materials?: Record<string, string>
-  /** whole-scene refs: remove these nodes and their subtrees (applied after `fitHeight`) */
+  /** whole-scene refs: never draw these nodes and their subtrees (applied after `fitHeight`). A node another link
+   *  keeps needs no entry here: it is left out on its own. */
   hideNodes?: string[]
   /** whole-scene refs: keep only this one node's subtree, re-based into the fitted frame (works even when the
-   *  node is nested under a housing node). A moving piece made of several sibling nodes can't be named here -
-   *  use `hideNodes` listing everything else instead. */
+   *  node is nested under a housing node). Every other whole-scene link of the same asset then leaves the node out,
+   *  and this link leaves out any node inside it that a further link keeps. A moving piece made of several sibling
+   *  nodes can't be named here - use `hideNodes` listing everything else instead. */
   keepNode?: string
 }
 

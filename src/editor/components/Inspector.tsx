@@ -319,6 +319,7 @@ function InspectorBody({ store, state, controller, packageThumbnails }: Inspecto
             placedCopies={placedCopiesOf(state, (rigPart as SdkPart).packageId)}
             definitionSession={state.packageEdit?.partId === rigPart.id}
             focused={state.focusedPartId === rigPart.id}
+            running={state.running}
           />
         </Suspense>
       )

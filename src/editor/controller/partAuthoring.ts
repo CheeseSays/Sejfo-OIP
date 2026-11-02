@@ -11,7 +11,7 @@ import { bytesToBase64 } from '../../core/parts/partAssets'
 import { fitRigToModel } from '../../core/parts/modelFit'
 import { meshLinkBox, parseGlb, type Box3Like } from '../../core/glbBox'
 import { canDeleteRigNode, defaultShape, rigSubtree } from '../rigTree'
-import { mergeRigPiece as mergedGeometry, reparentRigLink as reparentedGeometry, setRigPivot as pivotedGeometry, splitRigNode as splitGeometry } from '../rigSplit'
+import { mergeRigPiece as mergedGeometry, releaseKeptNodes, reparentRigLink as reparentedGeometry, setRigPivot as pivotedGeometry, splitRigNode as splitGeometry } from '../rigSplit'
 import type { AuthorableShapeKind } from '../rigTree'
 import type { PartPackage, RigJoint, RigLink, RigServo, RigShape } from '../../core/parts/partPackage'
 import { buildPackage, manifestOfPackage } from '../../sim/buildPackage'
@@ -235,7 +235,11 @@ export function deleteRigNode(ec: AuthoringDeps, packageId: string, linkName: st
   const { links, joints } = pkg.geometry
   if (!canDeleteRigNode(pkg.geometry, linkName)) return // never empty a rig
   const remove = rigSubtree(pkg.geometry, linkName)
-  const remaining = links.filter((l) => !remove.has(l.name))
+  // a removed piece of an imported model is drawn by the model again (rigSplit.releaseKeptNodes)
+  const remaining = releaseKeptNodes(
+    links.filter((l) => !remove.has(l.name)),
+    links.filter((l) => remove.has(l.name)),
+  )
   ec.store.commitPackage('Delete node', { ...pkg, geometry: { ...pkg.geometry, links: remaining, joints: joints.filter((j) => !remove.has(j.link)) } })
   const parent = links.find((l) => l.name === linkName)?.parent
   const next = parent && remaining.some((l) => l.name === parent) ? parent : remaining[0]!.name

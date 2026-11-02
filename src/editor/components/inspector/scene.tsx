@@ -38,10 +38,11 @@ const M = defineMessages('inspector.scene', {
   msPerStep:
     '{ms} ms per step. The world moves and sensors update once per step, so this is also the soonest a PLC output can follow an input.',
   unitsTip:
-    "How this scene shows and takes every length and speed, and what its conveyors' speed tags carry. Imperial: inches and feet per minute. Metric: meters and meters per second. Speed tags are REALs either way. Changing it converts every conveyor, as one undoable edit.",
+    "How this scene shows and takes every length and speed, and what its conveyors' speed tags carry. Imperial: inches and feet per minute. Metric: meters and meters per second, or millimeters and meters per second for machine work. Speed tags are REALs either way. Changing it converts every conveyor, as one undoable edit.",
   units: 'Units',
   imperial: 'Imperial (in, FPM)',
   metric: 'Metric (m, m/s)',
+  metricMm: 'Metric (mm, m/s)',
   fpm: 'feet per minute',
   mps: 'meters per second',
   conveyorsNowRun: { one: '{count} conveyor now runs in {unit}.', other: '{count} conveyors now run in {unit}.' },
@@ -187,6 +188,7 @@ export function SceneProperties({ store, state, controller }: { store: EditorSto
           >
             <option value="imperial">{t(M.imperial)}</option>
             <option value="metric">{t(M.metric)}</option>
+            <option value="metric-mm">{t(M.metricMm)}</option>
           </select>
         </span>
       </label>

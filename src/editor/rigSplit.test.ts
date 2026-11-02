@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { mergeRigPiece, movingPartCentre, reparentRigLink, reparentTargets, rigPivot, setRigPivot, splitRigNode, splitSourcesFor } from './rigSplit'
+import { keptNodes, mergeRigPiece, movingPartCentre, releaseKeptNodes, reparentRigLink, reparentTargets, rigPivot, setRigPivot, splitRigNode, splitSourcesFor } from './rigSplit'
 import type { RigGeometry } from './rigTree'
 import type { RigJoint, RigLink } from '../core/parts/partPackage'
 
@@ -8,10 +8,12 @@ const geom = (links: RigLink[], joints: RigJoint[] = []): RigGeometry => ({ kind
 const linkOf = (g: RigGeometry, name: string): RigLink => g.links.find((l) => l.name === name)!
 
 describe('splitRigNode', () => {
-  it('hides the node on the source and keeps it alone on a new child at the source frame', () => {
+  it('keeps the node alone on a new child at the source frame, leaving the source as it is', () => {
     const out = splitRigNode(geom([model('body')]), 'body', 'Motors', 'body')!
     expect(out.name).toBe('Motors')
-    expect(linkOf(out.geometry, 'body').shape).toEqual({ kind: 'mesh', asset: 'mesh-1', hideNodes: ['Motors'] })
+    // the source stops drawing it because the piece keeps it (glbBox drawnElsewhere), not through hideNodes
+    expect(linkOf(out.geometry, 'body').shape).toEqual({ kind: 'mesh', asset: 'mesh-1' })
+    expect(keptNodes(out.geometry, 'mesh-1')).toEqual(new Set(['Motors']))
     expect(linkOf(out.geometry, 'Motors')).toEqual({ name: 'Motors', parent: 'body', shape: { kind: 'mesh', asset: 'mesh-1', keepNode: 'Motors' }, offset: [0, 0, 0] })
   })
 
@@ -26,7 +28,15 @@ describe('splitRigNode', () => {
     const moved = { ...one, links: one.links.map((l) => (l.name === 'Motors' ? { ...l, offset: [0.1, 0, -0.2] as [number, number, number] } : l)) }
     const two = splitRigNode(moved, 'body', 'Bit', 'Motors')!
     expect(linkOf(two.geometry, 'Bit').offset).toEqual([-0.1, 0, 0.2])
-    expect(linkOf(two.geometry, 'body').shape).toMatchObject({ hideNodes: ['Motors', 'Bit'] })
+    expect(keptNodes(two.geometry, 'mesh-1')).toEqual(new Set(['Motors', 'Bit']))
+  })
+
+  it('splits a node from inside a piece already split, under that piece', () => {
+    // Bit is a child of Motors in the GLB: Motors keeps it until Bit is split out, then drawnElsewhere leaves it out
+    const one = splitRigNode(geom([model('body')]), 'body', 'Motors', 'body')!.geometry
+    const two = splitRigNode(one, 'body', 'Bit', 'Motors')!
+    expect(linkOf(two.geometry, 'Bit')).toMatchObject({ parent: 'Motors', shape: { keepNode: 'Bit' } })
+    expect(linkOf(two.geometry, 'Motors').shape).toEqual({ kind: 'mesh', asset: 'mesh-1', keepNode: 'Motors' })
   })
 
   it('names the new link apart from an existing one', () => {
@@ -109,12 +119,31 @@ describe('mergeRigPiece', () => {
     expect(out.links.map((l) => l.name)).toEqual(['body', 'Bit'])
     expect(linkOf(out, 'Bit').parent).toBe('body')
     rigPivot(out, 'Bit')!.forEach((v, k) => expect(v).toBeCloseTo(before[k]!))
-    expect(linkOf(out, 'body').shape).toMatchObject({ hideNodes: ['Bit'] })
     expect(out.joints).toEqual([])
+  })
+
+  it('takes the node out of the model hideNodes, as a part split before pieces were derived lists it', () => {
+    const g = geom([model('body', { shape: { kind: 'mesh', asset: 'mesh-1', hideNodes: ['Bit', 'Screw'] } }), { name: 'Bit', parent: 'body', shape: { kind: 'mesh', asset: 'mesh-1', keepNode: 'Bit' }, offset: [0, 0, 0] }])
+    const out = mergeRigPiece(g, 'Bit')!
+    expect(out.select).toBe('body')
+    expect(linkOf(out.geometry, 'body').shape).toEqual({ kind: 'mesh', asset: 'mesh-1', hideNodes: ['Screw'] })
   })
 
   it('refuses a node that is not a split piece', () => {
     expect(mergeRigPiece(geom([model('body')]), 'body')).toBeNull()
+  })
+})
+
+describe('releaseKeptNodes', () => {
+  it('drops a node a removed piece kept from hideNodes on its asset only, and the list when it empties', () => {
+    const links: RigLink[] = [
+      model('body', { shape: { kind: 'mesh', asset: 'mesh-1', hideNodes: ['Bit'] } }),
+      { name: 'other', shape: { kind: 'mesh', asset: 'mesh-2', hideNodes: ['Bit'] }, offset: [0, 0, 0] },
+    ]
+    const bit: RigLink = { name: 'Bit', parent: 'body', shape: { kind: 'mesh', asset: 'mesh-1', keepNode: 'Bit' }, offset: [0, 0, 0] }
+    const out = releaseKeptNodes(links, [bit])
+    expect(out[0]!.shape).toEqual({ kind: 'mesh', asset: 'mesh-1' })
+    expect(out[1]).toBe(links[1])
   })
 })
 

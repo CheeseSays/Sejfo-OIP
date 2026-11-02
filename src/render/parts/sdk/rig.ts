@@ -24,6 +24,8 @@ import { removeSensorBeam } from '../../sensorBeamOverlay'
 import type { Content } from './types'
 import { FN_NEUTRAL } from './shared'
 import { attachMesh, buildMaterial, loadMeshAsset, prepareMeshInstance } from './materials'
+import type { CarvedMeshShape } from './materials'
+import { drawnElsewhere } from '../../../core/glbBox'
 import { LampBank, lampBankMaterial } from '../lampBank'
 import type { LampSlot } from '../lampBank'
 import { LinkBank } from '../linkBank'
@@ -441,6 +443,9 @@ export function buildRig(geo: Extract<PartPackage['geometry'], { kind: 'rig' }>,
       addLabelPlane(link.shape, g, labels, labelDisposables)
     }
     else if (link.shape.kind === 'mesh') {
+      // the GLB nodes other links of this asset keep are theirs to draw, not this link's
+      const elsewhere = drawnElsewhere(geo.links, link)
+      const meshShape: CarvedMeshShape = elsewhere ? { ...link.shape, drawnElsewhere: elsewhere } : link.shape
       // a finish overrides the GLB's own material with the host conveyor material (e.g. a 'roller'-finish GLB roller
       // gets the brushed roller metal + spin); else the shape's declared package material, else the GLB's own.
       const single = link.finish ? roleMaterial(link.finish) : link.shape.material ? matById.get(link.shape.material) : undefined
@@ -480,7 +485,7 @@ export function buildRig(geo: Extract<PartPackage['geometry'], { kind: 'rig' }>,
         // an arrayed mesh link: the prepared GLB instance becomes a template cloned per array delta (the EOAT
         // suction-cup grid). Loads async → rebuild once it arrives (using the last refreshed params/seam), and
         // bump structureVersion so a staged placement preview re-tags the new clones (like roller/chain links).
-        const entry: MeshArrayLink = { group: g, array: link.array, ...(link.showParam ? { showParam: link.showParam } : {}), shape: link.shape, template: null, instances: [], name: link.name }
+        const entry: MeshArrayLink = { group: g, array: link.array, ...(link.showParam ? { showParam: link.showParam } : {}), shape: meshShape, template: null, instances: [], name: link.name }
         // squash: the clones compress when their driving lamp lights - `squash.lamp` (the EOAT's vacuum-status
         // LED) or this link's own lamp. No lamp of its own required (the cups don't glow).
         // anchorY is filled from the template bounds once the GLB loads.
@@ -505,7 +510,7 @@ export function buildRig(geo: Extract<PartPackage['geometry'], { kind: 'rig' }>,
         }
       } else {
         const poolable = poolableLink(link)
-        attachMesh(g, root, link.shape, assets, single, perMat, referencedNodes, poolable || tiled ? (inst) => { prepareTiled(inst); if (poolable) tagPoolLeaves(inst) } : undefined)
+        attachMesh(g, root, meshShape, assets, single, perMat, referencedNodes, poolable || tiled ? (inst) => { prepareTiled(inst); if (poolable) tagPoolLeaves(inst) } : undefined)
       }
       if (!link.lamps?.length && link.colorParam && !link.finish && link.shape.material) {
         // C-paramgeo colour on a plain mesh link: tints its single package-material override (a `finish`'s shared

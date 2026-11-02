@@ -14,6 +14,7 @@
 //                   no per-part units switch.
 //   D. typed - a value typed in the shown unit is stored in the stored unit (48 in of stand height is 1.2192 m).
 //   E. back - Metric converts the conveyor back exactly (FPM is not rounded on the way) and reads m/s again.
+//   F. mm - Metric (mm) shows and takes lengths in millimetres, and leaves conveyors and their tags in m/s.
 // Run: node e2e/verify-display-units.mjs
 /* global process, console, window, document, localStorage */
 import { chromium } from 'playwright'
@@ -121,6 +122,27 @@ try {
   await page.waitForSelector('.inspector .prop-row[data-param="speed"] input.spin-input', { timeout: 10000 })
   const m = await readField(page, 'speed')
   check(m?.unit === 'm/s', `the speed field reads m/s again (got "${m?.unit}")`)
+
+  // --- F: Metric (mm) shows lengths in millimetres and leaves conveyors as metric ---
+  await page.evaluate(() => window.__oip.store.setState({ selectedIds: [] }))
+  await select.waitFor({ timeout: 10000 })
+  await select.selectOption('metric-mm')
+  await page.waitForTimeout(200)
+  const mm = await paramsOf(page, 'b1')
+  check(mm?.fpmUnits === false && mm?.speed === 2 && mm?.speedTag === 'Line1Speed', `Metric (mm) leaves the conveyor in m/s (speed ${mm?.speed}, tag "${mm?.speedTag}")`)
+  check((await page.evaluate(() => window.__oip.store.getState().scene.units)) === 'metric-mm', 'the scene saves Metric (mm)')
+  await page.evaluate(() => window.__oip.store.select('b1'))
+  await page.waitForSelector('.inspector .prop-row[data-param="standHeight"] input.spin-input', { timeout: 10000 })
+  const standMm = await readField(page, 'standHeight')
+  check(standMm?.unit === 'mm' && standMm?.text === '1219.2', `stand height reads 1219.2 mm (got "${standMm?.text}" "${standMm?.unit}")`)
+  check((await readField(page, 'speed'))?.unit === 'm/s', 'the speed still reads m/s')
+  const standMmInput = page.locator('.inspector .prop-row[data-param="standHeight"] input.spin-input')
+  await standMmInput.click()
+  await standMmInput.fill('800')
+  await standMmInput.press('Enter')
+  await page.waitForTimeout(300)
+  const h2 = (await paramsOf(page, 'b1'))?.standHeight
+  check(typeof h2 === 'number' && Math.abs(h2 - 0.8) < 1e-9, `800 typed into the mm field stores 0.8 m (got ${h2})`)
   check(pageErrors.length === 0, `no page errors (${pageErrors.join(' | ')})`)
 } catch (e) {
   console.log(`FAIL  ${e instanceof Error ? e.message : String(e)}`)

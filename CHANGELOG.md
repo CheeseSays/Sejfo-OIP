@@ -15,8 +15,12 @@ The first public source release. The [README](README.md#features) lists what it 
   connection guide ([guides/slmp/](guides/slmp/)).
 - Part Editor: **Split into pieces** turns an imported model's nodes into their own nodes without importing it
   again, and a revolute joint's **Pivot** (with **Pivot at centre**) sets the point it turns about. A split piece
-  can be merged back, any node can change **Parent** in place, **Test motion** sweeps a joint between its limits and **Position** drags it by hand,
-  lengths can be shown in m, cm or mm, and a revolute joint can **spin endlessly** at a set rpm (a wrapping servo).
+  can be merged back, any node can change **Parent** in place, **Test motion** sweeps a joint between its limits
+  and **Position** drags it by hand, and a revolute joint can **spin endlessly** at a set rpm (a wrapping servo).
   Editing a joint in the panel no longer drops its `servo`, `rest`, `cosmetic` or param-driven limits.
+- Each node of an imported model is drawn by one mesh link, the nearest that keeps it (`keepNode`), so a split
+  piece needs no `hideNodes` entry on the model, a piece can be split from inside another, and deleting a piece
+  gives it back to the model (Part SDK level 13).
+- Scene Properties > Units offers **Metric (mm, m/s)**: every length shown in millimetres, speeds in m/s.
 
 Earlier development history is not part of this repository.

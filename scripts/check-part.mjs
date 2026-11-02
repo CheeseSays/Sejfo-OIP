@@ -34,7 +34,7 @@ import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createServer } from 'vite'
 import { buildPart, hasPartSource } from './lib/buildPart.mjs'
-import { emptyBox, growBox, isEmpty, meshLinkBox, parseGlb } from './lib/glb.mjs'
+import { drawnElsewhere, emptyBox, growBox, isEmpty, meshLinkBox, parseGlb } from './lib/glb.mjs'
 import { checkManifestSchema } from './lib/manifestSchema.mjs'
 
 const repo = resolve(dirname(fileURLToPath(import.meta.url)), '..')
@@ -205,7 +205,7 @@ try {
           if (!pose || !shown(l)) continue
           if (l.shape.kind === 'mesh') {
             const json = glbOf(l.shape.asset)
-            const b = json && meshLinkBox(json, l.shape)
+            const b = json && meshLinkBox(json, { ...l.shape, drawnElsewhere: drawnElsewhere(geo.links, l) })
             // NODE-SCALING stretches the mesh about the link origin, per axis (a leg grown to the stand height)
             const f = l.shape.sizeParams ? resolvedMeshScale(l.shape.sizeParams, defaults) : [1, 1, 1]
             if (b) place({ min: b.min.map((v, k) => v * f[k]), max: b.max.map((v, k) => v * f[k]) }, pose, model)

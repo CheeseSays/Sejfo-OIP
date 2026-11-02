@@ -116,7 +116,6 @@ export async function createWebGPURenderer(): Promise<WebGPURenderer> {
   const wantsBundleCam = wantsRenderBundles() && wantsBundleCameraPatch()
   const [
     { WebGPURenderer, BundleGroup },
-    { installInstancePipelineDedup },
     { installProjectionStats },
     bundleRefreshMod,
     { createWebGPUConsolidatedOutline },
@@ -133,7 +132,6 @@ export async function createWebGPURenderer(): Promise<WebGPURenderer> {
     { createFloorNodeMaterial },
   ] = await Promise.all([
     import('three/webgpu'),
-    import('./pipelineDedup'),
     import('./projectionStats'),
     wantsBundleCam ? import('./bundleReplayRefresh') : Promise.resolve(null),
     import('./consolidatedOutlineNode'),
@@ -176,10 +174,6 @@ export async function createWebGPURenderer(): Promise<WebGPURenderer> {
   // pass). Watching the device makes that failure reportable: one deduped `[oip]` error, plus a
   // tally the e2e gates assert is empty. See gpuErrorWatch.ts.
   installGpuErrorWatch((renderer.backend as { device?: unknown } | undefined)?.device)
-  // Dedupe structurally-identical instanced-mesh pipelines so adding/duplicating a part reuses a warm
-  // pipeline instead of cold-compiling one on the draw path (the roller-conveyor duplicate hitch). Must
-  // run before any program compiles, so load-time programs are stored under the normalized key.
-  installInstancePipelineDedup(renderer)
   // Per-pass projection visit counters on globalThis.__oipProjStats: shows which render pass
   // incurs the scene-graph traversal cost (sub-passes run with bundles inert, so they walk the
   // full graph). About one counter increment per visited node.

@@ -10,9 +10,8 @@ Take each minor release as it ships rather than letting several pile up: the pat
 re-checked against one release's changes at a time, and a moved internal is a small port while the
 gap is one release wide.
 
-Patches target three 0.187. The Tier 1 patches rely on these internal shapes: `_pipelines.programs`
-(.vertex/.fragment maps), `_pipelines.getForRender(renderObject, promises)`, `_pipelines.caches` and
-`renderer._objects`. Projection is `renderer.drawingPipeline.project(object, camera, groupOrder, renderList,
+Patches target three 0.187. The Tier 1 patches rely on these internal shapes: `_pipelines.getForRender(renderObject, promises)`,
+`_pipelines.caches` and `renderer._objects`. Projection is `renderer.drawingPipeline.project(object, camera, groupOrder, renderList,
 clippingContext)`: public API since r187 (`StandardDrawingPipeline`, marked experimental upstream), and it recurses
 through `this.project`, so a wrapper on the instance sees every visit. Assigning a new `drawingPipeline` drops
 both projection wrappers.
@@ -25,20 +24,19 @@ instantiation (`ReturnType<typeof texture<'vec4'>>`), since @types/three exports
 
 ## Tier 1 - internals monkeypatches
 
-The five patches follow one convention: **feature-detect the r187 shape, degrade by failure semantics,
+The three patches follow one convention: **feature-detect the r187 shape, degrade by failure semantics,
 ship a kill-switch, name a retire condition.** Where stock behavior is merely slower, the patch
 silently no-ops; where stock behavior is *wrong*, it fails loud and forces the safe path. Keep
-that asymmetry when adding a new one. The last row is the exception: a diagnostic probe that only
-counts, so it changes no output and ships no kill-switch.
+that asymmetry when adding a new one. The last two rows are the exception: diagnostic probes that only
+count, so they change no output and ship no kill-switch.
 
 | Patch | three internals touched | On shape move | Kill-switch | Verified by |
 |---|---|---|---|---|
 | [bundleReplayRefresh.ts](../src/render/viewport/bundleReplayRefresh.ts) - replay-frame refresh + camera patch for render bundles | `Renderer._renderBundle`, `_bundleNeedsUpdate`, `_bundles`, `backend.draw/addBundle/updateBinding`, `_nodes.*` incl. `getNodeFrameForRender`, `_geometries`, `_bindings`; `RenderObject.getNodeBuilderState().updateNodes/updateBeforeNodes`, `RenderObject.camera` (record-capture filter), `Node.getUpdateType/getUpdateBeforeType`, shared `NodeUniformsGroup`s; shared-NodeFrame semantics (see [Render-bundle replay](#render-bundle-replay)) | **Loud**: console warn + `forceBundleLiveSplit()` (movable parts leave the bundles, camera moves re-record) - stock replay silently freezes rig poses, so a quiet no-op is not safe. The record-time derivations (`deriveCamNodes` → `deriveNodeCover` → full list) each fall back a layer independently; an all-filtered-out record capture falls back to the raw list with a console warn. | `?nobundlecam` (patch), `?nobundle` (bundles entirely); sub-mode `?bundlelive` | `e2e/verify-render-bundles.mjs` (the gate), `e2e/probes/bundle-campatch.mjs`, `e2e/probes/bundle-rig-freeze.mjs`, `e2e/probes/roof-load-camera.mjs` (parked-load stale-camera regression), `e2e/probes/hide-building-parity.mjs` (nested-shadow-render camera-poison regression), `e2e/verify-bundle-camera-integrity.mjs` (curated gate - forces a nested shadow render inside the bundle walk and asserts the camera singleton survives it), `e2e/probes/sim-dirty-census.mjs` (escape detector), unit spec `bundleReplayRefresh.test.ts` |
-| [pipelineDedup.ts](../src/render/viewport/pipelineDedup.ts) - structural program-cache key for instanced meshes | `_pipelines.programs` maps (WGSL-string keys) | silent no-op → stock per-mesh cold compile (slower, never wrong) | `?nopipelinededup` | `e2e/verify-webgpu-duplicate-amortizes.mjs`; upstream watch: [webgpu-instancing.md](webgpu-instancing.md). Retire when three keys pipelines structurally. r187's WGSL builder no longer emits `NodeBuffer_<id>`, and the gate adds 0 vertex programs per duplicate with `?nopipelinededup` too, so on r187 the patch normalises nothing: a retire candidate. |
 | [subPassCache.ts](../src/render/viewport/subPassCache.ts) - cached projection for the overlay + mask sub-passes | `drawingPipeline.project` bracketing, render-list `push/pushLight` capture (stock `pushRenderItem` calls `renderList.push`) | silent no-op → stock full-graph traversal (perf-only; analyzed in its header) | `?nopasscache` | diagnostics `globalThis.__oipSubPassCache` ({records, replays}); idle CPU probes. Retire if three's bundle-children skip reaches inert-bundle passes. |
-| `withConcurrentPipelines` / `compileConcurrent` ([viewWarm.ts](../src/render/viewport/viewWarm.ts)) - un-serialise Dawn's pipeline-compile feed at load: both staged phases (1 = building shell + env, 2 = parts) and the deferred interaction-extras bursts | `_pipelines.getForRender` out-array | falls back to stock serial `compileAsync` (slower load, never wrong) | `?serialcompile` (whole staged compile → stock one-shot), `?serialphase1` (phase 1 only) | `e2e/perf-webgpu-load.mjs` (compare load time - a silent fallback shows as a 2-3× load regression); `e2e/probes/compile-phases.mjs` (per-phase split from `globalThis.__oipCompilePhases`; A/B phase 1 against `?serialphase1`, which should compile the same pipeline count). Retire when three parallelises its own compile loop. r187 does, up to 16 pipelines in flight, and `?serialphase1` now selects that loop: phase 1 measured +16 ms on the phase and +108 ms on the cover against ours (3 cold runs, within the spread). Phase 2 has no arm without the feed yet; add one before retiring. |
 | [instancedRaycast.ts](../src/render/instancedRaycast.ts) - far-aware per-instance raycast gate (pilot ray fan / crosshair cargo pick) | replaces `InstancedMesh.prototype.raycast`; leans on the r187 shape: `instanceMatrix.array` 16-float column-major stride, module-`_mesh` narrow-phase delegation (composes with the three-mesh-bvh `Mesh.raycast` patch), `Ray.distanceSqToPoint` origin-clamp semantics, unit `ray.direction`. Skips instances whose world bounding sphere misses the ray or lies beyond `raycaster.far` / short of `near` - stock tests every instance with 2 matrix ops + an invert and never consults `far` | silent delegate to the captured stock function on any unexpected shape (slower, never wrong); the gate is strictly conservative, survivors run stock narrow phase → identical Intersections | `?stockinstraycast` | canary `src/render/instancedRaycast.test.ts` (patched vs captured-stock parity over aimed + random sweeps - fails the suite if a bump moves semantics); `e2e/verify-pilot-collision.mjs`, `verify-mesh-pick.mjs`, `verify-instance-pool.mjs` (pick parity); perf probe `e2e/probes/pilot-walk-cpu.mjs`. Retire when three's own instanced loop prunes by `ray.far` per instance. |
 | [projectionStats.ts](../src/render/viewport/projectionStats.ts) - per-pass projection visit counters, installed on every WebGPU boot (createRenderer.ts `installProjectionStats`) | replaces `renderer.drawingPipeline.project` with a counting wrapper (the same method subPassCache brackets, so the two wrap one function), keyed by pass from the camera and its layer mask; it forwards every argument, so a parameter three adds still arrives (it relies only on `camera` being the second) | silent no-op: no wrapper and no `__oipProjStats` (a diagnostic probe; nothing reads it to decide anything) | none | diagnostics `globalThis.__oipProjStats` (`visits` per pass: `main` / `walls` / `wallA` / `wallB` / `overlay` / `other`, `reset()`). A missing global after a bump means the shape moved. |
+| `withCompileLedger` ([viewWarm.ts](../src/render/viewport/viewWarm.ts)) - the compile ledger for every staged phase, scene swap and interaction-extras burst | wraps `_pipelines.getForRender(renderObject, promises)` while a compile runs, counting items and live-path mints and timing each pipeline promise; it hands every promise back to three, which awaits them itself | silent no-op: the compile runs unwrapped and the `__oipCompilePhases` item and pipeline keys are missing | none | `globalThis.__oipCompilePhases` / `__oipPipelineTimes`, read by `e2e/probes/compile-phases.mjs` and by the curated gate `e2e/verify-webgpu-warm-completeness.mjs` (`phase2Items`), which fails if the key goes missing. |
 
 ### Render-bundle replay
 
@@ -135,6 +133,11 @@ These use public API but lean on r187 *behavior*. Each has a canary or gate.
   poseRev/structRev drive freezes. Canary: `src/render/viewport/matrixWalk.test.ts` (in
   `npm test` - fails the suite if a three bump changes matrix semantics). Gate:
   `e2e/idle-matrix-gate.mjs`, `e2e/verify-matrix-freeze.mjs`.
+- **Identical instanced banks share one program** - three names an instanced uniform buffer by its index within
+  one shader build (`nodeUniform<n>`), so two structurally identical banks at the same capacity emit the same WGSL
+  and share a program and pipeline. A duplicated conveyor then compiles nothing new. If a bump puts a per-object
+  name back (0.186 used `NodeBuffer_<id>`), every duplicate cold-compiles its banks again. Gate:
+  `e2e/verify-webgpu-duplicate-amortizes.mjs`; background: [webgpu-instancing.md](webgpu-instancing.md).
 - **Instanced uniform sizing** - three sizes each InstancedMesh's instance-matrix uniform to
   buffer *capacity*, not the count at first compile, so cargo spawned after the first compile is drawn.
   Gates: `e2e/verify-webgpu-cargo-visible.mjs`, `verify-webgpu-authored-cargo-visible.mjs`.
@@ -202,8 +205,9 @@ These use public API but lean on r187 *behavior*. Each has a canary or gate.
   `_precompilationState` (and the render context and target it swaps in) on the renderer while it awaits a
   node build, so a second call started then overwrites it and the first throws on resume. Every WebGPU
   `compileAsync` therefore runs in viewWarm.ts's compile lane (`inCompileLane`), and a burst compiles its
-  roots one at a time. r187 also compiles up to 16 pipelines at once inside one call, which overlaps
-  `compileConcurrent`'s job. The settle signal `view.incrementalWarmReady`
+  roots one at a time. Inside one call r187 keeps up to 16 pipelines in flight, which is why we no longer
+  feed Dawn ourselves (measured on the demo, 3 cold runs per arm: ours vs three's own loop differed by
+  +108 ms on the cover for phase 1 and -60 ms for phase 2, both within the run-to-run spread). The settle signal `view.incrementalWarmReady`
   (owned by `ViewWarmState` in viewWarm.ts; RenderView forwards it under that name as a test hook)
   is what e2e waits on (see verify-render-bundles.mjs). A wait that returns before the warm settles
   measures compile noise, not the change under test.
@@ -262,12 +266,12 @@ These use public API but lean on r187 *behavior*. Each has a canary or gate.
    `WebGPUBackend`.
 4. Headed gates, in order of information density: `e2e/verify-render-bundles.mjs` (primary),
    `idle-matrix-gate.mjs`, `webgpu-smoke.mjs`, `verify-webgpu-cargo-visible.mjs`,
-   `perf-webgpu-load.mjs` (load time ≈ baseline → compileConcurrent still engaged).
+   `perf-webgpu-load.mjs` (load time ≈ baseline).
 5. Silent no-op patches show as **perf regressions, not failures** - check the diagnostics:
    `__oipBundleCam.camNodesTotal > 0` (cam-node walk engaged; each recording that fell back
    subtracts 1), `__oipBundleCam.staleSkipped`, `staleRecords` and `camRepairs` all 0 on the settled
    demo, `verify-render-bundles` parity 0% on every axis, `__oipSubPassCache.replays > 0`
-   (sub-pass cache engaged), duplicate-a-conveyor hitch (pipelineDedup).
+   (sub-pass cache engaged).
 6. Update the current-version references in each patch header - and this ledger.
 7. **Draco decoder URLs** (not a patch, but a prod-only dependency on an addon default):
    `render/dracoDecoder.ts` calls no `setDecoderPath`, relying on r187's `DRACOLoader` resolving
@@ -280,7 +284,7 @@ These use public API but lean on r187 *behavior*. Each has a canary or gate.
 
 ## Kill-switch index
 
-`?nowebgpu` (WebGL fallback) · `?nobundle` · `?nobundlecam` · `?bundlelive` · `?nopipelinededup` ·
+`?nowebgpu` (WebGL fallback) · `?nobundle` · `?nobundlecam` · `?bundlelive` ·
 `?nopasscache` · `?serialcompile` · `?noinstancepool` · `?stockinstraycast`
 
 Diagnostics globals: `__oipBundleCam` (bundle patch counters), `__oipSubPassCache`,

@@ -15,7 +15,7 @@
 //
 // Living with a frozen realm, for every module in the app (AGENTS.md, "Dev / prod foot-guns"):
 //   - never assign a property that an intrinsic prototype also has (`map.get = ...` on a Map instance throws: the
-//     "override mistake"); define it with Object.defineProperty (render/viewport/pipelineDedup.ts)
+//     "override mistake"); define it with Object.defineProperty
 //   - never fill a `new Array(n)` hole by hole in a hot loop (~25x slower once Array.prototype is frozen); use
 //     `.fill(...)` first or push (core/geometry/geometryShapes.ts transformDescription)
 //

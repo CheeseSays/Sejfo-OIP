@@ -56,8 +56,7 @@ The other three keep the host's diagnostics native. `realmLockdown.ts` does not 
 These apply to every module, because the whole page and the sim worker run locked down:
 
 - **Never assign a property that an intrinsic prototype also has.** For example, `map.get = ...` on a `Map`
-  instance throws (the "override mistake"). Use `Object.defineProperty` instead
-  (`src/render/viewport/pipelineDedup.ts`). In the renderer this fails silently: the error is caught and the
+  instance throws (the "override mistake"). Use `Object.defineProperty` instead. In the renderer this fails silently: the error is caught and the
   renderer falls back to WebGL.
 - **Never fill a `new Array(n)` hole by hole in a hot loop.** Writing into holes is ~25x slower once
   `Array.prototype` is frozen. Use `.fill(...)` first, or `push`.

@@ -38,7 +38,7 @@ describe('jointPlcControl', () => {
 
   it('reads its config back, and an unrelated script has none', () => {
     const source = jointPlcBehavior('Drill', { feed: { mode: 'twoPositions', time: 2 } }, [feed])
-    expect(readJointPlcConfig(source)).toEqual({ feed: { mode: 'twoPositions', time: 2 } })
+    expect(readJointPlcConfig(source)).toEqual({ feed: { mode: 'twoPositions', time: 2, key: 'feed' } })
     expect(readJointPlcConfig('definePart({ step(ctx) {} })')).toBeNull()
   })
 
@@ -55,6 +55,35 @@ describe('jointPlcControl', () => {
     const source = jointPlcBehavior('Drill', { gone: { mode: 'twoPositions', time: 1 }, bit: { mode: 'twoPositions', time: 1 } }, [feed, spin])
     expect(readJointPlcConfig(source)).toBeNull()
     expect(isReplaceableBehavior(source)).toBe(true)
+  })
+
+  it('keeps a joint\'s param keys when another joint whose name makes the same key is dropped', () => {
+    const twin: RigJoint = { ...arm, name: 'motors_joint' }
+    const both = { 'Motors-joint': { mode: 'twoPositions' as const, time: 1 }, motors_joint: { mode: 'twoPositions' as const, time: 1 } }
+    const config = readJointPlcConfig(jointPlcBehavior('Drill', both, [arm, twin]))!
+    expect(jointPlcKeys(config).motors_joint!.toB).toBe('motorsJoint2ToB')
+    const { 'Motors-joint': _dropped, ...rest } = config
+    const params = validatePart(manifest([arm, twin]), jointPlcBehavior('Drill', rest, [arm, twin])).package!.params
+    expect(params.motorsJoint2ToB).toBeDefined()
+    expect(params.motorsJointToB).toBeUndefined()
+  })
+
+  it('gives a script written before keys were kept the keys it was written with', () => {
+    const source = jointPlcBehavior('Drill', { feed: { mode: 'twoPositions', time: 1 }, 'Motors-joint': { mode: 'twoPositions', time: 1 } }, [feed, arm])
+    const old = source.replace(/,"key":"[A-Za-z0-9]+"/g, '')
+    expect(old).not.toContain('"key"')
+    expect(jointPlcKeys(readJointPlcConfig(old)!)).toEqual(jointPlcKeys(readJointPlcConfig(source)!))
+  })
+
+  it('offers Two positions only to a joint whose limits are its own numbers', () => {
+    expect(canTwoPositions(feed)).toBe(true)
+    expect(canTwoPositions({ ...feed, maxParam: { param: 'stroke' } })).toBe(false)
+  })
+
+  it('keeps a line break in the part name out of the code', () => {
+    const source = jointPlcBehavior('Drill\nctx.boom()', { feed: { mode: 'twoPositions', time: 1 } }, [feed])
+    expect(validatePart(manifest([feed]), source).diagnostics).toEqual([])
+    expect(source.split('\n').some((l) => l.startsWith('ctx.boom'))).toBe(false)
   })
 
   it('treats only the template and its own scripts as replaceable', () => {
@@ -97,7 +126,7 @@ describe('jointPlcControl: Spin', () => {
     expect(params.bitJointAtSpeed).toMatchObject({ type: 'tag', dir: 'out', stType: 'BOOL', label: 'At speed' })
     // the joint's own speed (60 rpm) is the copy's default and its most
     expect(params.bitJointRpm).toMatchObject({ type: 'number', default: 60, max: 60 })
-    expect(readJointPlcConfig(source)).toEqual({ 'Bit-joint': { mode: 'spin' } })
+    expect(readJointPlcConfig(source)).toEqual({ 'Bit-joint': { mode: 'spin', key: 'bitJoint' } })
   })
 
   it('offers Spin only to a joint that spins endlessly, and drops it when the joint stops spinning', () => {

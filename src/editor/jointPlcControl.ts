@@ -12,11 +12,14 @@ import type { RigJoint } from '../core/parts/partPackage'
 export interface TwoPositions {
   mode: 'twoPositions'
   time: number
+  /** The stem of the joint's param keys, kept once written so a placed copy's tag names stay bound to them. */
+  key?: string
 }
 
 /** One spinning joint's control: the PLC starts and stops it, and may set its speed. */
 export interface Spin {
   mode: 'spin'
+  key?: string
 }
 
 export type JointPlcMode = TwoPositions | Spin
@@ -25,6 +28,8 @@ export type JointPlcMode = TwoPositions | Spin
 export type JointPlcConfig = Record<string, JointPlcMode>
 
 const CONFIG_PREFIX = '// oip-panel '
+
+const KEY_RE = /^[A-Za-z_][A-Za-z0-9_]*$/
 
 export const DEFAULT_STROKE_TIME = 1
 
@@ -40,9 +45,11 @@ export function readJointPlcConfig(behavior: string): JointPlcConfig | null {
     if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null
     const out: JointPlcConfig = {}
     for (const [name, v] of Object.entries(raw as Record<string, unknown>)) {
-      const c = v as { mode?: unknown; time?: unknown } | null
-      if (c?.mode === 'twoPositions' && typeof c.time === 'number' && c.time > 0) out[name] = { mode: 'twoPositions', time: c.time }
-      else if (c?.mode === 'spin') out[name] = { mode: 'spin' }
+      const c = v as { mode?: unknown; time?: unknown; key?: unknown } | null
+      // the key becomes source text, so only a plain identifier is kept
+      const key = typeof c?.key === 'string' && KEY_RE.test(c.key) ? { key: c.key } : {}
+      if (c?.mode === 'twoPositions' && typeof c.time === 'number' && c.time > 0) out[name] = { mode: 'twoPositions', time: c.time, ...key }
+      else if (c?.mode === 'spin') out[name] = { mode: 'spin', ...key }
     }
     return out
   } catch {
@@ -57,9 +64,11 @@ export function isReplaceableBehavior(behavior: string): boolean {
   return code === EMPTY_SCRIPT
 }
 
-/** Whether a joint can take Two positions: a spinning (servo) joint is posed by the host, not by ctx.setJoint. */
+/** Whether a joint can take Two positions: a spinning (servo) joint is posed by the host, not by ctx.setJoint. A
+ *  joint with param-driven limits is left out, since the script writes min and max as numbers and a placed copy's
+ *  params can narrow them. */
 export function canTwoPositions(joint: RigJoint): boolean {
-  return !joint.servo && !joint.cosmetic && joint.min < joint.max
+  return !joint.servo && !joint.cosmetic && !joint.minParam && !joint.maxParam && joint.min < joint.max
 }
 
 /** Whether a joint can take Spin: one that spins endlessly (a revolute wrapping servo, the panel's Spins endlessly). */
@@ -83,12 +92,25 @@ function keyBase(name: string, taken: Set<string>): string {
   return key
 }
 
-/** The PLC-facing param keys the script declares for each configured joint, in config order. */
-export function jointPlcKeys(config: JointPlcConfig): Record<string, { toB: string; atA: string; atB: string; time: string; run: string; speed: string; atSpeed: string; rpm: string }> {
+/** Each configured joint's key stem: the one it was written with, else a new one made from its name in config order.
+ *  A script written before stems were kept gets the same stems back, since it was written in that same order. */
+function keyStems(config: JointPlcConfig): Record<string, string> {
   const taken = new Set<string>()
+  const out: Record<string, string> = {}
+  for (const [name, c] of Object.entries(config)) {
+    if (c.key && !taken.has(c.key)) {
+      taken.add(c.key)
+      out[name] = c.key
+    }
+  }
+  for (const name of Object.keys(config)) out[name] ??= keyBase(name, taken)
+  return out
+}
+
+/** The PLC-facing param keys the script declares for each configured joint. */
+export function jointPlcKeys(config: JointPlcConfig): Record<string, { toB: string; atA: string; atB: string; time: string; run: string; speed: string; atSpeed: string; rpm: string }> {
   const out: ReturnType<typeof jointPlcKeys> = {}
-  for (const name of Object.keys(config)) {
-    const k = keyBase(name, taken)
+  for (const [name, k] of Object.entries(keyStems(config))) {
     out[name] = { toB: `${k}ToB`, atA: `${k}AtA`, atB: `${k}AtB`, time: `${k}Time`, run: `${k}Run`, speed: `${k}Speed`, atSpeed: `${k}AtSpeed`, rpm: `${k}Rpm` }
   }
   return out
@@ -101,11 +123,15 @@ const RPM = (2 * Math.PI) / 60
  * The behavior script for `config` over the rig's joints. A configured joint that no longer exists or can no longer
  * take its mode is dropped. An empty config gives the new-part template back.
  */
-export function jointPlcBehavior(partName: string, config: JointPlcConfig, joints: readonly RigJoint[]): string {
+export function jointPlcBehavior(rawPartName: string, config: JointPlcConfig, joints: readonly RigJoint[]): string {
+  // the name goes into a // comment, so a line break in it would end the comment
+  const partName = rawPartName.replace(/[\r\n\u2028\u2029]+/g, ' ')
+  // stems over the whole config, before any joint is dropped, so the joints that stay keep theirs
+  const stems = keyStems(config)
   const live: JointPlcConfig = {}
   for (const [name, c] of Object.entries(config)) {
     const j = joints.find((x) => x.name === name)
-    if (j && fits(c, j)) live[name] = c
+    if (j && fits(c, j)) live[name] = { ...c, key: stems[name]! }
   }
   const names = Object.keys(live)
   if (names.length === 0) {

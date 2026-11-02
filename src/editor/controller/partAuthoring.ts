@@ -191,7 +191,7 @@ export function mergeRigPiece(ec: AuthoringDeps, packageId: string, linkName: st
   if (!pkg || pkg.geometry.kind !== 'rig') return false
   const out = mergedGeometry(pkg.geometry, linkName)
   if (!out) return false
-  ec.store.commitPackage('Merge node back', { ...pkg, geometry: out.geometry })
+  ec.store.commitPackage('Merge node back', withJointPlcScript({ ...pkg, geometry: out.geometry }))
   const focused = ec.store.getState().focusedPartId
   if (focused) ec.store.selectRigNode(focused, out.select)
   return true
@@ -241,7 +241,7 @@ export function deleteRigNode(ec: AuthoringDeps, packageId: string, linkName: st
     links.filter((l) => !remove.has(l.name)),
     links.filter((l) => remove.has(l.name)),
   )
-  ec.store.commitPackage('Delete node', { ...pkg, geometry: { ...pkg.geometry, links: remaining, joints: joints.filter((j) => !remove.has(j.link)) } })
+  ec.store.commitPackage('Delete node', withJointPlcScript({ ...pkg, geometry: { ...pkg.geometry, links: remaining, joints: joints.filter((j) => !remove.has(j.link)) } }))
   const parent = links.find((l) => l.name === linkName)?.parent
   const next = parent && remaining.some((l) => l.name === parent) ? parent : remaining[0]!.name
   const focused = ec.store.getState().focusedPartId
@@ -278,17 +278,17 @@ export function setRigJoint(
     // in place: the idle pose rows and the servo list follow the joints' order
     joints = existing ? all.map((j) => (j === existing ? next : j)) : [...joints, next]
   }
-  const edited: PartPackage = { ...pkg, geometry: { ...pkg.geometry, joints } }
-  ec.store.commitPackage(joint ? 'Edit joint' : 'Remove joint', withJointPlcScript(edited) ?? edited)
+  ec.store.commitPackage(joint ? 'Edit joint' : 'Remove joint', withJointPlcScript({ ...pkg, geometry: { ...pkg.geometry, joints } }))
 }
 
-/** A panel-written PLC control script follows the joints it drives (their limits, or their removal); null when
- *  the behavior is not one the panel wrote, or the rewrite does not build. */
-function withJointPlcScript(pkg: PartPackage): PartPackage | null {
+/** `pkg` with a panel-written PLC control script written again for its joints (their limits, or their removal).
+ *  Every edit that changes or removes joints commits through this: a script still naming a removed joint does not
+ *  build. Any other script, or a rewrite that does not build, leaves `pkg` as it is. */
+function withJointPlcScript(pkg: PartPackage): PartPackage {
   const config = readJointPlcConfig(pkg.behavior)
-  if (!config || pkg.geometry.kind !== 'rig') return null
+  if (!config || pkg.geometry.kind !== 'rig') return pkg
   const result = validatePart(manifestOfPackage(pkg), jointPlcBehavior(pkg.name, config, pkg.geometry.joints))
-  return result.ok && result.package ? result.package : null
+  return result.ok && result.package ? result.package : pkg
 }
 
 /**
@@ -306,8 +306,10 @@ export function setJointPlcControl(
   if (!pkg || pkg.geometry.kind !== 'rig') return false
   if (!isReplaceableBehavior(pkg.behavior) && !confirmReplace?.()) return false
   const config = { ...readJointPlcConfig(pkg.behavior) }
+  const key = config[jointName]?.key
   if (mode === null) delete config[jointName]
-  else config[jointName] = mode
+  // a joint already driven keeps its key stem, so its placed copies' tag names stay bound
+  else config[jointName] = key ? { ...mode, key } : mode
   const result = validatePart(manifestOfPackage(pkg), jointPlcBehavior(pkg.name, config, pkg.geometry.joints))
   if (!result.ok || !result.package) return false
   ec.store.commitPackage('PLC control', result.package, { coalesceKey: `plc:${packageId}:${jointName}` })

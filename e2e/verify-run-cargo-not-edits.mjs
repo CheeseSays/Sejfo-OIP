@@ -15,7 +15,7 @@
 //   F) move the pallet-load group mid-run                          -> an edit that carries the box: Stop puts it
 //      back on the moved group, from its designed pose
 // Run: node e2e/verify-run-cargo-not-edits.mjs [--headed]
-/* global process, console, window, localStorage, innerWidth, innerHeight */
+/* global process, console, window, localStorage, innerWidth, innerHeight, sessionStorage */
 import { startServer } from './_server.mjs'
 import { chromium } from 'playwright'
 
@@ -36,7 +36,8 @@ async function main() {
   try {
     await page.goto(URL)
     await page.waitForFunction(() => !!window.__oip?.controller, undefined, { timeout: 60000 })
-    await page.evaluate(() => { localStorage.clear(); localStorage.setItem('oip-web/tutorial-done', '1') })
+    // the tab's own open-project pointer is in sessionStorage (libraryDb.ts): clear it too, or the demo tab keeps the first visit's project
+    await page.evaluate(() => { localStorage.clear(); sessionStorage.clear(); localStorage.setItem('oip-web/tutorial-done', '1') })
     await page.goto(`${URL}?scene=demo`)
     await page.waitForFunction(() => !!window.__oip?.controller, undefined, { timeout: 60000 })
     await page.waitForFunction(() => window.__oip.assetsBusy?.() === false, undefined, { timeout: 180000 })

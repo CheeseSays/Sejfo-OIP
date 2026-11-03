@@ -1172,7 +1172,7 @@ export function createBuildingVisual(part: PartInstance): PartVisual {
     builtKey = ''
     interiorKey = '' // the columns grow from the stand-in roof to the real deck
     apply(current)
-  })
+  }).catch((e: unknown) => console.warn('[oip] building wall modules failed to load', e))
 
   // bays stream in after the shell (gated): once the dock-door GLBs load, force
   // a rebuild so any configured dock doors appear
@@ -1181,7 +1181,7 @@ export function createBuildingVisual(part: PartInstance): PartVisual {
     dockAssets = assets
     builtKey = ''
     apply(current)
-  })
+  }).catch((e: unknown) => console.warn('[oip] dock door models failed to load', e))
 
   return {
     object: group,

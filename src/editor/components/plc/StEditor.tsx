@@ -695,7 +695,7 @@ export function StEditor({ store, state, controller, docked = false, viewOnly = 
       return renameDeclaration(ctx, scope, at.word!, to.trim()).then((why) => {
         if (why !== null) showReport({ headline: t(M.notRenamed, { name: at.word! }), detail: why, items: [], tone: 'warn', keepOnEdit: false })
       })
-    })
+    }).catch((e) => console.warn('[oip] rename failed:', e))
   }
 
   /** Move the caret to where the name under it is declared (plc/tags.ts `definitionAt`). */
@@ -704,7 +704,7 @@ export function StEditor({ store, state, controller, docked = false, viewOnly = 
       const at = definitionAt(currentSource(), offset)
       if (at !== null) editorRef.current?.revealOffset(at)
       else showReport({ headline: t(M.noDefinition), detail: t(M.noDefinitionDetail, { keys: primaryKey('edit.goToDefinition') ?? '' }), items: [], tone: 'warn', keepOnEdit: false })
-    })
+    }).catch((e) => console.warn('[oip] go to definition failed:', e))
   }
 
   const showText = (offset: number): void => {
@@ -866,7 +866,7 @@ export function StEditor({ store, state, controller, docked = false, viewOnly = 
           onClick: later(() => caret && goToDefinitionAt(caret.offset)),
         },
         { label: '-', onClick: () => {} },
-        { label: t(M.cut), testid: 'st-cut', keys: primaryKey('edit.cut'), disabled: readOnly || !has, title: readOnly ? readOnlyNote : undefined, onClick: later(() => void copyText().then((ok) => ok && editor.replaceSelection('', 'delete.cut'))) },
+        { label: t(M.cut), testid: 'st-cut', keys: primaryKey('edit.cut'), disabled: readOnly || !has, title: readOnly ? readOnlyNote : undefined, onClick: later(() => void copyText().then((ok) => ok && editor.replaceSelection('', 'delete.cut')).catch((e) => console.warn('[oip] cut failed:', e))) },
         { label: t(M.copy), testid: 'st-copy', keys: primaryKey('edit.copy'), disabled: !has, onClick: later(() => void copyText()) },
         {
           label: t(M.paste),

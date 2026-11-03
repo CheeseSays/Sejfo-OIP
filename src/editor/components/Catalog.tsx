@@ -158,6 +158,7 @@ function updateTitle(u: PartUpdate): string {
 
 // the shelf's buttons: loaded on the first one pressed, since the shelf is the desktop app's alone
 const shelfActions = () => import('../parts/shelfActions')
+const shelfFailed = (e: unknown): void => console.warn('[oip] shelf action failed', e)
 
 // Tablets show the catalog but have no Alt/Esc/wheel - word the placing hint for touch.
 // Evaluated once at startup; guarded for non-DOM test envs where matchMedia is absent.
@@ -302,9 +303,9 @@ export function Catalog({ state, controller, thumbnails, packageThumbnails, pend
     const shelfPart = shelfById.get(pkg.id)
     if (status === 'editedHere') {
       const mine = state.userPackages.find((p) => p.id === pkg.id)
-      if (mine) void shelfActions().then((a) => a.putPartOnShelf(store, mine))
-    } else if (shelfPart && status === 'sameIdDifferentPart') void shelfActions().then((a) => a.renameOursForShelf(store, shelfPart))
-    else if (shelfPart) void shelfActions().then((a) => a.updateFromShelf(store, shelfPart, status))
+      if (mine) void shelfActions().then((a) => a.putPartOnShelf(store, mine)).catch(shelfFailed)
+    } else if (shelfPart && status === 'sameIdDifferentPart') void shelfActions().then((a) => a.renameOursForShelf(store, shelfPart)).catch(shelfFailed)
+    else if (shelfPart) void shelfActions().then((a) => a.updateFromShelf(store, shelfPart, status)).catch(shelfFailed)
   }
   const badgeElement = (pkg: PartPackage, status: CardShelfStatus) => {
     const badge = shelfBadge(status, pkg.name)
@@ -668,7 +669,9 @@ export function Catalog({ state, controller, thumbnails, packageThumbnails, pend
               onClick={() => {
                 const part = getPackage(pkg.id) ?? pkg
                 // a built-in copy's model travels in the file as its bytes, not as a path into this app
-                void warmShippedAssets([part]).then(() => downloadPart(part, { assetBytes: shippedAssetBytes }))
+                void warmShippedAssets([part])
+                  .then(() => downloadPart(part, { assetBytes: shippedAssetBytes }))
+                  .catch((e: unknown) => console.warn('[oip] exporting the part failed', e))
               }}
             >
               <ExportIcon size="1em" />

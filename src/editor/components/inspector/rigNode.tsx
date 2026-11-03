@@ -435,6 +435,7 @@ export function RigNodePanel({
           setStepOptions((o) => ({ ...o, upAxis: guess.up }))
           setStepFile(file)
         })
+        .catch((e: unknown) => console.warn('[oip] reading the STEP header failed', e))
       return
     }
     setMsg(t(M.importing, { file: file.name }))

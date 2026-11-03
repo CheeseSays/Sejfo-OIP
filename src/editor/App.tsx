@@ -165,6 +165,8 @@ const M = defineMessages('app', {
 const APP_TITLE = 'Open Industry Project'
 
 const noSubscribe = (): (() => void) => () => {}
+/** a file the user picked that failed to import, said as the importers say their own failures */
+const alertFailure = (e: unknown): void => alert(e instanceof Error ? e.message : String(e))
 
 const DOCK_SIZE_KEY = 'oip-web/dock-sizes'
 // left/right (+ left2/right2 for the secondary/inner columns) = side column widths;
@@ -841,7 +843,7 @@ export function App({ store, sim }: AppProps) {
       const start = (): void => { if (!cancelled) setThumbsReady(true) }
       if (typeof requestIdleCallback === 'function') requestIdleCallback(start, { timeout: 1500 })
       else setTimeout(start, 300)
-    })
+    }).catch((e: unknown) => console.warn('[oip] catalog thumbnail start failed', e))
     return () => { cancelled = true }
   }, [])
 
@@ -858,7 +860,7 @@ export function App({ store, sim }: AppProps) {
       const run = (): void => { if (!cancelled) void controller.warmCatalog(() => cancelled) }
       if (typeof requestIdleCallback === 'function') requestIdleCallback(run, { timeout: 8000 })
       else setTimeout(run, 3000)
-    })
+    }).catch((e: unknown) => console.warn('[oip] catalog warm start failed', e))
     return () => { cancelled = true }
   }, [controller])
 
@@ -955,7 +957,9 @@ export function App({ store, sim }: AppProps) {
       // this one before the folders existed (projectSplit.ts)
       // ...and not on the demo's page: the demo is a project of its own, not the one whose folder this is (an edit
       // that forks it gives it a folder of its own, demoFork.ts)
-      void splitFiling().then(() => (store.getState().demoSession ? undefined : restoreFolderSync(store, ctrl)))
+      void splitFiling()
+        .then(() => (store.getState().demoSession ? undefined : restoreFolderSync(store, ctrl)))
+        .catch((e: unknown) => console.warn('[oip] restoring the folder link failed', e))
       // Desktop only: File > Open Recent, and a folder named on the command line or by a second launch.
       // An edit that makes the demo yours files this project and opens the demo as a project of its own (demoFork.ts)
       const stopDemoFork = installDemoForkHost(store, ctrl)
@@ -1079,7 +1083,7 @@ export function App({ store, sim }: AppProps) {
           canvas?.addEventListener('webglcontextrestored', () => run.noteContextRestored())
           benchRef.current = run
           setBenchRun(run)
-        })
+        }).catch((e: unknown) => console.warn('[oip] bench run failed to start', e))
       }
 
       teardown = () => {
@@ -1670,7 +1674,7 @@ export function App({ store, sim }: AppProps) {
           const file = e.target.files?.[0]
           e.target.value = '' // so choosing the same file twice fires again
           // lazy, like the exports (commands.ts): the readers load when a file does
-          if (file) void import('./program/stFileTransfer').then((m) => m.importStFile(store, file))
+          if (file) void import('./program/stFileTransfer').then((m) => m.importStFile(store, file)).catch(alertFailure)
         }}
       />
       {/* every surface's "Import Project…" lands here: file.importProject → CommandUi.openProjectFilePicker → this
@@ -1687,7 +1691,7 @@ export function App({ store, sim }: AppProps) {
           const file = e.target.files?.[0]
           e.target.value = '' // so choosing the same file twice fires again
           if (!file) return
-          void file.arrayBuffer().then((buf) => importProjectFile(store, controller, new Uint8Array(buf), file.name))
+          void file.arrayBuffer().then((buf) => importProjectFile(store, controller, new Uint8Array(buf), file.name)).catch(alertFailure)
         }}
       />
     </div>

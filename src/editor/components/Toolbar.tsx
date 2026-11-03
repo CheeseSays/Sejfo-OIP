@@ -176,9 +176,12 @@ export function Toolbar({ store, state, controller }: ToolbarProps) {
   const [vrActive, setVrActive] = useState(false)
   useEffect(() => {
     let stale = false
-    void controller?.vrSupported().then((ok) => {
-      if (!stale) setVrSupported(ok)
-    })
+    void controller
+      ?.vrSupported()
+      .then((ok) => {
+        if (!stale) setVrSupported(ok)
+      })
+      .catch((e: unknown) => console.warn('[oip] checking for VR failed', e))
     return () => {
       stale = true
     }

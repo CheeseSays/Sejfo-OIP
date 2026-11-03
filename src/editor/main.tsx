@@ -679,10 +679,13 @@ function startSolo(): void {
     // The scene is in the store now; its parts' GLBs/textures need not wait for the renderer
     // handshake + React mount that emits them today (~2.6 s of idle link under WebGPU).
     prefetchSceneAssets(store.getState().scene)
-    void xremu.then(mount)
+    void xremu.then(mount).catch((e: unknown) => console.error('[oip] the editor failed to mount', e))
   }
   // the working copy is the open document's library row, read before the boot (projectFile.openWorkingCopy)
-  void openWorkingCopy().catch(() => {}).then(boot)
+  void openWorkingCopy()
+    .catch(() => {})
+    .then(boot)
+    .catch((e: unknown) => console.error('[oip] the editor failed to boot', e))
   keepWorkingCopySmall()
 }
 
@@ -703,7 +706,15 @@ function keepWorkingCopySmall(): void {
     const next = result.ok ? null : result.message
     if (store.getState().autosaveError !== next) store.setState({ autosaveError: next })
   })
-  if (supportsLocalAssets()) setTimeout(() => void storedAssetTexts().then((texts) => texts && sweepLocalAssets(texts)), 30_000)
+  if (supportsLocalAssets()) {
+    setTimeout(
+      () =>
+        void storedAssetTexts()
+          .then((texts) => texts && sweepLocalAssets(texts))
+          .catch((e: unknown) => console.warn('[oip] sweeping stored model assets failed', e)),
+      30_000,
+    )
+  }
 }
 
 /**
@@ -734,7 +745,11 @@ if (room) {
     const seed = own && !own.demo && own.docId === currentDocumentId() ? 'scene' : null
     // gate render on first sync so we don't flash an empty scene before remote state loads
     // the working copy is read first: a room is seeded from it (soloDocOrDefault) and written back to it
-    if (resolved) return void Promise.all([openWorkingCopy().catch(() => {}).then(() => bootRoom(resolved, seed)), xremu]).finally(mount)
+    if (resolved) {
+      return void Promise.all([openWorkingCopy().catch(() => {}).then(() => bootRoom(resolved, seed)), xremu])
+        .finally(mount)
+        .catch((e: unknown) => console.error('[oip] joining the shared project failed', e))
+    }
     // Not a room link (an unprefixed id from before edit secrets, or a garbled one): open solo and
     // say so, with the room taken out of the address bar so Share and a reload treat this tab as solo.
     const url = new URL(location.href)
@@ -747,7 +762,7 @@ if (room) {
       'Share link not recognized',
       'This link does not name a shared project, so the editor opened on its own. Ask whoever sent it for a new link from Share.',
     )
-  })
+  }).catch((e: unknown) => console.error('[oip] opening the shared project failed', e))
 } else {
   startSolo()
   // sent back from a room its owner closed (bootRoom leaveClosed)
@@ -759,5 +774,9 @@ if (room) {
   }
   // the desktop app booted to take a browser's project (Open in Desktop App; desktopHandoff.ts asks before importing)
   const handoff = DESKTOP_SHELL ? params.get('handoff') : null
-  if (handoff) void import('./desktop/desktopHandoff').then((m) => m.receiveDesktopHandoff(store, handoff))
+  if (handoff) {
+    void import('./desktop/desktopHandoff')
+      .then((m) => m.receiveDesktopHandoff(store, handoff))
+      .catch((e: unknown) => console.warn('[oip] taking the browser project failed', e))
+  }
 }

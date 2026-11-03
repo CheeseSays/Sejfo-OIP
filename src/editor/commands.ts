@@ -249,6 +249,9 @@ const ioDisabledReason = (ctx: CommandCtx): string | null =>
 // planner (plc/ioAssign.ts) in the first frame for three commands (per eager-census); enablement stays here,
 // synchronous, so a menu never waits on it
 const ioAssign = (): Promise<typeof import('./program/ioAssign')> => import('./program/ioAssign')
+// A rejected command promise reports as the command's own failures do (an alert, a hint), or else in the console
+const errorText = (e: unknown): string => (e instanceof Error ? e.message : String(e))
+const warnFailed = (id: string) => (e: unknown): void => console.warn(`[oip] ${id} failed`, e)
 
 const hasSelection = (ctx: CommandCtx): boolean => ctx.state.selectedIds.length > 0
 
@@ -305,14 +308,9 @@ const COMMAND_DEFS: readonly Command[] = [
     // a room and a view link have no projects list to add to, nor a browser with no library (newProject.ts)
     enabled: (ctx) => canCreateProject(ctx.store),
     run: ({ store }) =>
-      void askName({ title: t(MSG_NEW_PROJECT_PROMPT), initial: UNTITLED_PROJECT, confirmLabel: t(MSG_NEW_PROJECT_CONFIRM) }).then(
-        (name) => {
-          if (name === null) return
-          void createNewProject(store, name).then((error) => {
-            if (error !== null) alert(error)
-          })
-        },
-      ),
+      void askName({ title: t(MSG_NEW_PROJECT_PROMPT), initial: UNTITLED_PROJECT, confirmLabel: t(MSG_NEW_PROJECT_CONFIRM) })
+        .then((name) => name !== null && createNewProject(store, name).then((error) => error !== null && alert(error)))
+        .catch((e: unknown) => alert(errorText(e))),
   },
   {
     // An older project's other scenes, in a browser that keeps one project (projectSplit.ts): each split off as a
@@ -408,7 +406,7 @@ const COMMAND_DEFS: readonly Command[] = [
       if (!confirm(t(MSG_COPY_ROOM_CONFIRM))) return
       void copyRoomToProjects(store).then((error) => {
         if (error !== null) alert(t(MSG_COPY_ROOM_FAILED, { error }))
-      })
+      }).catch((e: unknown) => alert(t(MSG_COPY_ROOM_FAILED, { error: errorText(e) })))
     },
   },
   {
@@ -424,7 +422,7 @@ const COMMAND_DEFS: readonly Command[] = [
       if (!shared) return
       void stopSharing(store, shared).then((error) => {
         if (error !== null) alert(t(MSG_STOP_SHARING_FAILED, { error }))
-      })
+      }).catch((e: unknown) => alert(t(MSG_STOP_SHARING_FAILED, { error: errorText(e) })))
     },
   },
   {
@@ -444,7 +442,7 @@ const COMMAND_DEFS: readonly Command[] = [
     group: 'File',
     enabled: (ctx) => editable(ctx) && readsProgram(ctx) && !byName(ctx),
     disabledReason: ioDisabledReason,
-    run: ({ store }) => void ioAssign().then((m) => m.pickAndImportIoList(store)),
+    run: ({ store }) => void ioAssign().then((m) => m.pickAndImportIoList(store)).catch(warnFailed('file.importIoList')),
   },
   {
     // The other half of the I/O list door: what this scene serves, as the CSV a panel builder works from.
@@ -453,20 +451,20 @@ const COMMAND_DEFS: readonly Command[] = [
     label: 'Export I/O List (.csv)',
     group: 'File',
     enabled: (ctx) => ctx.state.scene.parts.length > 0,
-    run: ({ store }) => void ioAssign().then((m) => m.exportIoList(store)),
+    run: ({ store }) => void ioAssign().then((m) => m.exportIoList(store)).catch(warnFailed('file.exportIoList')),
   },
   {
     // pure exports, like Export Project: available while running and on a view-only link
     id: 'file.exportPlcSt',
     label: 'Export PLC Program (.st)',
     group: 'File',
-    run: ({ store }) => void stFileTransfer().then((m) => m.exportStProgram(store, 'iec-text')),
+    run: ({ store }) => void stFileTransfer().then((m) => m.exportStProgram(store, 'iec-text')).catch(warnFailed('file.exportPlcSt')),
   },
   {
     id: 'file.exportPlcXml',
     label: 'Export PLC Program (PLCopen XML)',
     group: 'File',
-    run: ({ store }) => void stFileTransfer().then((m) => m.exportStProgram(store, 'plcopen-xml')),
+    run: ({ store }) => void stFileTransfer().then((m) => m.exportStProgram(store, 'plcopen-xml')).catch(warnFailed('file.exportPlcXml')),
   },
   {
     // The projects list. A command and not a start screen: /app/ opens onto the working copy and
@@ -494,14 +492,14 @@ const COMMAND_DEFS: readonly Command[] = [
     enabled: (ctx) => !ctx.state.readOnly && !ctx.state.demoSession && (!ctx.state.collab || (ownSharedProject() !== null && !ownSharedProject()!.demo)),
     // askName rather than window.prompt, which throws in the Electron shell - where this is a native menu item
     run: ({ store, state }) =>
-      void askName({ title: t(MSG_RENAME_PROMPT), initial: ownSharedProject()?.project ?? state.projectName, confirmLabel: t(MSG_RENAME_CONFIRM) }).then(
-        (name) => {
+      void askName({ title: t(MSG_RENAME_PROMPT), initial: ownSharedProject()?.project ?? state.projectName, confirmLabel: t(MSG_RENAME_CONFIRM) })
+        .then((name) => {
           if (name === null) return
           const shared = state.collab ? ownSharedProject() : null
           if (shared) renameSharedProject(store, shared.docId, name)
           else store.renameProject(name)
-        },
-      ),
+        })
+        .catch((e: unknown) => alert(errorText(e))),
   },
   {
     id: 'file.openProject',
@@ -524,7 +522,7 @@ const COMMAND_DEFS: readonly Command[] = [
       if (getOipProjectApi() !== null) return void saveProjectToFolder(store, controller)
       void saveAndLinkProjectFolder(store, controller).then((error) => {
         if (error !== null) alert(t(MSG_SAVE_FAILED, { error }))
-      })
+      }).catch((e: unknown) => alert(t(MSG_SAVE_FAILED, { error: errorText(e) })))
     },
   },
   {
@@ -544,7 +542,7 @@ const COMMAND_DEFS: readonly Command[] = [
         // the picker is a user gesture, so an alert is the right weight here; failures from the
         // background sync go to the sticky banner instead (nobody is watching for a dialog then)
         if (error !== null) alert(t(MSG_LINK_FAILED, { error }))
-      }),
+      }).catch((e: unknown) => alert(t(MSG_LINK_FAILED, { error: errorText(e) }))),
   },
   {
     // Only reachable in the one state that needs it: a folder this document is remembered as following
@@ -560,7 +558,7 @@ const COMMAND_DEFS: readonly Command[] = [
       void reconnectProjectFolder(store, controller).then((error) => {
         // a click, so an alert is the right weight - the same split linkFolder makes
         if (error !== null) alert(t(MSG_RECONNECT_FAILED, { error }))
-      }),
+      }).catch((e: unknown) => alert(t(MSG_RECONNECT_FAILED, { error: errorText(e) }))),
   },
   {
     id: 'file.unlinkFolder',
@@ -767,7 +765,7 @@ const COMMAND_DEFS: readonly Command[] = [
     enabled: (ctx) => !ctx.state.readOnly && getShelfApi() !== null && shelvablePart(ctx) !== undefined,
     run: (ctx) => {
       const part = shelvablePart(ctx)
-      if (part) void import('./parts/shelfActions').then((a) => a.putPartOnShelf(ctx.store, part))
+      if (part) void import('./parts/shelfActions').then((a) => a.putPartOnShelf(ctx.store, part)).catch(warnFailed('part.putOnShelf'))
     },
   },
   {
@@ -785,7 +783,7 @@ const COMMAND_DEFS: readonly Command[] = [
       // nowhere on every surface to print beside, so a failure (no editor, an unwritable folder) flashes over the viewport
       void openExternal(pkg, ctx.store).then((err) => {
         if (err) ctx.store.flashViewportHint(t(MSG_OPEN_SCRIPT_FAILED, { error: err }))
-      })
+      }).catch((e: unknown) => ctx.store.flashViewportHint(t(MSG_OPEN_SCRIPT_FAILED, { error: errorText(e) })))
     },
   },
   {
@@ -801,7 +799,7 @@ const COMMAND_DEFS: readonly Command[] = [
       if (!dir || !reveal) return
       void reveal(dir).then((err) => {
         if (err) ctx.store.flashViewportHint(t(MSG_OPEN_SCRIPT_FAILED, { error: err }))
-      })
+      }).catch((e: unknown) => ctx.store.flashViewportHint(t(MSG_OPEN_SCRIPT_FAILED, { error: errorText(e) })))
     },
   },
 
@@ -897,7 +895,7 @@ const COMMAND_DEFS: readonly Command[] = [
     group: 'Simulation',
     enabled: (ctx) => editable(ctx) && readsProgram(ctx) && !byName(ctx) && ctx.state.scene.parts.length > 0,
     disabledReason: ioDisabledReason,
-    run: ({ store }) => void ioAssign().then((m) => m.runIoAssignment(store)),
+    run: ({ store }) => void ioAssign().then((m) => m.runIoAssignment(store)).catch(warnFailed('sim.assignIo')),
   },
   {
     // Where the program runs: here, or on a real PLC that Play hands the scene's I/O to (Modbus TCP either way round,

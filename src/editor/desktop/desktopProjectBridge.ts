@@ -301,18 +301,23 @@ export async function openDocumentInNewWindow(docId: string, root: string | null
 export function connectDesktopOpenRequests(store: EditorStore): () => void {
   const api = getOipProjectApi()
   if (!api) return () => {}
-  void api.takePendingOpen().then((root) => {
-    if (root) void openProjectFolderPath(store, root)
-  })
+  void api
+    .takePendingOpen()
+    .then((root) => {
+      if (root) void openProjectFolderPath(store, root)
+    })
+    .catch((e: unknown) => console.warn('[oip] opening the folder the app was started with failed', e))
   api.showingDocument?.(currentDocumentId())
   const offs = [
     api.onOpenPath((root) => void openProjectFolderPath(store, root)),
     onCurrentDocumentChange((id) => api.showingDocument?.(id)),
     api.onOpenPathInNewWindow?.(
       (root) =>
-        void openFolderInNewWindow(root).then((error) => {
-          if (error !== null) alert(error)
-        }),
+        void openFolderInNewWindow(root)
+          .then((error) => {
+            if (error !== null) alert(error)
+          })
+          .catch((e: unknown) => alert(e instanceof Error ? e.message : String(e))),
     ),
   ]
   return () => offs.forEach((off) => off?.())

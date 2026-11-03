@@ -632,9 +632,12 @@ function PartsShelfGroup(): ReactElement | null {
             className="setting-button"
             data-testid="setting-shelf-change"
             onClick={() =>
-              void api.pickFolder().then((scan) => {
-                if (scan) void refreshShelf()
-              })
+              void api
+                .pickFolder()
+                .then((scan) => {
+                  if (scan) void refreshShelf()
+                })
+                .catch((e: unknown) => console.warn('[oip] choosing the shelf folder failed', e))
             }
           >
             {t(M.changeFolder)}

@@ -214,7 +214,7 @@ export class SimBoxes {
         if (last === null) return
         this.appliedFrame = null
         this.apply(last)
-      })
+      }).catch((e: unknown) => console.warn('[oip] the cargo part mesh builder failed to load', e))
       return []
     }
     let shape = this.partShapes.get(key)

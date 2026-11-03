@@ -26,6 +26,7 @@ export interface LibrarySnapshot {
 let snapshot: LibrarySnapshot = { listings: null, downloaded: new Map() }
 const listeners = new Set<() => void>()
 let started = false
+const updatesFailed = (e: unknown): void => console.warn('[oip] checking the part libraries for updates failed', e)
 
 function publish(next: LibrarySnapshot): void {
   snapshot = next
@@ -106,8 +107,13 @@ export function useLibrarySnapshot(state: Pick<EditorState, 'userPackages' | 'bu
       void whenScenePainted()
         .then(() => readLibraries())
         .then(() => ensureDownloads(projectParts))
+        .catch(updatesFailed)
       // the viewer switched a library on or off, or added one: what it offers may differ
-      window.addEventListener(LIBRARIES_CHANGED, () => void readLibraries().then(() => ensureDownloads(projectParts)))
+      window.addEventListener(LIBRARIES_CHANGED, () =>
+        void readLibraries()
+          .then(() => ensureDownloads(projectParts))
+          .catch(updatesFailed),
+      )
     } else {
       // a part edited, added or taken since: download what it now lacks (each version is fetched once)
       void ensureDownloads(projectParts)

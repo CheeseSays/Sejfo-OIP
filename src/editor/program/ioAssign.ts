@@ -284,10 +284,16 @@ export function pickAndImportIoList(store: EditorStore): Promise<boolean> {
     input.addEventListener('change', () => {
       const file = input.files?.[0]
       if (!file) return resolve(false)
-      void file.text().then((text) => {
-        runIoImport(store, text)
-        resolve(true)
-      })
+      void file
+        .text()
+        .then((text) => {
+          runIoImport(store, text)
+          resolve(true)
+        })
+        .catch((e: unknown) => {
+          console.warn('[oip] importing the I/O list failed', e)
+          resolve(false)
+        })
     })
     input.click()
   })

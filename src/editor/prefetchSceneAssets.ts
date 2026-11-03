@@ -87,7 +87,9 @@ export function prefetchSceneAssets(scene: SceneJSON): void {
   if (urls.some((u) => u.endsWith('.glb'))) void dracoLoader.preload()
 
   // Behind the same building-first gate the real loads use, so the environment still loads first.
-  void whenBuildingGateOpen().then(() => runPool(urls, PREFETCH_CONCURRENCY))
+  void whenBuildingGateOpen()
+    .then(() => runPool(urls, PREFETCH_CONCURRENCY))
+    .catch((e: unknown) => console.warn('[oip] prefetching scene assets failed', e))
 }
 
 // At most this many prefetches in flight. A browser allows ~6 connections per origin over HTTP/1.1,

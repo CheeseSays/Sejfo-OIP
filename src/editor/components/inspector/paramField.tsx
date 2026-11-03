@@ -821,7 +821,7 @@ function useProgramVerdicts(parts: readonly PartInstance[], check: ProgramCheck 
       void import('../../program/tagVerdicts').then(({ programTagVerdicts }) => {
         if (verdictsFor?.parts !== parts || verdictsFor.check !== check) verdictsFor = { parts, check, verdicts: programTagVerdicts(parts, check) }
         if (live) setHeld(verdictsFor.verdicts)
-      })
+      }).catch((e: unknown) => console.warn('[oip] checking the tag against the program failed', e))
     }, VERDICT_DELAY_MS)
     return () => {
       live = false

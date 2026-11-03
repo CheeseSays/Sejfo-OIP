@@ -161,7 +161,9 @@ export function PlcConnectionsWindow({
   useEffect(() => {
     if (source?.kind !== 'program') return
     let live = true
-    void loadProgramTags(check).then((tags) => live && setProgramGroups(programVariableGroups(tags)))
+    void loadProgramTags(check)
+      .then((tags) => live && setProgramGroups(programVariableGroups(tags)))
+      .catch((e: unknown) => console.warn('[oip] reading the program variables failed', e))
     return () => {
       live = false
     }

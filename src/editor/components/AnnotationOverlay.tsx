@@ -75,9 +75,11 @@ export function AnnotationOverlay({ store, view, controller, show }: AnnotationO
   const [revealed, setRevealed] = useState(false)
   useEffect(() => {
     let alive = true
-    void whenCoverHidden().then(() => {
-      if (alive) setRevealed(true)
-    })
+    void whenCoverHidden()
+      .then(() => {
+        if (alive) setRevealed(true)
+      })
+      .catch((e: unknown) => console.warn('[oip] annotation reveal failed', e))
     return () => {
       alive = false
     }

@@ -167,12 +167,14 @@ export function startStagedPrewarm(view: WarmHost, gpu: WebGPURenderer): void {
         // inside the 0.4 s fade, freezing it at ~0.9 opacity and snapping it to 0
         // (e2e/probes/cover-fade.mjs). Capped in whenCoverHidden, so a surface without the cover
         // component still warms.
-        void whenCoverHidden().then(() => {
-          if (view.disposed) return
-          const ric = (globalThis as { requestIdleCallback?: (cb: () => void, o?: { timeout: number }) => void }).requestIdleCallback
-          if (ric) ric(run, { timeout: DEFERRED_WARM_TIMEOUT_MS })
-          else setTimeout(run, 200)
-        })
+        void whenCoverHidden()
+          .then(() => {
+            if (view.disposed) return
+            const ric = (globalThis as { requestIdleCallback?: (cb: () => void, o?: { timeout: number }) => void }).requestIdleCallback
+            if (ric) ric(run, { timeout: DEFERRED_WARM_TIMEOUT_MS })
+            else setTimeout(run, 200)
+          })
+          .catch((e: unknown) => console.warn('[oip] deferred warm failed to start', e))
       }
     })
 }
@@ -485,12 +487,14 @@ export function scheduleWebGLInteractionWarm(view: WarmHost): void {
   }
   // same rule as the WebGPU twin: wait for the cover to be gone, not just painted, so this never
   // competes with its fade (see whenCoverHidden)
-  void whenCoverHidden().then(() => {
-    if (view.disposed) return
-    const ric = (globalThis as { requestIdleCallback?: (cb: () => void, o?: { timeout: number }) => void }).requestIdleCallback
-    if (ric) ric(run, { timeout: DEFERRED_WARM_TIMEOUT_MS })
-    else setTimeout(run, 200)
-  })
+  void whenCoverHidden()
+    .then(() => {
+      if (view.disposed) return
+      const ric = (globalThis as { requestIdleCallback?: (cb: () => void, o?: { timeout: number }) => void }).requestIdleCallback
+      if (ric) ric(run, { timeout: DEFERRED_WARM_TIMEOUT_MS })
+      else setTimeout(run, 200)
+    })
+    .catch((e: unknown) => console.warn('[oip] deferred warm failed to start', e))
 }
 
 /**

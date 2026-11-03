@@ -75,7 +75,9 @@ export function shelfSnapshot(): ShelfSnapshot {
 function start(): void {
   if (started || !getShelfApi()) return
   started = true
-  void whenScenePainted().then(() => refreshShelf())
+  void whenScenePainted()
+    .then(() => refreshShelf())
+    .catch((e: unknown) => console.warn('[oip] reading the parts shelf failed', e))
   window.addEventListener('focus', () => void refreshShelf({ ifChanged: true }))
 }
 

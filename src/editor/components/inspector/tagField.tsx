@@ -190,9 +190,11 @@ export function TagField({
   useEffect(() => {
     if (!open || !check) return
     let live = true
-    void loadProgramTags(check).then((tags) => {
-      if (live) setProgramTags(tags)
-    })
+    void loadProgramTags(check)
+      .then((tags) => {
+        if (live) setProgramTags(tags)
+      })
+      .catch((e: unknown) => console.warn('[oip] reading the program tags failed', e))
     return () => {
       live = false
     }

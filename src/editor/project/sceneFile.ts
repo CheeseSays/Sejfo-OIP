@@ -59,7 +59,7 @@ export function openDemoScene(store: EditorStore, controller?: EditorController 
     url.searchParams.delete('server')
     url.searchParams.set('scene', 'demo')
     location.assign(url.toString())
-  })
+  }).catch((e: unknown) => alert(e instanceof Error ? e.message : String(e)))
 }
 
 /**

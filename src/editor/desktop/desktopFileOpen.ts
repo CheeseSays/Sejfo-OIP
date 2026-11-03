@@ -46,8 +46,11 @@ export async function openDocumentFile(store: EditorStore, controller: EditorCon
 export function connectDesktopFileOpens(store: EditorStore, controller: EditorController | null): () => void {
   const api = getOipProjectApi()
   if (!api?.takePendingFile || !api.onOpenFile) return () => {}
-  void api.takePendingFile().then((file) => {
-    if (file) void openDocumentFile(store, controller, file)
-  })
+  void api
+    .takePendingFile()
+    .then((file) => {
+      if (file) void openDocumentFile(store, controller, file)
+    })
+    .catch((e: unknown) => console.warn('[oip] opening the file the app was started with failed', e))
   return api.onOpenFile((file) => void openDocumentFile(store, controller, file))
 }

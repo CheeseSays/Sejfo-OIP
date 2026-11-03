@@ -1,5 +1,7 @@
 import js from '@eslint/js'
 import tseslint from 'typescript-eslint'
+import reactHooks from 'eslint-plugin-react-hooks'
+import noUnhandledThen from './eslint-rules/no-unhandled-then.js'
 
 // The GPL boundary. OpenPLC's editor and STruC++ (scripts/lib/openplc-editor.mjs) are GPL-3.0; this tree
 // is MIT. They are used only as a dev-time oracle: fetched at a pinned SHA into a gitignored work dir, run
@@ -76,6 +78,19 @@ export default tseslint.config(
     // it `definePart` as its one global (core/parts/partScript.ts). Linted as a script, with that global declared.
     files: ['src/**/fixtures/**/behavior.js'],
     languageOptions: { sourceType: 'script', globals: { definePart: 'readonly' } },
+  },
+  {
+    // A discarded `.then(...)` / `void p.then(...)` with no rejection handler loses the error and blocks whatever
+    // waited on the chain (eslint-rules/no-unhandled-then.js).
+    files: ['src/**/*.{ts,tsx}'],
+    plugins: { oip: { rules: { 'no-unhandled-then': noUnhandledThen } } },
+    rules: { 'oip/no-unhandled-then': 'error' },
+  },
+  {
+    // The two classic hook rules only. The plugin's React Compiler rules are left off.
+    files: ['src/editor/**/*.{ts,tsx}'],
+    plugins: { 'react-hooks': reactHooks },
+    rules: { 'react-hooks/rules-of-hooks': 'error', 'react-hooks/exhaustive-deps': 'warn' },
   },
   {
     // Honor the `_`-prefix convention for intentionally-unused bindings (stub callbacks,

@@ -129,14 +129,17 @@ export function ProjectsOverlay({ store, state, onClose }: { store: EditorStore;
     void getOipProjectApi()
       ?.folders()
       .then((rows) => setFolders(new Map(rows.map((r) => [r.docId, r]))))
-    void documentsOpenInTabs().then(setOpenInTabs)
+      .catch((e: unknown) => console.warn('[oip] listing project folders failed', e))
+    void documentsOpenInTabs()
+      .then(setOpenInTabs)
+      .catch((e: unknown) => console.warn('[oip] listing open tabs failed', e))
     void listDocuments().then((found) => {
       setDocs(found)
       // The earned moment for the durability request: they have more than one project, and they are
       // looking at the list of them. Firefox prompts for this, so asking at boot would put a storage
       // permission in front of someone who has not made anything yet (documentStore).
       if (found.length > 1) void requestDurableStorage()
-    })
+    }).catch((e: unknown) => console.warn('[oip] listing projects failed', e))
   }, [])
   useEffect(refresh, [refresh])
 

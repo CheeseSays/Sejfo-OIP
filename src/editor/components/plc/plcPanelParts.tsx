@@ -175,7 +175,10 @@ function organizerActions(ctx: PlcPanelCtx): OrganizerActions {
     deleteBlock: (i) => ctx.applyBlockEdit(deleteBlock(ctx.currentSource(), i)),
     editController: (next, renames, label) => ctx.applyController(next, renames, label),
     // lazy, as the File menu's export is (commands.ts): the PLCopen writer loads only when a file moves
-    exportController: (plc, target) => void import('../../program/stFileTransfer').then((m) => m.exportStProgram(ctx.store, target, plc)),
+    exportController: (plc, target) =>
+      void import('../../program/stFileTransfer')
+        .then((m) => m.exportStProgram(ctx.store, target, plc))
+        .catch((e: unknown) => console.warn('[oip] exporting the controller failed', e)),
     adoptConfiguration: () => {
       const split = extractController(ctx.store.getState().stProgram)
       if (!split) {

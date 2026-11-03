@@ -416,8 +416,11 @@ function scheduleSettle(): void {
   queueMicrotask(() => {
     settleScheduled = false
     if (buildingLoads.length === 0 && coverOnlyLoads.length === 0) return
-    // the gate waits for the shell only; the cover additionally waits for cover-only scenery
+    // the gate waits for the shell only; the cover additionally waits for cover-only scenery. Neither chain can
+    // reject: allSettled never does, and openGate / settleCover are promise resolvers.
+    // eslint-disable-next-line oip/no-unhandled-then
     if (buildingLoads.length > 0) void Promise.allSettled(buildingLoads).then(() => openGate())
+    // eslint-disable-next-line oip/no-unhandled-then
     void Promise.allSettled([...buildingLoads, ...coverOnlyLoads]).then(() => settleCover())
   })
 }

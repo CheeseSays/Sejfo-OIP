@@ -100,6 +100,7 @@ export class EditorController {
   }
   // author mode: re-apply placed visuals when a part package's geometry changes in the registry (live edit / hot-reload)
   private unsubscribePackages: () => void = () => {}
+  private readonly unsubscribeDiagnostics: () => void
   /** internal - for controller/ modules */
   drag: Drag | null = null
   /** the live snap of the gesture in flight (controller/snapRest.ts LiveSnapState); e2e scripts read `snap.candidate`
@@ -277,7 +278,7 @@ export class EditorController {
     // Custom-part runtime diagnostics (core/parts/partDiagnostics): a throwing step()/geometry(), a compile
     // failure at attach, an unknown commanded joint/lamp. One console line per unique problem (deduped
     // at the source - a per-tick repeat can't spam); the Inspector shows them on the selected part.
-    subscribePartDiagnostics((e) => {
+    this.unsubscribeDiagnostics = subscribePartDiagnostics((e) => {
       if (e.kind !== 'report') return
       const d = e.entry
       console.warn(`[part${d.partId ? ` ${d.partId}` : ''}${d.packageId ? ` (${d.packageId})` : ''}] ${d.source}: ${d.message}`)
@@ -895,6 +896,7 @@ export class EditorController {
     this.unsubscribe()
     this.unsubscribeDocument()
     this.unsubscribePackages()
+    this.unsubscribeDiagnostics()
     window.removeEventListener('pagehide', this.flushCamera)
     this.view.onCameraSettled = null
     this.store.setLiveCargoHost(null)

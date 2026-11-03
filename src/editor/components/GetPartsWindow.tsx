@@ -22,7 +22,7 @@ import type { SourceStatus } from '../../core/parts/partOrigin'
 import { isCargoPackage } from '../../core/parts/partPackage'
 import type { PartPackage } from '../../core/parts/partPackage'
 import { PART_SDK_LEVEL } from '../../core/parts/partSdk'
-import { dialogHost } from '../dialogHost'
+import { dialogHost, isElement } from '../dialogHost'
 import { addLibrary, downloadVersion, installFromLibrary, readLibrary } from '../parts/partLibraries'
 import { noteLibraryListings } from '../parts/libraryUpdates'
 import { getShelfApi } from '../parts/partShelf'
@@ -163,7 +163,7 @@ export function GetPartsWindow({ store, state, onClose, onPublish }: Props): Rea
     if (review) return
     if (dialogRef.current) trapTab(dialogRef.current, e)
     // this listener stops every key on the window first, so a field's own onKeyDown never sees Enter
-    if (e.key === 'Enter' && e.target instanceof HTMLElement && e.target.dataset.testid === 'get-parts-library-url' && !adding?.busy) void addSource()
+    if (e.key === 'Enter' && isElement(e.target) && e.target.dataset.testid === 'get-parts-library-url' && !adding?.busy) void addSource()
   })
 
   // the viewer's lists change in Settings
@@ -187,12 +187,14 @@ export function GetPartsWindow({ store, state, onClose, onPublish }: Props): Rea
         for (const part of l.index?.parts ?? []) {
           const { version } = offeredVersion(part)
           if (!version) continue
-          void downloadVersion(l.url, part.id, version).then((d) => {
-            if (live) setDownloads((m) => new Map(m).set(keyOf(l.url, part.id), d))
-          })
+          void downloadVersion(l.url, part.id, version)
+            .then((d) => {
+              if (live) setDownloads((m) => new Map(m).set(keyOf(l.url, part.id), d))
+            })
+            .catch((e: unknown) => console.warn('[oip] downloading a library part failed', e))
         }
       }
-    })
+    }).catch((e: unknown) => console.warn('[oip] reading the part libraries failed', e))
     return () => {
       live = false
     }

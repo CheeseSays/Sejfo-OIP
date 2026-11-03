@@ -67,28 +67,38 @@ export function connectDesktopAgent(store: EditorStore, controller: AgentControl
     const agentSession = new AgentSession(store)
     onSession?.(agentSession)
     off = api.onCall(({ id, name, args }) => {
-      void callAgentTool({ store, controller, shell, session: agentSession }, name, args).then((r) => {
-        if (!r.ok) api.reply(id, r)
-        else if (r.value instanceof AgentImageResult) api.reply(id, { ok: true, text: text(r.value.info), images: r.value.images })
-        else api.reply(id, { ok: true, text: text(r.value) })
-      })
+      void callAgentTool({ store, controller, shell, session: agentSession }, name, args)
+        .then((r) => {
+          if (!r.ok) api.reply(id, r)
+          else if (r.value instanceof AgentImageResult) api.reply(id, { ok: true, text: text(r.value.info), images: r.value.images })
+          else api.reply(id, { ok: true, text: text(r.value) })
+        })
+        // a throw answers as a failed call does, so main isn't left waiting out its timeout
+        .catch((e: unknown) => api.reply(id, { ok: false, error: e instanceof Error ? e.message : String(e) }))
     })
-    offShell = api.onShell?.((req) => void shellRequest(store, req).then((reply) => api.reply(req.id, reply))) ?? null
+    offShell =
+      api.onShell?.((req) => {
+        // a throw answers as a failed call does, so main isn't left waiting out its timeout
+        void shellRequest(store, req)
+          .catch((e: unknown): AgentReply => ({ ok: false, error: e instanceof Error ? e.message : String(e) }))
+          .then((reply) => api.reply(req.id, reply))
+          .catch((e: unknown) => console.warn('[oip] agent shell reply failed', e))
+      }) ?? null
     api.serve(agentToolDefinitions())
-  })
+  }).catch((e: unknown) => console.warn('[oip] the agent door failed to load', e))
   // In the dev shell the dev server reloads the page when a source file changes that hot updates cannot take (any
   // file under src/render/, vite.config.ts oip-render-full-reload) or when it re-bundles its dependencies. An agent
   // whose call that cut off saw only "the editor reloaded", often caused by another agent editing the tree.
-  if (import.meta.hot) {
-    import.meta.hot.on('vite:beforeFullReload', (p: { triggeredBy?: string }) => {
-      const file = p.triggeredBy?.replace(/\\/g, '/').replace(/^.*?\/((?:src|examples|packages|app|public)\/)/, '$1')
-      api.leaving?.(file ? `the dev server reloaded the page after ${file} changed` : 'the dev server reloaded the page, after re-bundling its dependencies or a restart')
-    })
+  const onFullReload = (p: { triggeredBy?: string }): void => {
+    const file = p.triggeredBy?.replace(/\\/g, '/').replace(/^.*?\/((?:src|examples|packages|app|public)\/)/, '$1')
+    api.leaving?.(file ? `the dev server reloaded the page after ${file} changed` : 'the dev server reloaded the page, after re-bundling its dependencies or a restart')
   }
+  import.meta.hot?.on('vite:beforeFullReload', onFullReload)
   return () => {
     cancelled = true
     off?.()
     offShell?.()
+    import.meta.hot?.off('vite:beforeFullReload', onFullReload)
     api.serve(null)
   }
 }

@@ -201,14 +201,22 @@ export function syncOpcUaServer(l: PlcLinkState, p: ProgramState, ec: PlcLinkDep
     : null
   l.uaServer = next
   // the old server lets go of the port before the new one asks for it
-  void (old ? old.stop() : Promise.resolve()).then(() => {
+  void (old ? stopUaServer(old) : Promise.resolve()).then(() => {
     if (next === null || l.uaServer !== next) return notifyExternal(l)
     void next.start()
     if (p.uaProgram && p.plcAttached) publishToUaServer(l, ec.store, p.uaProgram)
     else publishDocumentProgram(l, ec.store)
     next.update(ec.plcWatch, p.plcAttached)
-  })
+  }).catch((e: unknown) => console.warn('[opcua] starting the server failed:', e))
   notifyExternal(l)
+}
+
+/**
+ * Stop a server, resolving even when the stop fails: a rejection kept in the stop chain would keep every later
+ * server from starting.
+ */
+function stopUaServer(server: OpcUaServerSession): Promise<void> {
+  return server.stop().catch((e: unknown) => console.warn('[opcua] stopping the server failed:', e))
 }
 
 /**
@@ -229,7 +237,7 @@ function syncNamedUaServers(l: PlcLinkState, p: ProgramState, ec: PlcLinkDeps): 
   for (const [name, s] of [...l.namedUa]) {
     if (want.get(name)?.key === s.key) continue
     l.namedUa.delete(name)
-    stopping.push(s.session.stop())
+    stopping.push(stopUaServer(s.session))
   }
   if (stopping.length > 0) l.namedUaStopped = Promise.all([l.namedUaStopped, ...stopping]).then(() => {})
   const stopped = l.namedUaStopped
@@ -250,7 +258,7 @@ function syncNamedUaServers(l: PlcLinkState, p: ProgramState, ec: PlcLinkDeps): 
       void session.start()
       publishNamedUaServers(l, p, ec)
       session.update(ec.plcWatch, p.plcAttached)
-    })
+    }).catch((e: unknown) => console.warn('[opcua] starting the server failed:', e))
   }
 }
 
@@ -399,7 +407,7 @@ function attachNamedLinks(l: PlcLinkState, p: ProgramState, ec: PlcLinkDeps, m: 
       // a port that would not open leaves nothing driving its devices: hand them back
       if (l.named.includes(named) && named.link.status().state === 'failed') shipDriven()
       notifyExternal(l)
-    })
+    }).catch((e: unknown) => console.error('[oip] external PLC attach failed', e))
   })
   shipDriven()
 }
@@ -437,7 +445,7 @@ function attachMainLink(l: PlcLinkState, p: ProgramState, ec: PlcLinkDeps, m: Ex
       setDriven(p, ec.sim, [])
     }
     notifyExternal(l)
-  })
+  }).catch((e: unknown) => console.error('[oip] external PLC attach failed', e))
 }
 
 /** One sim frame's I/O on every link of the run: the parts' tags out, and what the PLCs drive back into the sim. */
@@ -487,5 +495,9 @@ export function detachExternalPlc(l: PlcLinkState): void {
     l.externalStatus = { ...session.status(), state: 'off', masters: [] }
     stops.push(session.stop())
   }
-  if (stops.length > 0) void Promise.all(stops).then(() => notifyExternal(l))
+  if (stops.length > 0) {
+    void Promise.all(stops)
+      .then(() => notifyExternal(l))
+      .catch((e: unknown) => console.warn('[oip] stopping the external PLC links failed', e))
+  }
 }

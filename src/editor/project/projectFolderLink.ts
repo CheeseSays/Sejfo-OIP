@@ -542,6 +542,8 @@ export async function reconnectProjectFolder(store: EditorStore, controller: Sce
   const waiting = pending
   if (waiting === null) return null
   const permission = await permissionOf(waiting.handle, true)
+  // the user unlinked (or another folder took over) while the prompt was open
+  if (pending !== waiting) return null
   pending = null
   store.setFolderPaused(null)
   if (permission !== 'granted') {

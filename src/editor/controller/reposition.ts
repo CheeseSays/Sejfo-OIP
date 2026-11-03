@@ -8,7 +8,7 @@ import { subtreeIds } from '../../core/scene/hierarchy'
 import { rotateXZ } from '../../core/transforms'
 import { surfaceAlignPose } from '../../core/snap/snapSurfacePose'
 import type { SnapPose } from '../../core/snap/snapFeatures'
-import type { SceneJSON } from '../../core/types'
+import type { PartInstance, SceneJSON } from '../../core/types'
 import type { EditorState } from '../store/store'
 import * as dragOps from './drag'
 import type { EditorController } from '../controller'
@@ -18,8 +18,9 @@ export class RepositionState {
   // Shift+G collision reposition: a keyboard-started, mouse-steered modal gesture
   // (no button held); click commits, Esc cancels. Repositions the part onto collision surfaces under the cursor.
   // `id` is the active node (last-selected) the cursor raycast drives; `carried` is the
-  // rest of the selection plus every subtree, each moving rigidly with it.
-  active: { start: SceneJSON; id: string; moved: boolean; carried: string[] } | null = null
+  // rest of the selection plus every subtree, each moving rigidly with it. `carriedStart` holds those parts as the
+  // gesture found them, resolved once so a pointer move doesn't search the scene for each.
+  active: { start: SceneJSON; id: string; moved: boolean; carried: string[]; carriedStart: PartInstance[] } | null = null
   // accumulated mouse-wheel yaw applied to the reposition target (see onWheel)
   angle = 0
   // whether the Alt face alignment (EditorController.surfaceAlignAxis) is currently applied (resets on Alt release)
@@ -38,10 +39,12 @@ export function beginReposition(r: RepositionState, ec: EditorController, s: Edi
   const part = s.scene.parts.find((p) => p.id === id)
   if (!part) return
   const carried = subtreeIds(s.scene.parts, s.selectedIds).filter((cid) => cid !== id)
+  const byId = new Map(s.scene.parts.map((p) => [p.id, p]))
+  const carriedStart = carried.flatMap((cid) => byId.get(cid) ?? [])
   r.angle = 0
   ec.surfaceAlignAxis = 1
   r.alignApplied = false
-  r.active = { start: s.scene, id, moved: false, carried }
+  r.active = { start: s.scene, id, moved: false, carried, carriedStart }
   ec.syncPoolDragEject() // eject from the instance pool before the first transient below moves anything
   // a running cargo body is physics-owned (updateScene skips live cargo), so the
   // scene transient alone won't move it. Freeze the whole carried set for the gesture and steer
@@ -111,15 +114,13 @@ export function updateReposition(r: RepositionState, ec: EditorController, clien
   // carry the rest rigidly: each
   // carried part keeps its offset+yaw relative to the active node, which moved from its
   // start pose to `pose` (translate + yaw about the active node)
-  if (repos.carried.length > 0) {
+  if (repos.carriedStart.length > 0) {
     const dyaw = normalizeAngle(pose.rotationY - part.rotationY)
-    for (const d of repos.carried) {
-      const dp = repos.start.parts.find((p) => p.id === d)
-      if (!dp) continue
+    for (const dp of repos.carriedStart) {
       // carried offset relative to the active node's start pose, rotated by the
       // active node's yaw delta, re-based onto its new position
       const r = rotateXZ(dp.position[0] - part.position[0], dp.position[2] - part.position[2], dyaw)
-      poses.set(d, {
+      poses.set(dp.id, {
         position: [pose.position[0] + r.x, pose.position[1] + (dp.position[1] - part.position[1]), pose.position[2] + r.z],
         rotationY: normalizeAngle(dp.rotationY + dyaw),
       })

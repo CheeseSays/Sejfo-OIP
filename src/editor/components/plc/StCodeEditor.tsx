@@ -202,10 +202,12 @@ export const StCodeEditor = forwardRef<StCodeEditorHandle, StCodeEditorProps>(fu
     // of the Yjs-backed shared undo that the collab extension brings
     const collab = collabRef.current
     // the reading position is layout, so it is read in a frame, and a scroll burst reports once per frame
+    // (the editor's own window: in a popped-out panel the main window may be minimised, and its frames stop)
+    const win = host.current.ownerDocument.defaultView ?? window
     let frame = 0
     const reportPosition = (): void => {
       if (frame !== 0 || !onReadingPositionRef.current) return
-      frame = requestAnimationFrame(() => {
+      frame = win.requestAnimationFrame(() => {
         frame = 0
         if (view.current) onReadingPositionRef.current?.(readingPosition(view.current))
       })
@@ -248,7 +250,7 @@ export const StCodeEditor = forwardRef<StCodeEditorHandle, StCodeEditorProps>(fu
     reportPosition()
     onReadyRef.current?.()
     return () => {
-      cancelAnimationFrame(frame)
+      win.cancelAnimationFrame(frame)
       v.scrollDOM.removeEventListener('scroll', reportPosition)
       v.destroy()
       view.current = null

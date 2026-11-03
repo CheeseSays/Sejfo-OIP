@@ -89,6 +89,9 @@ export type { CommitOptions, EditEvent, EditEventInput, EditHistory } from './st
 export type { LiveCargoHost, LiveCargoPose } from './storeDocument'
 export { documentSceneOf } from './storeDocument'
 
+/** projectTests() with no project: one shared array, so a memo on it holds while no tests are kept */
+const NO_TESTS: readonly TestSpec[] = Object.freeze([])
+
 export class EditorStore {
   private state: EditorState
   // who hears a change: React (subscribe) and the view/controller (subscribeView). See StoreSubscribers.
@@ -2265,7 +2268,7 @@ export class EditorStore {
   /** The tests the project keeps, read without building or capturing a project (snapshotProject does both). A new
    *  array after every save or delete, so a memo can depend on it. */
   projectTests(): readonly TestSpec[] {
-    return this.project?.tests ?? []
+    return this.project?.tests ?? NO_TESTS
   }
 
   /** Drop the kept test named `name`, as {@link saveProjectTest} keeps one: not an undo step. False when not kept. */

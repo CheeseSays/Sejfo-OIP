@@ -436,7 +436,9 @@ export function OrganizerTree(props: OrganizerTreeProps): ReactElement {
       next.delete('controller')
       return next
     })
-    requestAnimationFrame(() => {
+    // (the tree's own window: in a popped-out panel the main window may be minimised, and its frames stop)
+    const win = rootRef.current?.ownerDocument.defaultView ?? window
+    win.requestAnimationFrame(() => {
       const box = rootRef.current
       const at = tasksRef.current
       if (box && at) box.scrollTop += at.getBoundingClientRect().top - box.getBoundingClientRect().top - 4

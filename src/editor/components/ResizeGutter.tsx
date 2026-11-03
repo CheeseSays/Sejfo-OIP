@@ -95,12 +95,15 @@ function startResize(e: ReactPointerEvent<HTMLDivElement>, tracks: readonly Resi
     }
     if (!frame) frame = requestAnimationFrame(flush)
   }
+  // a pointercancel (the OS took the pointer, a touch turned into a pan) ends the drag as a release does, else the
+  // move listener stays on and the next plain hover keeps resizing
   const onUp = (): void => {
     if (frame) cancelAnimationFrame(frame)
     frame = 0
-    el.releasePointerCapture(e.pointerId)
+    if (el.hasPointerCapture(e.pointerId)) el.releasePointerCapture(e.pointerId)
     window.removeEventListener('pointermove', onMove)
     window.removeEventListener('pointerup', onUp)
+    window.removeEventListener('pointercancel', onUp)
     for (const l of live) {
       if (l.size === l.startSize) {
         // a click, or a drag that landed where it started
@@ -115,4 +118,5 @@ function startResize(e: ReactPointerEvent<HTMLDivElement>, tracks: readonly Resi
   }
   window.addEventListener('pointermove', onMove)
   window.addEventListener('pointerup', onUp)
+  window.addEventListener('pointercancel', onUp)
 }

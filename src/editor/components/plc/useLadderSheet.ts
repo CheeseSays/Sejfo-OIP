@@ -172,17 +172,19 @@ export function useWrapLinks(scrollRef: RefObject<HTMLDivElement | null>, zoomRe
   useEffect(() => {
     const scroller = scrollRef.current
     if (!scroller) return
+    // the sheet's own window: a popped-out panel keeps drawing while the main window is minimised
+    const win = scroller.ownerDocument.defaultView ?? window
     let frame = 0
     const soon = (): void => {
-      cancelAnimationFrame(frame)
-      frame = requestAnimationFrame(linkWraps)
+      win.cancelAnimationFrame(frame)
+      frame = win.requestAnimationFrame(linkWraps)
     }
     const resized = new ResizeObserver(soon)
     resized.observe(scroller)
     if (zoomRef.current) resized.observe(zoomRef.current)
     scroller.addEventListener('scroll', soon, { passive: true })
     return () => {
-      cancelAnimationFrame(frame)
+      win.cancelAnimationFrame(frame)
       resized.disconnect()
       scroller.removeEventListener('scroll', soon)
     }

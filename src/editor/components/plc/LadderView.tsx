@@ -325,8 +325,9 @@ export function LadderView({ revealProblem = null, faults = NO_FAULTS, source, o
       const rung = revealRung !== undefined && revealRung < routines[i].rungs.length ? revealRung : 0
       if (routines[i].rungs.length) setSel({ routine: i, rung, trail: [] })
       // (a frame on: a sheet just opened has not drawn its sections yet; a rung asked for is brought into view by the
-      // selection's own scroll, so only the section's top is scrolled to)
-      if (rung === 0) window.requestAnimationFrame(() => rootRef.current?.querySelector(`[data-routine-index="${i}"]`)?.scrollIntoView({ block: 'start' }))
+      // selection's own scroll, so only the section's top is scrolled to; the sheet's own window, which keeps its
+      // frames in a popped-out panel while the main window is minimised)
+      if (rung === 0) (rootRef.current?.ownerDocument.defaultView ?? window).requestAnimationFrame(() => rootRef.current?.querySelector(`[data-routine-index="${i}"]`)?.scrollIntoView({ block: 'start' }))
     }
     onRevealedRoutine?.()
   }, [revealRoutine, routines])
@@ -453,7 +454,7 @@ export function LadderView({ revealProblem = null, faults = NO_FAULTS, source, o
   const pasteFromClipboard = (): void => {
     void (activeClipboard()?.readText?.() ?? Promise.reject(new Error('no clipboard')))
       .catch(() => clipRef.current)
-      .then((text) => pasteText(ownClip(text)))
+      .then((text) => pasteText(ownClip(text))).catch((e: unknown) => console.warn('[oip] ladder paste failed', e))
   }
   const onCopy = (e: ReactClipboardEvent<HTMLDivElement>): void => {
     if (e.target !== e.currentTarget) return

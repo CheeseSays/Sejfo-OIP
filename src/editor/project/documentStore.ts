@@ -15,7 +15,7 @@
 import { clearEntryParams } from './entryParams'
 import { validateProject } from '../../core/project/project'
 import type { ProjectJSON } from '../../core/project/project'
-import { flushWorkingCopy, parkSplitOff, saveStoredProject, WORKING_COPY_UNSTORED, workingCopyRefusal } from './projectFile'
+import { dropDocumentKeys, flushWorkingCopy, parkSplitOff, saveStoredProject, WORKING_COPY_UNSTORED, workingCopyRefusal } from './projectFile'
 import { loadLocalAssets, localAssetReviver, storeLocalAssets } from './localAssets'
 import type { SaveResult } from './projectFile'
 import {
@@ -32,7 +32,7 @@ import {
 } from './libraryDb'
 import type { DocumentMeta } from './libraryDb'
 
-export { CURRENT_DOC_KEY, currentDocumentId, mintDocumentId, onCurrentDocumentChange, supportsDocumentLibrary } from './libraryDb'
+export { CURRENT_DOC_KEY, currentDocumentId, documentsOpenInTabs, mintDocumentId, onCurrentDocumentChange, supportsDocumentLibrary } from './libraryDb'
 export type { DocumentMeta } from './libraryDb'
 
 /**
@@ -145,6 +145,7 @@ export async function deleteDocument(id: string): Promise<boolean> {
     payload.delete(id)
     return true
   })
+  if (ok === true) dropDocumentKeys(id)
   return ok === true
 }
 
@@ -225,13 +226,18 @@ export async function fileOutgoingDocument(outgoing: ProjectJSON | null): Promis
  * Write `project` as document `id`'s working copy, then move the pointer to it and boot into it. Returns a message on
  * failure and does not reload: a failed write followed by a reload would boot the old document and the switch would
  * vanish with no explanation (the same failure adoptImportedProject documents).
+ *
+ * `project` null boots the row as it is stored. Nothing is written, so another tab with that document open is not
+ * told it changed.
  */
-async function bootInto(id: string, project: ProjectJSON, bootAt?: string): Promise<string | null> {
-  // its models go to the asset store first, so the working copy can name them by hash (localAssets.ts)
-  await storeLocalAssets(project)
-  const saved: SaveResult = saveStoredProject(project, { doc: id })
-  if (!saved.ok) return saved.message
-  // a reload must not overtake the write it boots from
+async function bootInto(id: string, project: ProjectJSON | null, bootAt?: string): Promise<string | null> {
+  if (project !== null) {
+    // its models go to the asset store first, so the working copy can name them by hash (localAssets.ts)
+    await storeLocalAssets(project)
+    const saved: SaveResult = saveStoredProject(project, { doc: id })
+    if (!saved.ok) return saved.message
+  }
+  // a reload must not overtake the write it boots from, or the outgoing document's last autosave
   if (!(await flushWorkingCopy())) return WORKING_COPY_UNSTORED
   setCurrentDocumentId(id)
   if (bootAt !== undefined) {
@@ -257,7 +263,8 @@ export async function openDocument(id: string, outgoing: ProjectJSON | null): Pr
     if (!parked.ok) return parked.message
     await writeDocument(id, project)
   }
-  return bootInto(id, project)
+  // the row read above opens, so the boot reads it as it is
+  return bootInto(id, null)
 }
 
 /**

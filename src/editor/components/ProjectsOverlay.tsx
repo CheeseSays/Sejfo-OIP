@@ -4,6 +4,7 @@ import { DEMO_SCENE_NAME } from '../demo/demoScenes'
 import {
   currentDocumentId,
   deleteDocument,
+  documentsOpenInTabs,
   listDocuments,
   openDocument,
   renameDocument,
@@ -47,6 +48,8 @@ const M = defineMessages('projects', {
   removeNamed: 'Remove {name}',
   deleteNamed: 'Delete {name}',
   openAnotherFirst: 'Open another project first',
+  openInOtherTab: 'open in another tab',
+  closeOtherTabFirst: 'Open in another tab. Close it there first',
   removeFromList: 'Remove from list (the folder stays)',
   delete: 'Delete',
   examples: 'Examples',
@@ -108,6 +111,10 @@ export function ProjectsOverlay({ store, state, onClose }: { store: EditorStore;
   // to be a real switch rather than a no-op that quietly closes the dialog.
   const openId = currentDocumentId()
   const onScreen = (id: string): boolean => id === openId && !state.demoSession
+  /** documents some tab of this browser has open (libraryDb.documentsOpenInTabs); null until read, or unknowable */
+  const [openInTabs, setOpenInTabs] = useState<ReadonlySet<string> | null>(null)
+  // Another tab's document is its working copy: a delete or rename here would be undone by that tab's next save.
+  const inOtherTab = (id: string): boolean => id !== openId && (openInTabs?.has(id) ?? false)
   const supported = supportsDocumentLibrary()
   const desktop = getOipProjectApi()
   /** document id -> the folder it lives in (desktop only; empty in the browser) */
@@ -118,6 +125,7 @@ export function ProjectsOverlay({ store, state, onClose }: { store: EditorStore;
     void getOipProjectApi()
       ?.folders()
       .then((rows) => setFolders(new Map(rows.map((r) => [r.docId, r]))))
+    void documentsOpenInTabs().then(setOpenInTabs)
     void listDocuments().then((found) => {
       setDocs(found)
       // The earned moment for the durability request: they have more than one project, and they are
@@ -176,7 +184,7 @@ export function ProjectsOverlay({ store, state, onClose }: { store: EditorStore;
   const onCreate = (): void => run(() => createNewProject(store, creating ?? ''))
 
   const onDelete = (doc: DocumentMeta): void => {
-    if (doc.id === openId) return // the open document is the working copy; leave it first
+    if (doc.id === openId || inOtherTab(doc.id)) return // the open document is the working copy; leave it first
     const folder = folderOf(doc.id)
     const question =
       folder !== null
@@ -260,7 +268,7 @@ export function ProjectsOverlay({ store, state, onClose }: { store: EditorStore;
                       <PeopleIcon />
                     </span>
                   )}
-                  <span className="projects-when">{onScreen(doc.id) ? t(M.openNow) : relativeTime(doc.updatedAt)}</span>
+                  <span className="projects-when">{onScreen(doc.id) ? t(M.openNow) : inOtherTab(doc.id) ? t(M.openInOtherTab) : relativeTime(doc.updatedAt)}</span>
                   {desktop && (
                     <span className="projects-path" data-folder={folderOf(doc.id) !== null}>
                       {folderOf(doc.id) ?? t(M.storedInApp)}
@@ -282,8 +290,8 @@ export function ProjectsOverlay({ store, state, onClose }: { store: EditorStore;
                 <button
                   className="projects-action"
                   aria-label={t(M.renameNamed, { name: doc.name })}
-                  title={t(M.rename)}
-                  disabled={busy}
+                  title={inOtherTab(doc.id) ? t(M.closeOtherTabFirst) : t(M.rename)}
+                  disabled={busy || inOtherTab(doc.id)}
                   onClick={() => setEditing({ id: doc.id, name: doc.name })}
                 >
                   <PencilIcon size="1em" />
@@ -293,8 +301,16 @@ export function ProjectsOverlay({ store, state, onClose }: { store: EditorStore;
                   aria-label={t(folderOf(doc.id) !== null ? M.removeNamed : M.deleteNamed, { name: doc.name })}
                   // The open document is the working copy: deleting it would leave the editor holding
                   // a project the library no longer knows about. Open another one first.
-                  title={doc.id === openId ? t(M.openAnotherFirst) : folderOf(doc.id) !== null ? t(M.removeFromList) : t(M.delete)}
-                  disabled={busy || doc.id === openId}
+                  title={
+                    doc.id === openId
+                      ? t(M.openAnotherFirst)
+                      : inOtherTab(doc.id)
+                        ? t(M.closeOtherTabFirst)
+                        : folderOf(doc.id) !== null
+                          ? t(M.removeFromList)
+                          : t(M.delete)
+                  }
+                  disabled={busy || doc.id === openId || inOtherTab(doc.id)}
                   onClick={() => onDelete(doc)}
                 >
                   <TrashIcon size="1em" />

@@ -1,7 +1,6 @@
-// Two tabs, one working copy, end to end in a real browser.
+// Two tabs, end to end in a real browser.
 //
-// Every tab of /app/ on an origin shares the localStorage working copy, and each save writes the whole
-// project. Without the guard, the second tab to save erases the first one's work with no message: tab A adds
+// Two tabs can have the same project open, and each save writes the whole project. Without the guard, the second tab to save erases the first one's work with no message: tab A adds
 // a part, tab B makes an edit of its own, and A's part is gone. Unit tests cannot catch it (the storage event
 // only fires between real browsing contexts), so this drives two pages in one browser context, which share
 // storage exactly as two tabs do.
@@ -11,12 +10,14 @@
 //   - its edits and its saves can no longer reach the working copy, so the other tab's work survives
 //   - Reload recovers: the reloaded tab opens the latest copy and edits again, and the other tab gives way
 //     in turn once it does
-//   - a shelf switch in one tab cannot be undone by the other tab's library sync
+//   - a shelf switch in one tab cannot be undone by the other tab's library sync, and does not move that tab
+//   - two tabs on two projects both save, and neither yields
+//   - the projects list marks the other tab's project, and will not rename or delete it
 //
 // Waits poll on a timer: a settled viewport stops painting, and rAF-scheduled polling then never fires
 // (verify-project-shelf.mjs explains).
 // Run: node e2e/verify-project-cross-tab.mjs
-/* global process, console, window, document, localStorage, indexedDB */
+/* global process, console, window, document, localStorage, sessionStorage, indexedDB */
 import { startServer } from './_server.mjs'
 import { chromium } from 'playwright'
 
@@ -119,7 +120,11 @@ async function main() {
     expect(!(await yielded(a)) && !(await yielded(b)), 'opening a second tab on the same project yields neither')
 
     console.log('--- tab A saves; tab B yields ---')
+    const oldBuildStamp = () => a.evaluate(() => localStorage.getItem('oip-web/project-stamp'))
+    const oldBefore = await oldBuildStamp()
     await addPart(a, 'xtab_a', 'From tab A')
+    // a tab still on a build from before per-document stamps watches only this key
+    expect((await oldBuildStamp()) !== oldBefore, 'the save also changes the stamp older builds watch')
     await waitYielded(b)
     expect(await yielded(b), 'B is view-only, not saving, and says so')
     expect(!(await yielded(a)), 'A, the tab that saved, carries on')
@@ -182,7 +187,29 @@ async function main() {
       docId,
     )
     expect(record === 'Renamed in B,Only in A', `the record A left still holds A's last save (${record})`)
-    expect((await storedParts(b)) === '', `and B did not write the working copy A switched to (${await storedParts(b)})`)
+    const bDoc = await b.evaluate(() => sessionStorage.getItem('oip-web/document-id'))
+    expect(bDoc === docId, `B stays on its own project rather than following A's switch (${bDoc})`)
+
+    console.log('--- two tabs on two projects both save ---')
+    await b.reload({ waitUntil: 'domcontentloaded' })
+    await waitFor(b, () => !!(window.__oip && window.__oip.store), null, 60000)
+    expect((await liveParts(b)) === 'Renamed in B,Only in A', `B reopens its own project (${await liveParts(b)})`)
+    await addPart(a, 'xtab_second', 'In Second')
+    await addPart(b, 'xtab_first', 'In First')
+    await addPart(a, 'xtab_second2', 'In Second again')
+    await b.waitForTimeout(1500) // a storage event from the other tab arrives well inside this
+    expect(!(await yielded(a)) && !(await yielded(b)), 'neither tab yields to the other')
+    expect((await storedParts(a)) === 'In Second,In Second again', `A's project holds A's edits (${await storedParts(a)})`)
+    expect((await storedParts(b)) === 'Renamed in B,Only in A,In First', `B's project holds B's edits (${await storedParts(b)})`)
+
+    console.log("--- the projects list knows the other tab's project ---")
+    await openShelf(a)
+    const row = await a.evaluate((id) => {
+      const r = document.querySelector(`.projects-row[data-doc-id="${id}"]`)
+      return r && { when: r.querySelector('.projects-when')?.textContent ?? '', disabled: [...r.querySelectorAll('.projects-action')].filter((x) => x.disabled).length }
+    }, docId)
+    expect(row?.when === 'open in another tab', `its row says it is open in another tab (${row?.when})`)
+    expect(row?.disabled === 2, `and cannot be renamed or deleted from here (${row?.disabled} disabled)`)
   } finally {
     await browser.close()
     vite.kill()

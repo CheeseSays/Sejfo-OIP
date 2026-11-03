@@ -8,11 +8,12 @@
 //   - with the stored bytes deleted, a reload refuses the project rather than open a part without its model
 //   - a .oip carrying the model imports into a browser that has never stored it
 //   - a project past the old 5 MB localStorage limit, with no model, saves and reloads
-//   - a page hidden with a row write in flight also leaves the text in localStorage, and removes it once the row lands
+//   - a page hidden with a row write in flight also leaves the text in localStorage under its document, and removes
+//     it once the row lands
 //   - the first boot moves a localStorage working copy from an earlier build into the row and removes the key: the key
 //     when it is the latest, the row when a refused save left the row newer, and a row in the earlier object form
 // Run: node e2e/verify-browser-working-copy.mjs
-/* global process, console, window, localStorage, indexedDB */
+/* global process, console, window, localStorage, sessionStorage, indexedDB */
 import { createHash } from 'node:crypto'
 import { startServer } from './_server.mjs'
 import { chromium } from 'playwright'
@@ -39,7 +40,11 @@ async function waitForApp(page) {
 
 const saved = (page) => page.evaluate(async () => (await window.__oip.savedProject()) ?? '')
 const program = (page) => page.evaluate(() => window.__oip.store.getState().stProgram)
-const localCopy = (page) => page.evaluate(() => localStorage.getItem('oip-web/project'))
+/** a copy of the project in localStorage: where earlier builds kept it, or a closing page's copy of the tab's document */
+const localCopy = (page) =>
+  page.evaluate(
+    () => localStorage.getItem('oip-web/project') ?? localStorage.getItem(`oip-web/project-journal/${sessionStorage.getItem('oip-web/document-id')}`),
+  )
 
 // pseudo-random, so it does not compress: 6 MB of bytes is 8 MB of base64
 const model = Buffer.alloc(6 * 1024 * 1024)
@@ -179,7 +184,7 @@ async function largeLeg(browser) {
   const kept = await page.evaluate(() => {
     window.__oip.store.loadStProgram('PROGRAM Hidden\nVAR\n  h : BOOL;\nEND_VAR\nEND_PROGRAM\n')
     dispatchEvent(new Event('pagehide'))
-    return localStorage.getItem('oip-web/project') ?? ''
+    return localStorage.getItem(`oip-web/project-journal/${sessionStorage.getItem('oip-web/document-id')}`) ?? ''
   })
   expect(kept.includes('PROGRAM Hidden'), 'the latest text is also in localStorage while its row write is in flight')
   for (const end = Date.now() + 10000; Date.now() < end && (await localCopy(page)) !== null; ) await page.waitForTimeout(100)

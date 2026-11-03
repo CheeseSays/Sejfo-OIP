@@ -17,8 +17,14 @@ export const INDEX_STORE = 'docIndex'
 /** id -> { id, text } (or { id, project } from before): the payloads, read only when a document is actually opened */
 export const PAYLOAD_STORE = 'docPayload'
 
-/** Which document is open. localStorage, not IndexedDB: the boot path wants it synchronously, and it is twenty bytes. */
+/**
+ * Which document is open. Web storage, not IndexedDB: the boot path wants it synchronously, and it is twenty bytes.
+ * Each tab keeps its own in sessionStorage, which survives the reload a switch makes, so tabs on different projects
+ * never move each other. localStorage keeps the one opened last, which a new tab starts on.
+ */
 export const CURRENT_DOC_KEY = 'oip-web/document-id'
+/** In a tab's sessionStorage, the empty string means the tab has no document: it must not fall back to the browser's. */
+const NO_DOCUMENT = ''
 
 /** A document as the projects list shows it - never the payload. */
 export interface DocumentMeta {
@@ -136,8 +142,27 @@ export async function allRowTexts(): Promise<string[] | null> {
 
 // ── the open document ──────────────────────────────────────────────────────────────────────────────────
 
-/** The open document's id, or null when this browser has never had one (pre-library, or storage off). */
+/** The tab's own pointer as stored ('' for none), or null when the tab has not taken one (or has no sessionStorage). */
+function tabPointer(): string | null {
+  try {
+    return typeof sessionStorage === 'undefined' ? null : sessionStorage.getItem(CURRENT_DOC_KEY)
+  } catch {
+    return null
+  }
+}
+
+function setTabPointer(value: string): void {
+  try {
+    if (typeof sessionStorage !== 'undefined') sessionStorage.setItem(CURRENT_DOC_KEY, value)
+  } catch {
+    /* blocked storage: the tab follows the browser's pointer, as every tab did before tabs had their own */
+  }
+}
+
+/** The open document's id, or null when this tab has none (a first-ever visit, a discard, or storage off). */
 export function currentDocumentId(): string | null {
+  const tab = tabPointer()
+  if (tab !== null) return tab === NO_DOCUMENT ? null : tab
   try {
     return localStorage.getItem(CURRENT_DOC_KEY)
   } catch {
@@ -145,12 +170,24 @@ export function currentDocumentId(): string | null {
   }
 }
 
+/**
+ * Give this tab its own pointer, read from the browser's when it has none yet. Called once before the boot reads
+ * the working copy (projectFile.openWorkingCopy), so a later switch in another tab cannot move this one.
+ */
+export function pinTabDocument(): void {
+  if (tabPointer() === null) setTabPointer(currentDocumentId() ?? NO_DOCUMENT)
+  const id = currentDocumentId()
+  if (id !== null) holdDocument(id)
+}
+
 export function setCurrentDocumentId(id: string): void {
+  setTabPointer(id)
   try {
     localStorage.setItem(CURRENT_DOC_KEY, id)
   } catch {
     /* blocked storage: the library just cannot follow which document is open */
   }
+  holdDocument(id)
 }
 
 /**
@@ -158,10 +195,50 @@ export function setCurrentDocumentId(id: string): void {
  * project's discard does this: its record is left exactly as it was.
  */
 export function forgetCurrentDocument(): void {
+  const id = currentDocumentId()
+  setTabPointer(NO_DOCUMENT)
   try {
-    localStorage.removeItem(CURRENT_DOC_KEY)
+    if (localStorage.getItem(CURRENT_DOC_KEY) === id) localStorage.removeItem(CURRENT_DOC_KEY)
   } catch {
     /* blocked storage: there is no library to confuse in the first place */
+  }
+  holdDocument(null)
+}
+
+// ── which documents other tabs have open ────────────────────────────────────────────────────────────
+//
+// Each tab holds a shared Web Lock named for its document while it has one open. The browser releases it when the
+// tab closes or crashes, so the projects list can ask which documents are open anywhere (navigator.locks.query)
+// without any tab having to say goodbye. Shared, so two tabs on one document both hold it.
+
+const LOCK_PREFIX = 'oip-web/open-document/'
+
+let held: { id: string; release: () => void } | null = null
+
+function holdDocument(id: string | null): void {
+  if (held?.id === id) return
+  held?.release()
+  held = null
+  const locks = typeof navigator === 'undefined' ? undefined : navigator.locks
+  if (id === null || !locks) return
+  let release!: () => void
+  const released = new Promise<void>((resolve) => (release = resolve))
+  held = { id, release }
+  locks.request(LOCK_PREFIX + id, { mode: 'shared' }, () => released).catch(() => {})
+}
+
+/**
+ * The documents open in some tab of this browser, this one's included. Null where the browser cannot tell
+ * (no Web Locks), and then a caller treats only its own document as open.
+ */
+export async function documentsOpenInTabs(): Promise<Set<string> | null> {
+  const locks = typeof navigator === 'undefined' ? undefined : navigator.locks
+  if (!locks) return null
+  try {
+    const { held: all = [] } = await locks.query()
+    return new Set(all.flatMap((l) => (l.name?.startsWith(LOCK_PREFIX) ? [l.name.slice(LOCK_PREFIX.length)] : [])))
+  } catch {
+    return null
   }
 }
 

@@ -10,7 +10,7 @@
 // asserts: the program becomes the program of record, the panel is surfaced, and the card that
 // follows spotlights that panel so the user is actually shown where the program went.
 // Run: node e2e/verify-tutorial-docked-plc.mjs [--headed]
-/* global process, console, window, localStorage, document */
+/* global process, console, window, localStorage, sessionStorage, document */
 import { startServer } from './_server.mjs'
 import { chromium } from 'playwright'
 
@@ -60,6 +60,7 @@ async function main() {
       // The slot also names the document (documentStore.sceneSlotKey), so the document id is pinned here: a
       // cleared profile would otherwise create a fresh one at boot that this seed could not name.
       localStorage.setItem('oip-web/document-id', 'doc-tutorial-gate')
+      sessionStorage.setItem('oip-web/document-id', 'doc-tutorial-gate') // the tab's own pointer outlives the reload (libraryDb.ts)
       localStorage.setItem('oip-web/tutorial-progress', JSON.stringify({ sceneId: 'doc-tutorial-gate/scene-1', step: 10 })) // 'write-program'
     }, [ST_KEY, STALE])
     await page.reload({ waitUntil: 'domcontentloaded' })

@@ -442,16 +442,23 @@ In the browser the project's working copy is the open document's row in the docu
 It holds the scene, its ST program and the project's parts in one document, as compact text, and the `main.tsx` boot
 opens it. There is no second copy of the open project in the browser: the projects list shows the same row.
 
+**Each tab has its own open document.** The pointer to it is `oip-web/document-id` in the tab's sessionStorage, which
+survives the reload a switch makes. localStorage keeps the document opened last, and a new tab starts on that one
+(`libraryDb.pinTabDocument`). So two tabs can work on two projects at once. Each tab also holds a shared Web Lock
+named for its document, which the browser releases when the tab closes. The projects list reads those locks to mark a
+row "open in another tab", and it does not delete or rename that row, since the other tab's next save would undo it.
+
 - **Saving.** `saveStoredProject` is synchronous for its caller, like every edit's commit. It keeps the text in memory
   and queues the row write, one at a time, the latest replacing any still waiting. A save of exactly what is stored
   writes nothing. A failed write raises the autosave banner (`onWorkingCopyWrite`, main.tsx), and every save after it
   reports the failure until a write succeeds.
 - **A save lands a moment after the edit.** A page that is hidden or closed first writes what the store holds
   (`flushPersist`). An unloading page's IndexedDB transaction may be aborted, so when a row write is still in flight
-  the latest text is also written to localStorage `oip-web/project`, which is synchronous (`keepPendingWrite`). The
-  next boot moves it into the row as below, and a page that lives on removes it once the row commits. A tab that
-  crashes within a few milliseconds of an edit can still lose that edit. A switch, a new project, an import and a
-  folder open wait for the incoming project's row to commit before they reload (`flushWorkingCopy`).
+  the latest text is also written to localStorage `oip-web/project-journal/<document>`, which is synchronous
+  (`keepPendingWrite`). The next boot of that document moves it into the row, and a page that lives on removes it once
+  the row commits. A tab that crashes within a few milliseconds of an edit can still lose that edit. A switch, a new
+  project, an import and a folder open wait for the incoming project's row to commit before they reload
+  (`flushWorkingCopy`).
 - **Boot reads the row first** (`openWorkingCopy`), with the bytes of every model it names, and then opens it
   synchronously (`loadStoredProject`). A boot with no pointer, or a pointer with no row, opens what the single-scene
   keys hold, or a default scene, and its first save gives that a record of its own.
@@ -476,13 +483,13 @@ still there (`saveStoredProject` is the one chokepoint: autosave, import, projec
 nothing is filed over its record. A banner offers Download (the stored text, to fix by hand) or Discard (what is on
 screen is filed as a new document, and the old record is left untouched).
 
-**Only one tab writes the working copy at a time.** Every tab on the origin shares it, and a save writes the whole
-document, so without a guard two tabs would erase each other's work silently. IndexedDB raises no event in other
-tabs, so each save that changes the document, or which document it is, also writes a new stamp to localStorage
-`oip-web/project-stamp`. A session may only write while the stamp is the one it last read or wrote
-(`saveStoredProject` compares). A `storage` event from another tab carrying any other stamp does the same (main.tsx).
-The tab that loses stops saving for good, goes view-only (`store.yieldToOtherTab`), and shows a banner whose Reload
-makes it the writer again. A save of exactly what is stored keeps the stamp, so opening a second tab on the same
+**Only one tab writes a document at a time.** Two tabs can have the same document open, and a save writes the whole
+document, so without a guard they would erase each other's work silently. IndexedDB raises no event in other
+tabs, so each save that changes a document also writes a new stamp to localStorage
+`oip-web/project-stamp/<document>`. A session may only write while its document's stamp is the one it last read or
+wrote (`saveStoredProject` compares). A `storage` event from another tab carrying any other stamp does the same
+(main.tsx). Tabs on different documents never see each other's stamps. The tab that loses stops saving for good,
+goes view-only (`store.yieldToOtherTab`), and shows a banner whose Reload makes it the writer again. A save of exactly what is stored keeps the stamp, so opening a second tab on the same
 project locks nothing until one of them changes it. Every path that replaces the working copy also files the
 outgoing project in the document library first and stops if that fails (`documentStore.fileOutgoingDocument`:
 projects-list open/new, linked folder, `.oip` import, desktop folder open).

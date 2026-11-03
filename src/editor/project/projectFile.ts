@@ -15,6 +15,7 @@ import {
   currentDocumentId,
   forgetCurrentDocument,
   mintDocumentId,
+  pinTabDocument,
   readRowText,
   setCurrentDocumentId,
   supportsDocumentLibrary,
@@ -267,7 +268,16 @@ async function localCopyToMove(local: string, doc: string | null): Promise<strin
 export async function openWorkingCopy(): Promise<void> {
   inLibrary = null
   if (typeof localStorage === 'undefined' || !supportsDocumentLibrary()) return
+  pinTabDocument()
   let doc = currentDocumentId()
+  // A page closed with a row write pending kept its latest text (keepPendingWrite). It is newer than the row.
+  const journal = doc === null ? null : safeGet(journalKey(doc))
+  // One that does not open is left where it is rather than dropped: it is the only copy of those edits.
+  if (doc !== null && journal !== null) {
+    const text = await localCopyToMove(journal, doc)
+    if (text !== null && (await writeRowText(doc, nameOf(parseOrNull(text)) ?? DEFAULT_PROJECT_NAME, text))) dropJournal(doc)
+  }
+  // the working copy where builds before the library kept it, moved into the open document's row once
   const local = safeGet(PROJECT_KEY)
   if (local !== null) {
     const text = await localCopyToMove(local, doc)
@@ -326,34 +336,57 @@ export function unopenedProject(): UnopenedProject | null {
 
 // ── another tab ──────────────────────────────────────────────────────────────────────────────────────
 //
-// Every tab of /app/ on this origin shares one working copy, and each save writes the whole document. With
-// two tabs open and no guard, the second one to save would silently replace everything the first had saved
-// (scenes added, programs, the name). Once one tab switched projects on the shelf, the other could write its
-// project into the working copy the first had just filed under a different document, with nothing reported.
+// Two tabs can have the same document open, and each save writes the whole document. With no guard, the second one
+// to save would silently replace everything the first had saved (parts added, programs, the name).
 //
 // So a session may only write over the working copy it last read or wrote. The tab that finds another tab's
 // write there (by the storage event, or by comparing on its next save) stops saving for good and goes
 // view-only. Reloading it rejoins, as the tab that holds the latest copy.
 //
-// IndexedDB has no storage event, so a library working copy is followed by a stamp in localStorage: a few bytes,
-// changed by every save that changes the document or which document it is. A save of exactly what was there keeps
-// the stamp, so a second tab opening the same project and saving it unchanged is no conflict.
+// IndexedDB has no storage event, so each library document is followed by a stamp of its own in localStorage: a few
+// bytes, changed by every save that changes it. Tabs on different documents never see each other's stamps. A save
+// of exactly what was there keeps the stamp, so a second tab opening the same project and saving it unchanged is no
+// conflict.
 
-export const STAMP_KEY = 'oip-web/project-stamp'
+const STAMP_PREFIX = 'oip-web/project-stamp/'
+const stampKey = (doc: string): string => STAMP_PREFIX + doc
+/**
+ * The one stamp builds before per-document stamps watched. Every save also changes it, so a tab still on such a build
+ * after a deploy yields to this one rather than write over the same document. Nothing here reads it. Remove it once
+ * no open tab can still be running such a build.
+ */
+const OLD_BUILD_STAMP_KEY = 'oip-web/project-stamp'
 
-/** Is a storage event for `key` another tab's write of the working copy (main.tsx listens)? */
+/** Is a storage event for `key` another tab's write of this tab's working copy (main.tsx listens)? */
 export function isWorkingCopyKey(key: string): boolean {
-  return key === PROJECT_KEY || (inLibrary !== null && key === STAMP_KEY)
+  if (inLibrary === null) return key === PROJECT_KEY
+  const doc = currentDocumentId()
+  return doc !== null && key === stampKey(doc)
 }
 
-/** What another tab's write changes: the library working copy's stamp, or the localStorage working copy itself. */
-function workingCopyToken(): string | null {
-  return inLibrary === null ? safeGet(PROJECT_KEY) : safeGet(STAMP_KEY)
+/** What another tab's write changes: document `doc`'s stamp, or the localStorage working copy itself. */
+function workingCopyToken(doc = currentDocumentId()): string | null {
+  if (inLibrary === null) return safeGet(PROJECT_KEY)
+  return doc === null ? null : safeGet(stampKey(doc))
 }
 
-/** The working copy as this session last read or wrote it, and the Storage that was in. Keyed by the storage
- *  object so a fresh one (a test's stub) starts unguarded rather than inheriting a stale expectation. */
-let lastSeen: { storage: Storage; token: string | null } | null = null
+/** Forget a deleted document's stamp and any page-close copy of it. */
+export function dropDocumentKeys(doc: string): void {
+  try {
+    localStorage.removeItem(stampKey(doc))
+  } catch {
+    /* blocked storage: it was never written */
+  }
+  dropJournal(doc)
+}
+
+/**
+ * The working copy as this session last read or wrote it, per document, and the Storage that was in. Per document
+ * because a switch writes the incoming document before the pointer moves to it, and the outgoing one must not look
+ * changed meanwhile. Keyed by the storage object so a fresh one (a test's stub) starts unguarded rather than
+ * inheriting a stale expectation.
+ */
+let lastSeen: { storage: Storage; tokens: Map<string | null, string | null> } | null = null
 /** The storage in which another tab's write was seen, if one was. Sticky for the session. */
 let supersededIn: Storage | null = null
 const supersededListeners = new Set<() => void>()
@@ -362,9 +395,22 @@ function currentStorage(): Storage | null {
   return typeof localStorage === 'undefined' ? null : localStorage
 }
 
-function remember(token: string | null): void {
+function remember(token: string | null, doc = currentDocumentId()): void {
   const storage = currentStorage()
-  lastSeen = storage && { storage, token }
+  if (storage === null) return void (lastSeen = null)
+  if (lastSeen?.storage !== storage) lastSeen = { storage, tokens: new Map() }
+  lastSeen.tokens.set(seenKey(doc), token)
+}
+
+/** The localStorage working copy is one copy whatever the pointer says, and it must not share a slot with a library
+ *  document that has no id yet: a discard moves from the one to the other (discardUnopenedProject). */
+const LOCAL_COPY = 'localStorage'
+const seenKey = (doc: string | null): string | null => (inLibrary === null ? LOCAL_COPY : doc)
+
+/** The stamp this session last saw for `doc`. A document it has not read or saved (one just minted) is expected to
+ *  have none. */
+function seenToken(seen: NonNullable<typeof lastSeen>, doc: string | null): string | null {
+  return seen.tokens.get(seenKey(doc)) ?? null
 }
 
 function markSuperseded(storage: Storage): void {
@@ -393,7 +439,7 @@ export function onWorkingCopySuperseded(cb: () => void): () => void {
 export function noteWorkingCopyWrite(newValue: string | null): boolean {
   const storage = currentStorage()
   if (storage === null || lastSeen === null || lastSeen.storage !== storage) return false
-  if (newValue === lastSeen.token) return false
+  if (newValue === seenToken(lastSeen, currentDocumentId())) return false
   markSuperseded(storage)
   return true
 }
@@ -404,7 +450,9 @@ function writtenElsewhere(): boolean {
   const storage = currentStorage()
   if (storage === null) return false
   if (supersededIn === storage) return true
-  if (lastSeen === null || lastSeen.storage !== storage || workingCopyToken() === lastSeen.token) return false
+  if (lastSeen === null || lastSeen.storage !== storage) return false
+  const doc = currentDocumentId()
+  if (workingCopyToken(doc) === seenToken(lastSeen, doc)) return false
   markSuperseded(storage)
   return true
 }
@@ -539,29 +587,37 @@ async function drainRowWrites(): Promise<void> {
     for (const cb of rowListeners) cb(failure ?? { ok: true })
   }
   writingRow = null
-  if (journaled && rowFailure === null) {
-    journaled = false
-    try {
-      localStorage.removeItem(PROJECT_KEY)
-    } catch {
-      /* blocked storage: it was never written */
-    }
+  if (journaled !== null && rowFailure === null) {
+    dropJournal(journaled)
+    journaled = null
   }
 }
 
-// set while the latest text also waits in localStorage for its row write (keepPendingWrite)
-let journaled = false
+/** Where a page being closed keeps document `doc`'s latest text until its row write commits. */
+const journalKey = (doc: string): string => `oip-web/project-journal/${doc}`
+
+function dropJournal(doc: string): void {
+  try {
+    localStorage.removeItem(journalKey(doc))
+  } catch {
+    /* blocked storage: it was never written */
+  }
+}
+
+// the document whose latest text also waits in localStorage for its row write (keepPendingWrite)
+let journaled: string | null = null
 
 /**
  * The page is being hidden or closed with a row write not yet committed. An unloading page's IndexedDB transaction
- * may be aborted, so the latest text also goes where earlier builds kept the working copy, which is written at once.
- * The next boot moves it into the row (openWorkingCopy), and a page that lives on removes it once the row commits.
+ * may be aborted, so the latest text also goes to localStorage, which is written at once, under the document's id so
+ * a tab on another document never takes it. The next boot of that document moves it into the row (openWorkingCopy),
+ * and a page that lives on removes it once the row commits.
  */
 export function keepPendingWrite(): void {
-  if (inLibrary === null || writingRow === null || inLibrary.text === null || inLibrary.doc !== currentDocumentId()) return
+  if (inLibrary === null || writingRow === null || inLibrary.text === null || inLibrary.doc === null || inLibrary.doc !== currentDocumentId()) return
   try {
-    localStorage.setItem(PROJECT_KEY, inLibrary.text)
-    journaled = true
+    localStorage.setItem(journalKey(inLibrary.doc), inLibrary.text)
+    journaled = inLibrary.doc
   } catch {
     /* too large or blocked: the row write is all there is */
   }
@@ -584,9 +640,10 @@ function saveToLibrary(library: { doc: string | null; text: string | null }, tex
   // exactly what is stored: nothing to write, and the stamp stays, so another tab holding it is not superseded
   if (doc === library.doc && text === library.text && rowFailure === null) return { ok: true }
   try {
-    const stamp = `${doc}:${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`
-    localStorage.setItem(STAMP_KEY, stamp)
-    remember(stamp)
+    const stamp = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`
+    localStorage.setItem(stampKey(doc), stamp)
+    localStorage.setItem(OLD_BUILD_STAMP_KEY, `${doc}:${stamp}`)
+    remember(stamp, doc)
   } catch {
     /* full or blocked: the other tabs are not told, and the row is written regardless */
   }

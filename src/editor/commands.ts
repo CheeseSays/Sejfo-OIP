@@ -1003,6 +1003,13 @@ const COMMAND_DEFS: readonly Command[] = [
     run: ({ store }) => store.toggleFlowArrows(),
   },
   {
+    // A posable robot's joint rings crowd the viewport; the tool's move and turn handles stay up
+    id: 'view.jointGizmos',
+    label: 'Show Joint Gizmos',
+    group: 'View',
+    run: ({ store }) => store.toggleJointGizmos(),
+  },
+  {
     id: 'view.stats',
     label: 'Show Performance Read-out',
     group: 'View',

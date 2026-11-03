@@ -5,7 +5,7 @@
 // (view.robotGizmoId / view.robotDrag), and its drawing on view.rigGizmoOverlay (rigGizmoOverlay.ts), which
 // picking reads back, so a press hits the handle where it is drawn.
 
-import { Plane, Vector3 } from 'three'
+import { Plane, Quaternion, Vector3 } from 'three'
 import type { RobotGizmoApi, RobotHandle } from '../api'
 import type { RenderView } from './view'
 
@@ -22,6 +22,10 @@ const RING_PICK_SEGMENTS = 48
 export type RobotDrag =
   | { kind: 'joint'; pivotX: number; pivotY: number; prevAngle: number; accum: number; sign: number }
   | { kind: 'ee'; plane: Plane; gizmo: RobotGizmoApi }
+  /** the tool turned about a world axis through its point: a screen turntable on the ring, like a joint's */
+  | { kind: 'eeRot'; axis: Vector3; pivotX: number; pivotY: number; prevAngle: number; accum: number; sign: number; gizmo: RobotGizmoApi }
+  /** the tool held to a world axis line through where it was: `t0` is where along it the press grabbed */
+  | { kind: 'eeAxis'; origin: Vector3; dir: Vector3; t0: number; gizmo: RobotGizmoApi }
   | { kind: 'size'; origin: Vector3; dir: Vector3; unit: number }
 
 function robotGizmoOf(view: RenderView, id: string | null): RobotGizmoApi | null {
@@ -94,9 +98,33 @@ export function pickRobotHandle(view: RenderView, clientX: number, clientY: numb
     }
   }
   if (best) return best
-  // no dot that close: a joint's ring grabs anywhere along it (the transform gizmo's rings do), which is also how a
-  // joint whose dot is hidden under another is reached
+  // no dot that close: an axis arrow grabs anywhere along its shaft, then a joint's ring anywhere along it (the
+  // transform gizmo's rings do), which is also how a joint whose dot is hidden under another is reached
   let ringDist = ROBOT_RING_PICK_PX
+  for (const seg of view.rigGizmoOverlay.axisSegments()) {
+    const a = toScreen(view, seg.a)
+    const b = toScreen(view, seg.b)
+    if (!a || !b) continue
+    const d = segmentDistance(clientX, clientY, a, b)
+    if (d < ringDist) {
+      ringDist = d
+      best = seg.handle
+    }
+  }
+  for (const { handle, pts } of view.rigGizmoOverlay.rotRingPoints(RING_PICK_SEGMENTS)) {
+    let prev: { x: number; y: number } | null = null
+    for (const p of pts) {
+      const s = toScreen(view, p)
+      if (s && prev) {
+        const d = segmentDistance(clientX, clientY, prev, s)
+        if (d < ringDist) {
+          ringDist = d
+          best = handle
+        }
+      }
+      prev = s
+    }
+  }
   for (let i = 0; ; i++) {
     const pts = view.rigGizmoOverlay.ringPoints(i, RING_PICK_SEGMENTS)
     if (pts.length === 0) break
@@ -151,6 +179,34 @@ function robotDragFor(view: RenderView, handle: RobotHandle, clientX: number, cl
     g.beginIK?.()
     return { kind: 'ee', plane: new Plane().setFromNormalAndCoplanarPoint(normal, ee.pos), gizmo: g }
   }
+  if (handle === 'ee:x' || handle === 'ee:y' || handle === 'ee:z') {
+    const ee = view.rigGizmoOverlay.handles().find((h) => h.handle === 'ee')
+    if (!ee) return null
+    const dir = new Vector3(handle === 'ee:x' ? 1 : 0, handle === 'ee:y' ? -1 : 0, handle === 'ee:z' ? 1 : 0)
+    const origin = ee.pos.clone()
+    view.setPointerRay(clientX, clientY)
+    const t0 = axisParam(origin, dir, view.raycaster.ray.origin, view.raycaster.ray.direction)
+    if (t0 === null) return null
+    g.beginIK?.()
+    return { kind: 'eeAxis', origin, dir, t0, gizmo: g }
+  }
+  if (handle === 'rot:x' || handle === 'rot:y' || handle === 'rot:z') {
+    const ring = view.rigGizmoOverlay.rotRing(handle)
+    if (!ring || !g.solveRotation) return null
+    const s = toScreen(view, ring.center)
+    if (!s) return null
+    g.beginIK?.()
+    return {
+      kind: 'eeRot',
+      axis: ring.axis,
+      pivotX: s.x,
+      pivotY: s.y,
+      prevAngle: Math.atan2(clientY - s.y, clientX - s.x),
+      accum: 0,
+      sign: ring.axis.dot(view.camera.getWorldDirection(view.camTmp)) >= 0 ? 1 : -1,
+      gizmo: g,
+    }
+  }
   const joint = view.rigGizmoOverlay.joint(Number(handle.slice(1)))
   if (!joint) return null
   // the turntable turns about the ring the user sees (its centre may sit along the axis from the pivot)
@@ -184,10 +240,34 @@ export function robotDragResult(view: RenderView, clientX: number, clientY: numb
     const t = (b * w0.dot(ray.direction) - w0.dot(d.dir)) / denom // distance along the axis from the origin
     return { sizeValue: (Math.abs(t) * 2) / d.unit }
   }
+  if (d.kind === 'eeRot') {
+    const a = Math.atan2(clientY - d.pivotY, clientX - d.pivotX)
+    d.accum += Math.atan2(Math.sin(a - d.prevAngle), Math.cos(a - d.prevAngle))
+    d.prevAngle = a
+    const delta = new Quaternion().setFromAxisAngle(d.axis, d.accum * d.sign)
+    return { ik: d.gizmo.solveRotation?.(delta) }
+  }
+  if (d.kind === 'eeAxis') {
+    view.setPointerRay(clientX, clientY)
+    const ray = view.raycaster.ray
+    const t = axisParam(d.origin, d.dir, ray.origin, ray.direction)
+    if (t === null) return null
+    // the tool follows the pointer along the line by the distance moved since the press, so it doesn't jump to it
+    return { ik: d.gizmo.solveIK(d.origin.clone().addScaledVector(d.dir, t - d.t0), free) }
+  }
   view.setPointerRay(clientX, clientY)
   const target = view.raycaster.ray.intersectPlane(d.plane, new Vector3())
   if (!target) return null
   return { ik: d.gizmo.solveIK(target, free) }
+}
+
+/** where along the line `origin + t * dir` (dir unit) the pointer ray passes closest; null when the line runs along the ray */
+function axisParam(origin: Vector3, dir: Vector3, rayOrigin: Vector3, rayDir: Vector3): number | null {
+  const w0 = new Vector3().subVectors(origin, rayOrigin)
+  const b = dir.dot(rayDir)
+  const denom = 1 - b * b
+  if (denom < 1e-6) return null
+  return (b * w0.dot(rayDir) - w0.dot(dir)) / denom
 }
 
 export function endRobotDrag(view: RenderView): void {

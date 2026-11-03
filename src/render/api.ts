@@ -1,4 +1,4 @@
-import type { Vector3 } from 'three'
+import type { Quaternion, Vector3 } from 'three'
 import type { BoxFrame, CargoKindName, CargoShapeRef } from '../core/frame'
 import type { PartInstance, SceneJSON } from '../core/types'
 import type { DisplayUnits } from '../core/units'
@@ -205,10 +205,12 @@ export interface PilotHandlers {
 
 /**
  * A robot editor-gizmo handle: a per-joint rotation handle `j0`..`j4` (J1-J5), the end-effector handle
- * `ee` that drags the arm via IK, or a `size:<param>` tool-size handle (a rigSize
+ * `ee` that drags the arm via IK in the view plane, `ee:x` / `ee:y` / `ee:z` (the end-effector's world-axis arrows: the
+ * same IK drag held to one axis, for precise tuning), `rot:x` / `rot:y` / `rot:z` (rings that turn the tool about a
+ * world axis, its point held), or a `size:<param>` tool-size handle (a rigSize
  * param handle - the EOAT resize dots) that drags the named number param along a rig link's axis.
  */
-export type RobotHandle = 'j0' | 'j1' | 'j2' | 'j3' | 'j4' | 'j5' | 'ee' | `size:${string}`
+export type RobotHandle = 'j0' | 'j1' | 'j2' | 'j3' | 'j4' | 'j5' | 'ee' | 'ee:x' | 'ee:y' | 'ee:z' | 'rot:x' | 'rot:y' | 'rot:z' | `size:${string}`
 
 /** one gizmo joint (J1-J5) as the overlay draws it; world space, directions unit length */
 export interface RobotGizmoJoint {
@@ -233,6 +235,8 @@ export interface RobotGizmoLayout {
   joints: RobotGizmoJoint[]
   /** the end-effector handle; null for a rig with nothing to pose (a tool: only its size dots) */
   ee: Vector3 | null
+  /** the tool's orientation can be turned (a three-joint wrist): the end-effector's rotation rings are drawn */
+  rotatable?: boolean
   sizes: { handle: `size:${string}`; pos: Vector3 }[]
   /** each tool outline's four corners, a closed loop */
   toolOutlines: Vector3[][]
@@ -254,6 +258,9 @@ export interface RobotGizmoApi {
   /** CCD IK toward a world target for the tool, keeping the orientation taken by beginIK unless `free`; returns the
    *  resulting gizmo joints' degrees */
   solveIK(target: Vector3, free?: boolean): number[]
+  /** turn the tool by a world-space rotation from the orientation beginIK took, keeping the tool point; returns the
+   *  resulting gizmo joints' degrees. Only a rig whose layout is `rotatable`. */
+  solveRotation?(delta: Quaternion): number[]
   /** true for a custom-rig gizmo that poses its own visual (vs the built-in robot, whose pose is written to
    *  the part's j1..j6 params). When set, the editor routes drags through setJointAngle / solveIK rather than
    *  editing params, and the visual holds the gizmo pose at idle. */
@@ -388,6 +395,8 @@ export interface IRenderView {
   showVertexMarkers(source: Vector3 | null, target: Vector3 | null): void
   /** global flow-direction arrow overlay toggle */
   setFlowArrowsVisible(visible: boolean): void
+  /** show/hide a posable robot's joint rings and their handles (the end-effector's handles stay) */
+  setJointGizmosVisible(visible: boolean): void
   /** show/hide the floor reference grid */
   setGridVisible(visible: boolean): void
   /** the scene's Units: how the measure tool's read-out writes a length (metres, or feet and inches) */

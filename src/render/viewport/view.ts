@@ -864,6 +864,11 @@ export class RenderView implements IRenderView, IRenderViewTestSurface {
     return { worldPos: [wp.x, wp.y, wp.z], parentWorld: [...g.parent.matrixWorld.elements] }
   }
 
+  /** a posable robot's joint rings and their handles (the end-effector's move and turn handles stay) */
+  setJointGizmosVisible(visible: boolean): void {
+    this.rigGizmoOverlay.setJointsVisible(visible)
+  }
+
   /** global flow-arrow visibility (the "." toggle); rebuilds nothing, just shows/hides */
   setFlowArrowsVisible(visible: boolean): void {
     if (visible === this.flowArrowsVisible) return

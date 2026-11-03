@@ -155,6 +155,96 @@ try {
   check('dragging the end-effector moves the tool', moved > 0.05, `${moved.toFixed(3)} m`)
   check('...and keeps it at the orientation it had', turned < 1, `${turned.toFixed(2)} deg`)
   await page.locator('[data-testid="inspector-jogged-reset"]').click()
+  await page.waitForTimeout(300)
+
+  // ---- the X/Y/Z arrows hold the tool to one world axis, and keep its orientation
+  const screenOf = (p) => page.evaluate((q) => window.__oip.view.worldToScreen(q.x, q.y, q.z), p)
+  for (const [axis, idx] of [['x', 0], ['y', 1], ['z', 2]]) {
+    const seg = await page.evaluate((h) => {
+      const s = window.__oip.view.rigGizmoOverlay.axisSegments().find((x) => x.handle === h)
+      return { a: s.a.toArray(), b: s.b.toArray() }
+    }, `ee:${axis}`)
+    const a = await screenOf({ x: seg.a[0], y: seg.a[1], z: seg.a[2] })
+    const b = await screenOf({ x: seg.b[0], y: seg.b[1], z: seg.b[2] })
+    // a point along the shaft that picks this arrow (another handle's dot can sit on part of it)
+    let grab = { x: a.x + (b.x - a.x) * 0.6, y: a.y + (b.y - a.y) * 0.6 }
+    let picked = null
+    for (const f of [0.6, 0.45, 0.75, 0.3, 0.9]) {
+      const g = { x: a.x + (b.x - a.x) * f, y: a.y + (b.y - a.y) * f }
+      picked = await page.evaluate((q) => window.__oip.view.pickRobotHandle(q.x, q.y), g)
+      grab = g
+      if (picked === `ee:${axis}`) break
+    }
+    const before = await tool(robot.id)
+    await page.mouse.move(grab.x, grab.y)
+    await page.mouse.down()
+    for (let k = 1; k <= 8; k++) await page.mouse.move(grab.x + (b.x - a.x) * 0.25 * (k / 8), grab.y + (b.y - a.y) * 0.25 * (k / 8))
+    await page.mouse.up()
+    await page.waitForTimeout(300)
+    const after = await tool(robot.id)
+    const d = after.p.map((v, i) => v - before.p[i])
+    const along = Math.abs(d[idx])
+    const off = Math.max(...d.filter((_, i) => i !== idx).map(Math.abs))
+    const held = (quatAngle(before.q, after.q) * 180) / Math.PI
+    check(`the ${axis.toUpperCase()} arrow is grabbed along its shaft`, picked === `ee:${axis}`, String(picked))
+    check(`dragging it moves the tool along ${axis.toUpperCase()} only`, along > 0.03 && off < 0.02, `along ${along.toFixed(3)} m, off-axis ${off.toFixed(3)} m`)
+    check('...keeping its orientation', held < 1, `${held.toFixed(2)} deg`)
+    await page.locator('[data-testid="inspector-jogged-reset"]').click()
+    await page.waitForTimeout(300)
+  }
+
+  // ---- the rotation rings turn the tool about a world axis, its point held
+  for (const axis of ['x', 'y', 'z']) {
+    const ring = await page.evaluate((h) => {
+      const r = window.__oip.view.rigGizmoOverlay.rotRingPoints(48).find((x) => x.handle === h)
+      const c = window.__oip.view.rigGizmoOverlay.rotRing(h).center
+      return { pts: r.pts.map((p) => p.toArray()), c: c.toArray() }
+    }, `rot:${axis}`)
+    const c = await screenOf({ x: ring.c[0], y: ring.c[1], z: ring.c[2] })
+    // a point round the ring that picks it (the end-effector dot or an arrow can sit on part of it)
+    let g = c
+    let picked = null
+    for (const f of [0.4, 0.15, 0.65, 0.9, 0.25, 0.55, 0.8]) {
+      const p = ring.pts[Math.round(ring.pts.length * f)]
+      g = await screenOf({ x: p[0], y: p[1], z: p[2] })
+      picked = await page.evaluate((q) => window.__oip.view.pickRobotHandle(q.x, q.y), g)
+      if (picked === `rot:${axis}`) break
+    }
+    const before = await tool(robot.id)
+    const r0 = Math.hypot(g.x - c.x, g.y - c.y)
+    const s0 = Math.atan2(g.y - c.y, g.x - c.x)
+    await page.mouse.move(g.x, g.y)
+    await page.mouse.down()
+    for (let k = 1; k <= 10; k++) {
+      const s = s0 + (k / 10) * (Math.PI / 6)
+      await page.mouse.move(c.x + r0 * Math.cos(s), c.y + r0 * Math.sin(s))
+    }
+    await page.mouse.up()
+    await page.waitForTimeout(300)
+    const after = await tool(robot.id)
+    const moved = Math.hypot(...after.p.map((v, i) => v - before.p[i]))
+    const turned = (quatAngle(before.q, after.q) * 180) / Math.PI
+    check(`the ${axis.toUpperCase()} rotation ring is grabbed`, picked === `rot:${axis}`, String(picked))
+    check(`dragging it turns the tool about ${axis.toUpperCase()}`, turned > 10, `${turned.toFixed(1)} deg`)
+    check('...with the tool point held', moved < 0.03, `${moved.toFixed(3)} m`)
+    await page.locator('[data-testid="inspector-jogged-reset"]').click()
+    await page.waitForTimeout(300)
+  }
+
+  // ---- the toolbar toggle hides the joint rings; the tool's handles stay
+  const jointCount = async () => (await handles()).list.filter((h) => /^j\d$/.test(h.handle)).length
+  const ringPts = () => page.evaluate(() => window.__oip.view.rigGizmoOverlay.ringPoints(0, 8).length)
+  const jointBtn = page.locator('.viewport-tool[title="Toggle robot joint gizmos"]')
+  check('the toolbar has a joint-gizmo toggle, on by default', (await jointBtn.count()) === 1 && (await jointBtn.getAttribute('class')).includes('active'))
+  await jointBtn.click()
+  await page.waitForTimeout(300)
+  const hidden = await handles()
+  const hiddenNames = hidden.list.map((h) => h.handle)
+  check('toggled off: no joint handle or ring is grabbable', (await jointCount()) === 0 && (await ringPts()) === 0, hiddenNames.join(' '))
+  check('...while the tool arrows and end-effector stay', ['ee', 'ee:x', 'ee:y', 'ee:z'].every((n) => hiddenNames.includes(n)))
+  await jointBtn.click()
+  await page.waitForTimeout(300)
+  check('toggled on again: the six joints are back', (await jointCount()) === 6, String(await jointCount()))
 
   // ---- running: the sim poses the arm, so the gizmo is hidden
   await page.evaluate(() => window.__oip.controller.run())

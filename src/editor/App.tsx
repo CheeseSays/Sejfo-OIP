@@ -352,6 +352,7 @@ function nullView(): IRenderView {
     cameraPlanePoint: () => null,
     showVertexMarkers() {},
     setFlowArrowsVisible() {},
+    setJointGizmosVisible() {},
     setGridVisible() {},
     setDisplayUnits() {},
     applyBoxFrame() {},

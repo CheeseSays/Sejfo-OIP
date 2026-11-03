@@ -16,6 +16,7 @@ export const FACESNAP_KEY = 'oip-web/facesnap'
 export const SPACE_KEY = 'oip-web/space'
 export const GRIDSNAP_KEY = 'oip-web/gridsnap'
 export const FLOWARROWS_KEY = 'oip-web/flowarrows'
+export const JOINTGIZMOS_KEY = 'oip-web/jointgizmos'
 export const SHOWGRID_KEY = 'oip-web/showgrid'
 export const SHOWNOTES_KEY = 'oip-web/shownotes'
 export const SHOWSTATS_KEY = 'oip-web/showstats'
@@ -58,6 +59,16 @@ export function readFlowArrows(): boolean {
     return localStorage.getItem(FLOWARROWS_KEY) === 'true'
   } catch {
     return false
+  }
+}
+
+export function readJointGizmos(): boolean {
+  // defaults on; only an explicit 'false' hides a robot's joint rings
+  if (typeof localStorage === 'undefined') return true
+  try {
+    return localStorage.getItem(JOINTGIZMOS_KEY) !== 'false'
+  } catch {
+    return true
   }
 }
 

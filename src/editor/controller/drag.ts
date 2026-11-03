@@ -454,7 +454,7 @@ export function beginRigGizmoDrag(ec: EditorController, e: PointerEvent, handle:
     ec.resetSnap()
     return
   }
-  const joint = handle === 'ee' ? -1 : Number(handle.slice(1))
+  const joint = /^j\d$/.test(handle) ? Number(handle.slice(1)) : -1
   const startAngle = joint < 0 ? 0 : ec.view.rigGizmoJointAngle(id, joint)
   ec.drag = { kind: 'rigGizmo', pointerId: e.pointerId, id, joint, startAngle }
   ec.resetSnap()

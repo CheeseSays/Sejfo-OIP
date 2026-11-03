@@ -277,12 +277,13 @@ export function buildRigGizmo(
 
   // What an end-effector drag holds, taken when it starts: the tool's orientation, and where the tool sits from the
   // wrist centre (fixed while that orientation is, on a wrist whose axes meet at one point)
-  let held: { orientation: Quaternion; toolFromWrist: Vector3 } | null = null
+  let held: { orientation: Quaternion; position: Vector3; toolFromWrist: Vector3 } | null = null
   const beginIK = (): void => {
     refreshChain()
     held = wristCentre
       ? {
           orientation: eeGroup.getWorldQuaternion(new Quaternion()),
+          position: eeGroup.getWorldPosition(new Vector3()),
           toolFromWrist: eeGroup.getWorldPosition(new Vector3()).sub(wristCentre.group.getWorldPosition(new Vector3())),
         }
       : null
@@ -303,6 +304,23 @@ export function buildRigGizmo(
         ccdOrientation(wristCentre.wrist, held.orientation)
         refreshChain()
         if (eeGroup.getWorldPosition(new Vector3()).distanceTo(target) < IK_TOLERANCE) break
+      }
+    }
+    return shown.map((j) => ((pose[j.name] ?? 0) * 180) / Math.PI)
+  }
+
+  // Turn the tool by a world-space rotation from the orientation beginIK took, keeping the tool point where it was:
+  // the arm places the wrist centre where the turned tool needs it, the wrist turns the tool, a few rounds as in solveIK.
+  const solveRotation = (delta: Quaternion): number[] => {
+    dragged = true
+    if (held && wristCentre) {
+      const want = delta.clone().multiply(held.orientation)
+      const wristTarget = held.position.clone().sub(held.toolFromWrist.clone().applyQuaternion(delta))
+      for (let round = 0; round < IK_ROUNDS; round++) {
+        ccdPosition(wristCentre.arm, wristCentre.group, wristTarget)
+        ccdOrientation(wristCentre.wrist, want)
+        refreshChain()
+        if (eeGroup.getWorldPosition(new Vector3()).distanceTo(held.position) < IK_TOLERANCE) break
       }
     }
     return shown.map((j) => ((pose[j.name] ?? 0) * 180) / Math.PI)
@@ -333,7 +351,7 @@ export function buildRigGizmo(
       }
       joints.push({ label: `J${i + 1}`, center, axis, handleDir, zeroDir, angle, min: j.min, max: j.max, revolute })
     })
-    return { joints, ee, ...sizes.layout() }
+    return { joints, ee, rotatable: wristCentre !== null, ...sizes.layout() }
   }
 
   const api: RobotGizmoApi = {
@@ -342,6 +360,7 @@ export function buildRigGizmo(
     sizeInfo: sizes.sizeInfo,
     beginIK,
     solveIK,
+    solveRotation,
     setJointAngle,
     jointAngle: (i: number) => {
       const j = shown[i]

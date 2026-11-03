@@ -31,6 +31,7 @@ import {
   FACESNAP_KEY,
   FLOWARROWS_KEY,
   GRIDSNAP_KEY,
+  JOINTGIZMOS_KEY,
   LIVESNAP_KEY,
   SHOWGRID_KEY,
   SHOWNOTES_KEY,
@@ -68,7 +69,7 @@ export const AUTOSAVE_KEY = 'oip-web/autosave'
 // The preference / clipboard / user-package storage keys (and their read/write helpers) live in the
 // store modules (storePrefs / storeClipboard / storePackages); the keys stay re-exported here so
 // existing './store' imports keep working unchanged.
-export { FACESNAP_KEY, FLOWARROWS_KEY, GRIDSNAP_KEY, LIVESNAP_KEY, SHOWGRID_KEY, SHOWNOTES_KEY, SHOWSTATS_KEY, SPACE_KEY, TRACKBALL_KEY, TREETYPES_KEY, VSNAP_COLLISION_KEY, VSNAP_ORIGIN_KEY } from './storePrefs'
+export { FACESNAP_KEY, FLOWARROWS_KEY, GRIDSNAP_KEY, JOINTGIZMOS_KEY, LIVESNAP_KEY, SHOWGRID_KEY, SHOWNOTES_KEY, SHOWSTATS_KEY, SPACE_KEY, TRACKBALL_KEY, TREETYPES_KEY, VSNAP_COLLISION_KEY, VSNAP_ORIGIN_KEY } from './storePrefs'
 export { CLIPBOARD_KEY } from './storeClipboard'
 export { USERPKG_KEY } from './storePackages'
 
@@ -965,6 +966,16 @@ export class EditorStore {
 
   toggleFlowArrows(): void {
     this.setFlowArrows(!this.state.flowArrows)
+  }
+
+  setJointGizmos(jointGizmos: boolean): void {
+    if (jointGizmos === this.state.jointGizmos) return
+    this.setState({ jointGizmos })
+    persistPref(JOINTGIZMOS_KEY, String(jointGizmos))
+  }
+
+  toggleJointGizmos(): void {
+    this.setJointGizmos(!this.state.jointGizmos)
   }
 
   setShowStats(showStats: boolean): void {

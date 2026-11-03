@@ -132,6 +132,7 @@ export class EditorController {
   // whether the view was last told to hold departing parts (a definition session open; onStoreChange)
   private prevHolding = false
   private prevFlowArrows: boolean
+  private prevJointGizmos: boolean
   private prevShowGrid: boolean
   private prevDisplayUnits: DisplayUnits
   private prevDemoSession: boolean
@@ -292,6 +293,7 @@ export class EditorController {
     this.prevTrackball = s.trackball
     this.prevSpace = s.space
     this.prevFlowArrows = s.flowArrows
+    this.prevJointGizmos = s.jointGizmos
     this.prevShowGrid = s.showGrid
     this.prevDisplayUnits = sceneDisplayUnits(s.scene)
     this.camera.projection = s.projection
@@ -300,6 +302,7 @@ export class EditorController {
     view.setSelection(s.selectedIds)
     view.setRunning(s.running)
     view.setFlowArrowsVisible(s.flowArrows)
+    view.setJointGizmosVisible(s.jointGizmos)
     view.setGridVisible(s.showGrid)
     view.setDisplayUnits(sceneDisplayUnits(s.scene))
     view.setProjection(s.projection)
@@ -1311,6 +1314,10 @@ export class EditorController {
     if (s.flowArrows !== this.prevFlowArrows) {
       this.view.setFlowArrowsVisible(s.flowArrows)
       this.prevFlowArrows = s.flowArrows
+    }
+    if (s.jointGizmos !== this.prevJointGizmos) {
+      this.view.setJointGizmosVisible(s.jointGizmos)
+      this.prevJointGizmos = s.jointGizmos
     }
     if (s.showGrid !== this.prevShowGrid) {
       this.view.setGridVisible(s.showGrid)

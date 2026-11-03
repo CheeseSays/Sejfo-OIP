@@ -15,6 +15,7 @@ import {
   readExternalPlc,
   readFaceSnap,
   readFlowArrows,
+  readJointGizmos,
   readGridSnap,
   readLiveSnap,
   readShowGrid,
@@ -208,6 +209,8 @@ export interface EditorState {
   gridSnap: GridSnap
   /** show the flow-direction arrows over conveyors */
   flowArrows: boolean
+  /** draw a posable robot's joint rings (the tool's move and turn handles stay) */
+  jointGizmos: boolean
   /** show the floor reference grid in the viewport (defaults off) */
   showGrid: boolean
   /** draw the scene's annotation chips over the viewport (defaults ON - a placed note is content). Off is
@@ -475,6 +478,7 @@ export function initialEditorState(scene: SceneJSON | undefined, stProgram: stri
     space: readSpace(),
     gridSnap: readGridSnap(),
     flowArrows: readFlowArrows(),
+    jointGizmos: readJointGizmos(),
     showGrid: readShowGrid(),
     showNotes: readShowNotes(),
     showStats: readShowStats(),

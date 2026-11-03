@@ -34,6 +34,7 @@ const M = defineMessages('viewportToolbar', {
   snapFloor: 'Snap selected to floor',
   toggleGrid: 'Toggle floor grid',
   flowArrows: 'Toggle flow direction arrows',
+  jointGizmos: 'Toggle robot joint gizmos',
   snapSettings: 'Snap Settings',
   translateField: 'Translate',
   rotateField: 'Rotate',
@@ -166,6 +167,16 @@ function FlowArrowIcon() {
   return (
     <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
       <path d="M1.5 7h7.5V3.5L14.5 8 9 12.5V9H1.5z" />
+    </svg>
+  )
+}
+
+/** show/hide a robot's joint rings (a ring with its handle dot) */
+function JointGizmoIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true">
+      <circle cx="8" cy="8" r="5.25" />
+      <circle cx="12.4" cy="4.6" r="1.4" fill="currentColor" stroke="none" />
     </svg>
   )
 }
@@ -384,6 +395,13 @@ export function ViewportToolbar({ store, state, controller }: ViewportToolbarPro
           onClick={() => store.toggleFlowArrows()}
         >
           <FlowArrowIcon />
+        </button>
+        <button
+          className={`viewport-tool${state.jointGizmos ? ' active' : ''}`}
+          title={t(M.jointGizmos)}
+          onClick={() => store.toggleJointGizmos()}
+        >
+          <JointGizmoIcon />
         </button>
         {/* Shadow-map resolution and the performance read-out are in Settings > Preferences (Graphics), not
             here. Every button in this cluster changes the viewport on click, but shadow resolution applies

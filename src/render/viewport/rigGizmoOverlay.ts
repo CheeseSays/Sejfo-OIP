@@ -20,6 +20,7 @@ import {
   Line,
   LineBasicMaterial,
   Matrix4,
+  CylinderGeometry,
   Mesh,
   MeshBasicMaterial,
   Sprite,
@@ -50,6 +51,19 @@ const DOT_CLEAR_PX = 18
 const EE_DOT_PX = 18
 /** a limit range this close to a full turn draws as a full ring */
 const FULL_TURN = Math.PI * 2 - 1e-3
+/** the end-effector's X/Y/Z arrows: world axes, in the transform gizmo's red/green/blue */
+const AXES = [
+  { handle: 'ee:x', dir: new Vector3(1, 0, 0), color: 0xff4d4d },
+  // drawn pointing down, the way a tool's approach axis reads in robot software
+  { handle: 'ee:y', dir: new Vector3(0, -1, 0), color: 0x4dff4d },
+  { handle: 'ee:z', dir: new Vector3(0, 0, 1), color: 0x4d79ff },
+] as const
+/** the tool-rotation rings' radius (px): inside the arrows' reach, outside the J6 ring round the end-effector */
+const ROT_RING_PX = 54
+const ROT_LINE_PX = 2.5
+const AXIS_LEN_PX = 72
+const AXIS_LINE_PX = 3
+const AXIS_DOT_PX = 14
 // above the transform gizmo (it tops out at 998) and the resize dots (990): the handle a press grabs is the
 // one drawn on top
 const RENDER_ORDER = 1000
@@ -86,6 +100,7 @@ export class RigGizmoOverlay {
   private readonly ee: Sprite
   private readonly sizeDots = new Map<string, Sprite>()
   private readonly outlines: Line[] = []
+  private jointsVisible = true
   private hover: RobotHandle | null = null
   private dragging: RobotHandle | null = null
   private layoutNow: RobotGizmoLayout | null = null
@@ -99,12 +114,52 @@ export class RigGizmoOverlay {
     size: this.spriteMat(SIZE_COLOR),
   }
   private readonly outlineMat = new LineBasicMaterial({ color: SIZE_COLOR, transparent: true, opacity: 0.8, depthTest: false, depthWrite: false, toneMapped: false })
+  /** the arrows' shaft: unit length along +Y from its base, scaled per frame */
+  private readonly shaftGeo = new CylinderGeometry(1, 1, 1, 8).translate(0, 0.5, 0)
+  private readonly axes = AXES.map((a) => {
+    const mat = new MeshBasicMaterial({ color: a.color, transparent: true, depthTest: false, depthWrite: false, toneMapped: false })
+    const tipMat = this.spriteMat(a.color)
+    return {
+      handle: a.handle as RobotHandle,
+      dir: a.dir,
+      mat,
+      tipMat,
+      shaft: overlayObject(new Mesh(this.shaftGeo, mat), RENDER_ORDER + 1),
+      tip: overlayObject(new Sprite(tipMat), RENDER_ORDER + 2),
+      base: new Vector3(),
+    }
+  })
+  private readonly rotGeo = new TorusGeometry(1, ROT_LINE_PX / 2 / ROT_RING_PX, 6, 96)
+  private readonly rotRings = AXES.map((a) => ({
+    handle: ('rot:' + a.handle.slice(3)) as RobotHandle,
+    // a ring's axis keeps the world's positive sense, whichever way its arrow is drawn
+    dir: new Vector3(Math.abs(a.dir.x), Math.abs(a.dir.y), Math.abs(a.dir.z)),
+    mat: new MeshBasicMaterial({ color: a.color, transparent: true, depthTest: false, depthWrite: false, toneMapped: false }),
+    ring: overlayObject(new Mesh(this.rotGeo), RENDER_ORDER + 1),
+    r: 0,
+    center: new Vector3(),
+    x: new Vector3(),
+    y: new Vector3(),
+  }))
+  private readonly axisHoverMat =new MeshBasicMaterial({ color: HOVER_COLOR, transparent: true, depthTest: false, depthWrite: false, toneMapped: false })
 
   constructor() {
     overlayObject(this.root, RENDER_ORDER)
     this.root.visible = false
     this.ee = overlayObject(new Sprite(this.dotMats.ee), RENDER_ORDER + 2)
     this.root.add(this.ee)
+    for (const a of this.axes) {
+      a.shaft.quaternion.setFromUnitVectors(new Vector3(0, 1, 0), a.dir)
+      this.root.add(a.shaft, a.tip)
+    }
+    for (const r of this.rotRings) {
+      r.ring.material = r.mat
+      // torus basis: +Z = the world axis it turns about
+      r.ring.quaternion.setFromUnitVectors(new Vector3(0, 0, 1), r.dir)
+      r.x.set(1, 0, 0).applyQuaternion(r.ring.quaternion)
+      r.y.crossVectors(r.dir, r.x)
+      this.root.add(r.ring)
+    }
   }
 
   private spriteMat(color: number): SpriteMaterial {
@@ -154,6 +209,12 @@ export class RigGizmoOverlay {
     this.rings = []
   }
 
+  /** draw the joint rings and their handles (off: they are neither drawn nor grabbed) */
+  setJointsVisible(visible: boolean): void {
+    this.jointsVisible = visible
+    if (!visible && this.hover?.startsWith('j')) this.hover = null
+  }
+
   /** the handle under the pointer (a hover highlight); held on the dragged handle while a drag runs */
   setHover(handle: RobotHandle | null): void {
     this.hover = handle
@@ -179,8 +240,33 @@ export class RigGizmoOverlay {
     if (!this.layoutNow) return out
     this.rings.forEach((r, i) => { if (r.dot.visible) out.push({ handle: `j${i}` as RobotHandle, pos: r.dot.position }) })
     if (this.ee.visible) out.push({ handle: 'ee', pos: this.ee.position })
+    for (const a of this.axes) if (a.tip.visible) out.push({ handle: a.handle, pos: a.tip.position })
     for (const [handle, dot] of this.sizeDots) out.push({ handle: handle as RobotHandle, pos: dot.position })
     return out
+  }
+
+  /** each tool-rotation ring as `n + 1` world points round it (picking a ring anywhere along it); none when not shown */
+  rotRingPoints(n: number): { handle: RobotHandle; pts: Vector3[] }[] {
+    if (!this.layoutNow?.ee || !this.layoutNow.rotatable) return []
+    return this.rotRings.map((r) => ({
+      handle: r.handle,
+      pts: Array.from({ length: n + 1 }, (_, k) => {
+        const t = (k / n) * Math.PI * 2
+        return r.center.clone().addScaledVector(r.x, r.r * Math.cos(t)).addScaledVector(r.y, r.r * Math.sin(t))
+      }),
+    }))
+  }
+
+  /** the world axis and centre of a tool-rotation ring (the drag's turntable) */
+  rotRing(handle: RobotHandle): { center: Vector3; axis: Vector3 } | null {
+    const r = this.rotRings.find((x) => x.handle === handle)
+    return r ? { center: r.center.clone(), axis: r.dir.clone() } : null
+  }
+
+  /** each end-effector arrow's shaft as a world segment (picking an arrow anywhere along it) */
+  axisSegments(): { handle: RobotHandle; a: Vector3; b: Vector3 }[] {
+    if (!this.layoutNow || !this.ee.visible) return []
+    return this.axes.map((x) => ({ handle: x.handle, a: x.base, b: x.tip.position }))
   }
 
   /** where joint i's handle sits on its ring (drawn or hidden under another dot): the readout's anchor */
@@ -192,7 +278,7 @@ export class RigGizmoOverlay {
   ringPoints(i: number, n: number): Vector3[] {
     const slot = this.rings[i]
     const j = this.layoutNow?.joints[i]
-    if (!slot || !j) return []
+    if (!slot || !j || !this.jointsVisible) return []
     const pts: Vector3[] = []
     for (let k = 0; k <= n; k++) {
       const t = (k / n) * slot.arc
@@ -238,6 +324,28 @@ export class RigGizmoOverlay {
       this.ee.scale.setScalar(EE_DOT_PX * wpp(layout.ee))
       this.ee.material = active === 'ee' ? this.dotMats.hover : this.dotMats.ee
     }
+    for (const a of this.axes) {
+      a.shaft.visible = a.tip.visible = layout.ee !== null
+      if (!layout.ee) continue
+      const len = AXIS_LEN_PX * wpp(layout.ee)
+      const lit = active === a.handle
+      a.base.copy(layout.ee)
+      a.shaft.position.copy(layout.ee)
+      a.shaft.scale.set(AXIS_LINE_PX / 2 * wpp(layout.ee), len, AXIS_LINE_PX / 2 * wpp(layout.ee))
+      a.tip.position.copy(layout.ee).addScaledVector(a.dir, len)
+      a.tip.scale.setScalar(AXIS_DOT_PX * wpp(a.tip.position))
+      a.shaft.material = lit ? this.axisHoverMat : a.mat
+      a.tip.material = lit ? this.dotMats.hover : a.tipMat
+    }
+    for (const r of this.rotRings) {
+      r.ring.visible = layout.ee !== null && layout.rotatable === true
+      if (!layout.ee) continue
+      r.r = ROT_RING_PX * wpp(layout.ee)
+      r.center.copy(layout.ee)
+      r.ring.position.copy(layout.ee)
+      r.ring.scale.setScalar(r.r)
+      r.ring.material = active === r.handle ? this.axisHoverMat : r.mat
+    }
     // hide a joint dot sitting on the end-effector's or on an earlier joint's (on screen, in px)
     const halfH = viewportHeight / 2
     const halfW = halfH * camera.aspect
@@ -248,7 +356,8 @@ export class RigGizmoOverlay {
     const taken: Vector3[] = layout.ee ? [screen(this.ee.position)] : []
     for (const slot of this.rings) {
       const sp = screen(slot.dot.position)
-      slot.dot.visible = !taken.some((t) => Math.hypot(t.x - sp.x, t.y - sp.y) < DOT_CLEAR_PX)
+      slot.ring.visible = slot.shadow.visible = this.jointsVisible
+      slot.dot.visible = this.jointsVisible && !taken.some((t) => Math.hypot(t.x - sp.x, t.y - sp.y) < DOT_CLEAR_PX)
       if (slot.dot.visible) taken.push(sp)
     }
     for (const s of layout.sizes) {
@@ -281,6 +390,10 @@ export class RigGizmoOverlay {
   dispose(): void {
     this.clearRings()
     for (const loop of this.outlines) loop.geometry.dispose()
-    for (const m of [this.jointMat, this.hoverMat, this.shadowMat, this.outlineMat, ...Object.values(this.dotMats)]) m.dispose()
+    this.shaftGeo.dispose()
+    this.rotGeo.dispose()
+    for (const a of this.axes) { a.mat.dispose(); a.tipMat.dispose() }
+    for (const r of this.rotRings) r.mat.dispose()
+    for (const m of [this.jointMat, this.hoverMat, this.shadowMat, this.outlineMat, this.axisHoverMat, ...Object.values(this.dotMats)]) m.dispose()
   }
 }

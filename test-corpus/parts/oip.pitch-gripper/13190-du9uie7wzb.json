@@ -1,0 +1,388 @@
+{
+  "format": 6,
+  "id": "oip.pitch-gripper",
+  "name": "Pitch Gripper",
+  "params": {
+    "sectionX": {
+      "type": "number",
+      "default": 0.4,
+      "min": 0.1,
+      "max": 2,
+      "step": 0.01,
+      "label": "Section length X (m)",
+      "group": "Sections",
+      "handle": {
+        "kind": "rigSize",
+        "link": "gripA",
+        "axis": "x"
+      },
+      "desc": "Length of each section's pickup box along the rail. Size it to the products one section should take: a section picks every product whose centre is inside its box. The orange dots on the tool drag it, and they ride the arm."
+    },
+    "sectionY": {
+      "type": "number",
+      "default": 0.4,
+      "min": 0.1,
+      "max": 1.5,
+      "step": 0.01,
+      "label": "Section height Y (m)",
+      "group": "Sections",
+      "handle": {
+        "kind": "rigSize",
+        "link": "gripA",
+        "axis": "y"
+      },
+      "desc": "Height of each pickup box, centred on the box centre."
+    },
+    "sectionZ": {
+      "type": "number",
+      "default": 0.4,
+      "min": 0.1,
+      "max": 2,
+      "step": 0.01,
+      "label": "Section depth Z (m)",
+      "group": "Sections",
+      "handle": {
+        "kind": "rigSize",
+        "link": "gripA",
+        "axis": "z"
+      },
+      "desc": "Depth of each pickup box across the rail, and the length of the jaws."
+    },
+    "gripDepth": {
+      "type": "number",
+      "default": 0.4,
+      "min": 0.15,
+      "max": 1.5,
+      "step": 0.01,
+      "label": "Box centre below flange (m)",
+      "group": "Sections",
+      "desc": "How far below the tool flange the centre of each pickup box sits. The jaws are as long as it takes to reach the box."
+    },
+    "pitchMin": {
+      "type": "number",
+      "default": 0.5,
+      "min": 0.1,
+      "max": 2,
+      "step": 0.01,
+      "label": "Closed pitch (m)",
+      "group": "Axis",
+      "desc": "Centre-to-centre distance between the two boxes with the axis closed, which is where the tool rests. Keep it at least the section length, or the boxes overlap and a product between them is taken by both."
+    },
+    "pitchMax": {
+      "type": "number",
+      "default": 1.2,
+      "min": 0.1,
+      "max": 4,
+      "step": 0.01,
+      "label": "Open pitch (m)",
+      "group": "Axis",
+      "desc": "Centre-to-centre distance at the end of the axis travel. A setpoint beyond it is held at it."
+    },
+    "axisSpeed": {
+      "type": "number",
+      "default": 0.5,
+      "min": 0.05,
+      "max": 3,
+      "step": 0.05,
+      "label": "Axis speed (m/s)",
+      "group": "Axis",
+      "desc": "How fast the pitch changes. The two sections each travel half of it."
+    },
+    "enableComms": {
+      "type": "boolean",
+      "default": false,
+      "label": "Enable comms",
+      "group": "Comms",
+      "desc": "Connect this tool to a PLC program. Its tags appear once this is on. Without a program the tool rests closed with both sections open."
+    },
+    "pitchTag": {
+      "type": "tag",
+      "dir": "in",
+      "stType": "REAL",
+      "default": "",
+      "label": "Pitch tag (m, centre to centre)",
+      "group": "Comms",
+      "desc": "The pitch the program commands, between the closed and the open pitch. The axis moves there at the axis speed, so wait for Pitch reached before the sections set the load down."
+    },
+    "gripATag": {
+      "type": "tag",
+      "dir": "in",
+      "stType": "BOOL",
+      "default": "",
+      "label": "Section A grip tag (true closes)",
+      "group": "Comms",
+      "desc": "Close section A on the products in its box. It is read continuously, so hold it true for the whole carry and drop it only once the products are where they belong. Section A is the one at the lower X."
+    },
+    "gripBTag": {
+      "type": "tag",
+      "dir": "in",
+      "stType": "BOOL",
+      "default": "",
+      "label": "Section B grip tag (true closes)",
+      "group": "Comms",
+      "desc": "Close section B, separately from section A. Section B is the one at the higher X."
+    },
+    "pitchOkTag": {
+      "type": "tag",
+      "dir": "out",
+      "stType": "BOOL",
+      "default": "",
+      "label": "Pitch reached tag",
+      "group": "Comms",
+      "desc": "True while the axis is at the commanded pitch."
+    },
+    "heldATag": {
+      "type": "tag",
+      "dir": "out",
+      "stType": "BOOL",
+      "default": "",
+      "label": "Section A holding tag",
+      "group": "Comms",
+      "desc": "True while section A holds at least one product. A close that finds nothing in the box leaves it false."
+    },
+    "heldBTag": {
+      "type": "tag",
+      "dir": "out",
+      "stType": "BOOL",
+      "default": "",
+      "label": "Section B holding tag",
+      "group": "Comms",
+      "desc": "True while section B holds at least one product."
+    }
+  },
+  "behavior": "// Pitch Gripper: an end-of-arm tool for the Six-Axis Robot, and for any rig with a link named `eoat`. Two sections ride\n// a cross rail, each a carriage with its own pickup volume, and a linear axis slides them apart or together. A cell\n// picks a row of products with the sections close, then spreads them to set the two halves down in separate boxes.\n//\n// The tool is a part of its own with joints and grippers of its own, rooted on the robot's flange (docs/part-mounts.md).\n// The program drives it by tags, since the robot's gripper is not the tool's: a pitch setpoint, one close command per\n// section, and feedback for the pitch and for each section holding. Each section picks every product whose centre is in\n// its box, so the count follows the box size and the pitch.\n//\n// This is the source. `npm run build-parts` writes behavior.ts and rig.json from it.\n\nconst RAIL_Y = -0.077 // rail centreline in the eoat frame, under the adapter plate\nconst RAIL_H = 0.05\nconst RAIL_Z = 0.16\nconst CARRIAGE_X = 0.16 // carriage length along the rail\nconst JAW_T = 0.02 // jaw plate thickness\nconst PAD_T = 0.012 // rubber pad thickness, on the product side of the jaw\nconst AT_PITCH = 0.002 // pitch within this of the setpoint reads as arrived (m)\n\n// the axis position, kept here because a part's state lives in its script\nlet pitch = null\n\ndefinePart({\n  joints: ['slideA', 'slideB'],\n  grippers: ['gripA', 'gripB'],\n  params: {\n    sectionX: { type: 'number', default: 0.4, min: 0.1, max: 2, step: 0.01, label: 'Section length X (m)', group: 'Sections', handle: { kind: 'rigSize', link: 'gripA', axis: 'x' }, desc: 'Length of each section\\'s pickup box along the rail. Size it to the products one section should take: a section picks every product whose centre is inside its box. The orange dots on the tool drag it, and they ride the arm.' },\n    sectionY: { type: 'number', default: 0.4, min: 0.1, max: 1.5, step: 0.01, label: 'Section height Y (m)', group: 'Sections', handle: { kind: 'rigSize', link: 'gripA', axis: 'y' }, desc: 'Height of each pickup box, centred on the box centre.' },\n    sectionZ: { type: 'number', default: 0.4, min: 0.1, max: 2, step: 0.01, label: 'Section depth Z (m)', group: 'Sections', handle: { kind: 'rigSize', link: 'gripA', axis: 'z' }, desc: 'Depth of each pickup box across the rail, and the length of the jaws.' },\n    gripDepth: { type: 'number', default: 0.4, min: 0.15, max: 1.5, step: 0.01, label: 'Box centre below flange (m)', group: 'Sections', desc: 'How far below the tool flange the centre of each pickup box sits. The jaws are as long as it takes to reach the box.' },\n    pitchMin: { type: 'number', default: 0.5, min: 0.1, max: 2, step: 0.01, label: 'Closed pitch (m)', group: 'Axis', desc: 'Centre-to-centre distance between the two boxes with the axis closed, which is where the tool rests. Keep it at least the section length, or the boxes overlap and a product between them is taken by both.' },\n    pitchMax: { type: 'number', default: 1.2, min: 0.1, max: 4, step: 0.01, label: 'Open pitch (m)', group: 'Axis', desc: 'Centre-to-centre distance at the end of the axis travel. A setpoint beyond it is held at it.' },\n    axisSpeed: { type: 'number', default: 0.5, min: 0.05, max: 3, step: 0.05, label: 'Axis speed (m/s)', group: 'Axis', desc: 'How fast the pitch changes. The two sections each travel half of it.' },\n    enableComms: { type: 'boolean', default: false, label: 'Enable comms', group: 'Comms', desc: 'Connect this tool to a PLC program. Its tags appear once this is on. Without a program the tool rests closed with both sections open.' },\n    pitchTag: { type: 'tag', dir: 'in', stType: 'REAL', default: '', label: 'Pitch tag (m, centre to centre)', group: 'Comms', desc: 'The pitch the program commands, between the closed and the open pitch. The axis moves there at the axis speed, so wait for Pitch reached before the sections set the load down.' },\n    gripATag: { type: 'tag', dir: 'in', stType: 'BOOL', default: '', label: 'Section A grip tag (true closes)', group: 'Comms', desc: 'Close section A on the products in its box. It is read continuously, so hold it true for the whole carry and drop it only once the products are where they belong. Section A is the one at the lower X.' },\n    gripBTag: { type: 'tag', dir: 'in', stType: 'BOOL', default: '', label: 'Section B grip tag (true closes)', group: 'Comms', desc: 'Close section B, separately from section A. Section B is the one at the higher X.' },\n    pitchOkTag: { type: 'tag', dir: 'out', stType: 'BOOL', default: '', label: 'Pitch reached tag', group: 'Comms', desc: 'True while the axis is at the commanded pitch.' },\n    heldATag: { type: 'tag', dir: 'out', stType: 'BOOL', default: '', label: 'Section A holding tag', group: 'Comms', desc: 'True while section A holds at least one product. A close that finds nothing in the box leaves it false.' },\n    heldBTag: { type: 'tag', dir: 'out', stType: 'BOOL', default: '', label: 'Section B holding tag', group: 'Comms', desc: 'True while section B holds at least one product.' },\n  },\n  geometry(g, p) {\n    const out = []\n    // the adapter the wrist flange bolts to: a plate and a turned boss\n    const ADAPTER_TOP = -0.0397\n    out.push({\n      desc: g.merge(\n        g.bevelBox([0.192, 0.012, 0.318], [0, -0.0457, 0], 0.002, ['y-']),\n        g.lathe([[0, ADAPTER_TOP], [0.07, ADAPTER_TOP], [0.07, -0.025], [0.062, -0.021], [0.062, -0.013], [0, -0.013]], { segments: 40 }),\n      ),\n      material: 'pitchSteel',\n      link: 'eoat',\n    })\n    // the cross rail the sections run on, long enough for both at the open pitch\n    out.push({ desc: g.bevelBox([p.pitchMax + CARRIAGE_X + 0.04, RAIL_H * 0.6, RAIL_Z * 0.6], [0, -0.0517 - RAIL_H * 0.3, 0], 0.003), material: 'pitchSteel', link: 'eoat' })\n    // each section: a carriage on the rail, and jaw plates either side of its box that reach below it\n    const boxBottom = -(p.gripDepth + p.sectionY / 2)\n    const jawTop = RAIL_Y - RAIL_H / 2\n    const jawH = Math.max(jawTop - boxBottom, 0.02)\n    for (const link of ['secA', 'secB']) {\n      const paint = [g.bevelBox([CARRIAGE_X, RAIL_H, RAIL_Z], [0, RAIL_Y, 0], 0.004)]\n      const pads = []\n      for (const sx of [-1, 1]) {\n        paint.push(g.bevelBox([JAW_T, jawH, p.sectionZ], [sx * (p.sectionX / 2 + PAD_T + JAW_T / 2), jawTop - jawH / 2, 0], 0.003))\n        pads.push(g.box([PAD_T, p.sectionY, p.sectionZ * 0.9], [sx * (p.sectionX / 2 + PAD_T / 2), -p.gripDepth, 0]))\n      }\n      out.push({ desc: g.merge(...paint), material: 'pitchPaint', link })\n      out.push({ desc: g.merge(...pads), material: 'pitchPad', link })\n    }\n    return out\n  },\n  // The axis ramps to the commanded pitch at the axis speed, holding its place between commands. Each joint travels half.\n  step(ctx) {\n    const { params } = ctx\n    const comms = params.enableComms\n    const lo = params.pitchMin\n    const hi = Math.max(params.pitchMax, lo)\n    const want = comms && params.pitchTag ? Math.min(Math.max(ctx.readNumber(params.pitchTag), lo), hi) : lo\n    const cur = pitch === null ? lo : pitch\n    const next = cur + Math.min(Math.max(want - cur, -params.axisSpeed * ctx.dt), params.axisSpeed * ctx.dt)\n    pitch = next\n    ctx.joints.slideA = -(next - lo) / 2\n    ctx.joints.slideB = (next - lo) / 2\n    ctx.grips.gripA = comms && params.gripATag ? !!ctx.readTag(params.gripATag) : false\n    ctx.grips.gripB = comms && params.gripBTag ? !!ctx.readTag(params.gripBTag) : false\n    if (comms) {\n      if (params.pitchOkTag) ctx.writeTag(params.pitchOkTag, Math.abs(want - next) < AT_PITCH)\n      if (params.heldATag) ctx.writeTag(params.heldATag, ctx.measured.grips.gripA)\n      if (params.heldBTag) ctx.writeTag(params.heldBTag, ctx.measured.grips.gripB)\n    }\n  },\n})\n",
+  "geometry": {
+    "kind": "rig",
+    "links": [
+      {
+        "name": "eoat",
+        "shape": {
+          "kind": "frame"
+        },
+        "offset": [
+          0,
+          0,
+          0
+        ]
+      },
+      {
+        "name": "secA",
+        "parent": "eoat",
+        "shape": {
+          "kind": "frame"
+        },
+        "offset": [
+          -0.25,
+          0,
+          0
+        ],
+        "offsetParams": [
+          {
+            "axis": 0,
+            "param": "pitchMin",
+            "scale": -0.5
+          }
+        ]
+      },
+      {
+        "name": "gripA",
+        "parent": "secA",
+        "shape": {
+          "kind": "frame"
+        },
+        "offset": [
+          0,
+          -0.4,
+          0
+        ],
+        "offsetParams": [
+          {
+            "axis": 1,
+            "param": "gripDepth",
+            "scale": -1
+          }
+        ],
+        "grip": {
+          "zone": {
+            "size": [
+              0.4,
+              0.4,
+              0.4
+            ],
+            "sizeParams": [
+              {
+                "axis": 0,
+                "param": "sectionX",
+                "scale": 1
+              },
+              {
+                "axis": 1,
+                "param": "sectionY",
+                "scale": 1
+              },
+              {
+                "axis": 2,
+                "param": "sectionZ",
+                "scale": 1
+              }
+            ]
+          }
+        }
+      },
+      {
+        "name": "secB",
+        "parent": "eoat",
+        "shape": {
+          "kind": "frame"
+        },
+        "offset": [
+          0.25,
+          0,
+          0
+        ],
+        "offsetParams": [
+          {
+            "axis": 0,
+            "param": "pitchMin",
+            "scale": 0.5
+          }
+        ]
+      },
+      {
+        "name": "gripB",
+        "parent": "secB",
+        "shape": {
+          "kind": "frame"
+        },
+        "offset": [
+          0,
+          -0.4,
+          0
+        ],
+        "offsetParams": [
+          {
+            "axis": 1,
+            "param": "gripDepth",
+            "scale": -1
+          }
+        ],
+        "grip": {
+          "zone": {
+            "size": [
+              0.4,
+              0.4,
+              0.4
+            ],
+            "sizeParams": [
+              {
+                "axis": 0,
+                "param": "sectionX",
+                "scale": 1
+              },
+              {
+                "axis": 1,
+                "param": "sectionY",
+                "scale": 1
+              },
+              {
+                "axis": 2,
+                "param": "sectionZ",
+                "scale": 1
+              }
+            ]
+          }
+        }
+      }
+    ],
+    "joints": [
+      {
+        "name": "slideA",
+        "link": "secA",
+        "type": "prismatic",
+        "axis": [
+          1,
+          0,
+          0
+        ],
+        "min": -2,
+        "max": 0
+      },
+      {
+        "name": "slideB",
+        "link": "secB",
+        "type": "prismatic",
+        "axis": [
+          1,
+          0,
+          0
+        ],
+        "min": 0,
+        "max": 2
+      }
+    ],
+    "mount": {
+      "link": "eoat"
+    },
+    "bounds": {
+      "length": 1.4,
+      "width": 0.4,
+      "top": 0,
+      "bottom": -0.6,
+      "params": [
+        {
+          "field": "length",
+          "param": "pitchMax",
+          "add": 0.2
+        },
+        {
+          "field": "width",
+          "param": "sectionZ"
+        },
+        {
+          "field": "bottom",
+          "param": "gripDepth",
+          "scale": -1,
+          "add": -0.2
+        }
+      ]
+    }
+  },
+  "category": "Robot Tools",
+  "materials": [
+    {
+      "id": "pitchPaint",
+      "color": [
+        0.012,
+        0.16,
+        0.33
+      ],
+      "metalness": 0,
+      "roughness": 0.55
+    },
+    {
+      "id": "pitchSteel",
+      "color": [
+        0.18,
+        0.18,
+        0.19
+      ],
+      "metalness": 0.85,
+      "roughness": 0.45
+    },
+    {
+      "id": "pitchPad",
+      "color": [
+        0.02,
+        0.02,
+        0.022
+      ],
+      "metalness": 0,
+      "roughness": 0.8
+    }
+  ],
+  "commsParam": "enableComms",
+  "sdk": {
+    "level": 9,
+    "of": "v2:9615:ege4ba27q0"
+  }
+}

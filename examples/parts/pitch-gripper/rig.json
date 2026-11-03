@@ -1,0 +1,234 @@
+{
+  "id": "oip.pitch-gripper",
+  "name": "Pitch Gripper",
+  "category": "Robot Tools",
+  "commsParam": "enableComms",
+  "geometry": {
+    "kind": "rig",
+    "links": [
+      {
+        "name": "eoat",
+        "shape": {
+          "kind": "frame"
+        },
+        "offset": [
+          0,
+          0,
+          0
+        ]
+      },
+      {
+        "name": "secA",
+        "parent": "eoat",
+        "shape": {
+          "kind": "frame"
+        },
+        "offset": [
+          -0.25,
+          0,
+          0
+        ],
+        "offsetParams": [
+          {
+            "axis": 0,
+            "param": "pitchMin",
+            "scale": -0.5
+          }
+        ]
+      },
+      {
+        "name": "gripA",
+        "parent": "secA",
+        "shape": {
+          "kind": "frame"
+        },
+        "offset": [
+          0,
+          -0.4,
+          0
+        ],
+        "offsetParams": [
+          {
+            "axis": 1,
+            "param": "gripDepth",
+            "scale": -1
+          }
+        ],
+        "grip": {
+          "zone": {
+            "size": [
+              0.4,
+              0.4,
+              0.4
+            ],
+            "sizeParams": [
+              {
+                "axis": 0,
+                "param": "sectionX",
+                "scale": 1
+              },
+              {
+                "axis": 1,
+                "param": "sectionY",
+                "scale": 1
+              },
+              {
+                "axis": 2,
+                "param": "sectionZ",
+                "scale": 1
+              }
+            ]
+          }
+        }
+      },
+      {
+        "name": "secB",
+        "parent": "eoat",
+        "shape": {
+          "kind": "frame"
+        },
+        "offset": [
+          0.25,
+          0,
+          0
+        ],
+        "offsetParams": [
+          {
+            "axis": 0,
+            "param": "pitchMin",
+            "scale": 0.5
+          }
+        ]
+      },
+      {
+        "name": "gripB",
+        "parent": "secB",
+        "shape": {
+          "kind": "frame"
+        },
+        "offset": [
+          0,
+          -0.4,
+          0
+        ],
+        "offsetParams": [
+          {
+            "axis": 1,
+            "param": "gripDepth",
+            "scale": -1
+          }
+        ],
+        "grip": {
+          "zone": {
+            "size": [
+              0.4,
+              0.4,
+              0.4
+            ],
+            "sizeParams": [
+              {
+                "axis": 0,
+                "param": "sectionX",
+                "scale": 1
+              },
+              {
+                "axis": 1,
+                "param": "sectionY",
+                "scale": 1
+              },
+              {
+                "axis": 2,
+                "param": "sectionZ",
+                "scale": 1
+              }
+            ]
+          }
+        }
+      }
+    ],
+    "joints": [
+      {
+        "name": "slideA",
+        "link": "secA",
+        "type": "prismatic",
+        "axis": [
+          1,
+          0,
+          0
+        ],
+        "min": -2,
+        "max": 0
+      },
+      {
+        "name": "slideB",
+        "link": "secB",
+        "type": "prismatic",
+        "axis": [
+          1,
+          0,
+          0
+        ],
+        "min": 0,
+        "max": 2
+      }
+    ],
+    "mount": {
+      "link": "eoat"
+    },
+    "bounds": {
+      "length": 1.4,
+      "width": 0.4,
+      "top": 0,
+      "bottom": -0.6,
+      "params": [
+        {
+          "field": "length",
+          "param": "pitchMax",
+          "add": 0.2
+        },
+        {
+          "field": "width",
+          "param": "sectionZ"
+        },
+        {
+          "field": "bottom",
+          "param": "gripDepth",
+          "scale": -1,
+          "add": -0.2
+        }
+      ]
+    }
+  },
+  "materials": [
+    {
+      "id": "pitchPaint",
+      "color": [
+        0.012,
+        0.16,
+        0.33
+      ],
+      "metalness": 0,
+      "roughness": 0.55
+    },
+    {
+      "id": "pitchSteel",
+      "color": [
+        0.18,
+        0.18,
+        0.19
+      ],
+      "metalness": 0.85,
+      "roughness": 0.45
+    },
+    {
+      "id": "pitchPad",
+      "color": [
+        0.02,
+        0.02,
+        0.022
+      ],
+      "metalness": 0,
+      "roughness": 0.8
+    }
+  ]
+}

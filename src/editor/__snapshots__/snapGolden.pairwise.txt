@@ -1,5 +1,5 @@
 # golden.edge-mount-rail: 168 snapped probes
-# golden.two-mount-sensor: 10696 snapped probes
+# golden.two-mount-sensor: 10788 snapped probes
 # oip.belt-conveyor: 244 snapped probes
 # oip.belt-conveyor~incline: 244 snapped probes
 # oip.blade-stop: 368 snapped probes
@@ -19,9 +19,10 @@
 # oip.guard-rail: 158 snapped probes
 # oip.guard-rail~2m: 176 snapped probes
 # oip.laser-sensor: 944 snapped probes
+# oip.pitch-gripper: 16 snapped probes
 # oip.platform: 180 snapped probes
 # oip.platform~tall: 184 snapped probes
-# oip.push-button: 10693 snapped probes
+# oip.push-button: 10785 snapped probes
 # oip.rack: 4060 snapped probes
 # oip.roller-conveyor: 180 snapped probes
 # oip.roller-conveyor~short-narrow: 444 snapped probes
@@ -75,6 +76,7 @@ golden.two-mount-sensor onto oip.light-curtain: 184 75e2898284056176
 golden.two-mount-sensor onto oip.pallet-dispenser: 184 e948f8601bcf9aea
 golden.two-mount-sensor onto oip.pallet-spawner: 184 638c81e176bfdf3a
 golden.two-mount-sensor onto oip.pallet: 184 3730f1c78db7b9cb
+golden.two-mount-sensor onto oip.pitch-gripper: 92 1dd7a1d72e20387d
 golden.two-mount-sensor onto oip.platform: 196 0399440c5faa7632
 golden.two-mount-sensor onto oip.platform~tall: 196 afebd0c5bc63107b
 golden.two-mount-sensor onto oip.push-button: 184 266118816112a1da
@@ -204,6 +206,7 @@ oip.laser-sensor onto oip.roller-conveyor~tilt12: 116 6b548066ca9d1c3a
 oip.laser-sensor onto oip.spur-conveyor: 96 8ba3f1e8609f817b
 oip.laser-sensor onto oip.spur-conveyor~splay: 88 a7d236c25e931643
 oip.laser-sensor onto oip.spur-roller-conveyor: 96 1a36d5ecf105b6cd
+oip.pitch-gripper onto oip.six-axis-robot: 16 34111ec694bb4c48
 oip.platform onto oip.platform: 88 b902f416551e8642
 oip.platform onto oip.platform~tall: 92 4eb0313d04c677e3
 oip.platform~tall onto oip.platform: 92 5047ed0ddb83c5ba
@@ -246,6 +249,7 @@ oip.push-button onto oip.light-curtain: 184 c84f0b3d0d1e2459
 oip.push-button onto oip.pallet-dispenser: 184 7661dcf5b0eead68
 oip.push-button onto oip.pallet-spawner: 184 598294ccea81c2d5
 oip.push-button onto oip.pallet: 184 3efd6a62f891cac5
+oip.push-button onto oip.pitch-gripper: 92 5178196ad4390f61
 oip.push-button onto oip.platform: 196 a1459555497e8ae4
 oip.push-button onto oip.platform~tall: 196 f9876af3bce22abd
 oip.push-button onto oip.push-button: 184 69c47b3e9bbbd321

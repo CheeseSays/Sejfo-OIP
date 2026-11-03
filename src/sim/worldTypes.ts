@@ -8,6 +8,7 @@ import type { BehaviorInput } from './embeddedBehavior'
 import type { ConveyorEntry } from '../core/geometry/collisionShapes'
 import { packageRev } from '../core/parts/partRegistry'
 import type { Quat, RigParams, SubPose, Vec3 } from '../core/rig/rigPose'
+import type { MountedOn } from '../core/scene/sceneMounts'
 import type { PartInstance } from '../core/types'
 
 export type JoltModule = Awaited<ReturnType<typeof Jolt>>
@@ -134,6 +135,8 @@ export interface AppliedRigInputs {
   ry: number
   rz: number
   yaw: number
+  /** a mounted tool's root orientation (a host link turns about every axis, not only yaw) */
+  rq?: Quat
 }
 
 /** value-equality for the flat command records a behavior replaces each tick (fresh object, usually
@@ -163,7 +166,7 @@ export function subPosesEq(a: Record<string, SubPose> | undefined, b: Record<str
 }
 
 /** own-value snapshot of the FK inputs about to be applied - see AppliedRigInputs */
-export function snapshotRigInputs(rec: BehaviorRecord, rootPos: [number, number, number], rootYaw: number): AppliedRigInputs {
+export function snapshotRigInputs(rec: BehaviorRecord, rootPos: [number, number, number], rootYaw: number, rootQuat?: Quat): AppliedRigInputs {
   const subPoses: Record<string, SubPose> = {}
   if (rec.subPoses) {
     for (const [k, v] of Object.entries(rec.subPoses)) {
@@ -173,7 +176,7 @@ export function snapshotRigInputs(rec: BehaviorRecord, rootPos: [number, number,
       }
     }
   }
-  return { joints: { ...(rec.joints ?? {}) }, grips: { ...(rec.grips ?? {}) }, subPoses, rx: rootPos[0], ry: rootPos[1], rz: rootPos[2], yaw: rootYaw }
+  return { joints: { ...(rec.joints ?? {}) }, grips: { ...(rec.grips ?? {}) }, subPoses, rx: rootPos[0], ry: rootPos[1], rz: rootPos[2], yaw: rootYaw, ...(rootQuat ? { rq: [rootQuat[0], rootQuat[1], rootQuat[2], rootQuat[3]] as Quat } : {}) }
 }
 
 export interface BehaviorRecord {
@@ -293,8 +296,12 @@ export interface RigInstance {
   pkg: PartPackage
   pos: [number, number, number]
   rotationY: number
-  /** uniform scale about the rig root (the `scale` custom-part param convention; 1 = native) */
+  /** uniform scale about the rig root (the `scale` custom-part param convention; 1 = native). A mounted tool takes its
+   *  host's, which RigDriver.drive refreshes every step. */
   scale: number
+  /** set on a tool seated on a host link: the rig is rooted on that link's live world pose, not on `pos` / `rotationY`
+   *  (docs/part-mounts.md) */
+  mountedOn?: MountedOn
   /** instance params - resolves C-paramgeo size/offset overrides in the FK (a length-driven hinge) */
   params: RigParams
   /** whole-bed incline (rad) for an `inclineParam` conveyor rig; 0 for every other rig. Threaded into the

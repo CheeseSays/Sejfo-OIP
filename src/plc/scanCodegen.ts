@@ -707,7 +707,8 @@ ${lines.join(NL)}
 
   /** A standard block's call in the typed engine: the instance's place first, then its inputs in the call's order (the
    *  walker's argument object), then `blk_TYPE(instance, ...every accepted input, now)` with an input the call left out
-   *  undefined, as the walker's `a.PT ?? 0` sees it; then each output binding read from the record, coerced, stored. */
+   *  undefined, so the block keeps the value its record holds, as the walker's does; then each output binding read
+   *  from the record, coerced, stored. */
   typedCall(s: Extract<Stmt, { node: 'fbcall' }>): string {
     const inst = this.addr(s.target)
     if (inst.layout.kind === 'struct' && inst.layout.fb) return this.userCall(s, inst, inst.layout.fb)

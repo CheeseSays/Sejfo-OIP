@@ -9,7 +9,6 @@
 //   PLC_FUZZ_MINIMIZE=1                                    shrink each failing program before reporting it
 //   PLC_FUZZ_VERBOSE=1                                     print counts: compiled, faulted and why, values compared
 //                                                          (vitest hides a passing test's output: add --silent=false)
-//   PLC_FUZZ_REAL3=1                                       REAL ADD / MUL with three inputs too (stExprRef.ts)
 //
 // The second block holds both engines to values worked out independently (stExprRef.ts), which catches a rule the
 // two engines share and both get wrong, which the differential block cannot see: a UDINT product losing its low bits,

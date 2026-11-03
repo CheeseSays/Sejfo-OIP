@@ -104,7 +104,7 @@ interface FbDef {
 
 interface StdFb {
   name: string
-  type: 'TON' | 'TOF' | 'TP' | 'CTU' | 'CTD' | 'R_TRIG' | 'F_TRIG' | 'SR' | 'RS'
+  type: 'TON' | 'TOF' | 'TP' | 'CTU' | 'CTD' | 'CTUD' | 'R_TRIG' | 'F_TRIG' | 'SR' | 'RS'
 }
 
 interface Scope {
@@ -626,18 +626,27 @@ export class StFuzzGen {
     return `${indent}${inst}(${args.join(', ')});`
   }
 
+  /** A standard block's call. Each input is left out now and then, so the block runs on the value the last call gave
+   *  it (runtime.ts: a block keeps its inputs). */
   private stdCall(indent: string): string {
     const r = this.r
     const f = r.pick(this.sc.std)
     const b = (): string => this.expr('BOOL', 2)
-    switch (f.type) {
-      case 'TON': case 'TOF': case 'TP': return `${indent}${f.name}(IN := ${b()}, PT := ${r.chance(0.7) ? r.pick(['T#50ms', 'T#100ms', 'T#200ms', 'T#0ms']) : this.expr('TIME', 2)});`
-      case 'CTU': return `${indent}${f.name}(CU := ${b()}, R := ${b()}, PV := ${this.expr('INT', 2)});`
-      case 'CTD': return `${indent}${f.name}(CD := ${b()}, LD := ${b()}, PV := ${this.expr('INT', 2)});`
-      case 'R_TRIG': case 'F_TRIG': return `${indent}${f.name}(CLK := ${b()});`
-      case 'SR': return `${indent}${f.name}(S1 := ${b()}, R := ${b()});`
-      case 'RS': return `${indent}${f.name}(S := ${b()}, R1 := ${b()});`
-    }
+    const pt = (): string => (r.chance(0.7) ? r.pick(['T#50ms', 'T#100ms', 'T#200ms', 'T#0ms']) : this.expr('TIME', 2))
+    const pv = (): string => this.expr('INT', 2)
+    const inputs: [string, () => string][] = (() => {
+      switch (f.type) {
+        case 'TON': case 'TOF': case 'TP': return [['IN', b], ['PT', pt]]
+        case 'CTU': return [['CU', b], [r.chance(0.2) ? 'RESET' : 'R', b], ['PV', pv]]
+        case 'CTD': return [['CD', b], ['LD', b], ['PV', pv]]
+        case 'CTUD': return [['CU', b], ['CD', b], [r.chance(0.2) ? 'RESET' : 'R', b], ['LD', b], ['PV', pv]]
+        case 'R_TRIG': case 'F_TRIG': return [['CLK', b]]
+        case 'SR': return [['S1', b], ['R', b]]
+        case 'RS': return [['S', b], ['R1', b]]
+      }
+    })()
+    const args = inputs.filter(() => r.chance(0.75)).map(([name, v]) => `${name} := ${v()}`)
+    return `${indent}${f.name}(${args.join(', ')});`
   }
 
   // ---- declarations ----
@@ -753,7 +762,7 @@ export class StFuzzGen {
     const outShape: Shape = { k: 'struct', name: 'Blk', fields: fb.outputs.map((o) => ({ name: o.name, shape: { k: 'scalar', t: o.t } as Shape })) }
     const fbRoots: Root[] = [{ name: 'blk', shape: outShape, ro: true }]
     if (r.chance(0.4)) fbRoots.push({ name: 'blks', shape: { k: 'array', dims: [[0, 1]], elem: outShape }, ro: true })
-    const std: StdFb[] = Array.from({ length: r.int(0, 3) }, (_, i) => ({ name: `sb${i}`, type: r.pick(['TON', 'TOF', 'TP', 'CTU', 'CTD', 'R_TRIG', 'F_TRIG', 'SR', 'RS'] as const) }))
+    const std: StdFb[] = Array.from({ length: r.int(0, 3) }, (_, i) => ({ name: `sb${i}`, type: r.pick(['TON', 'TOF', 'TP', 'CTU', 'CTD', 'CTUD', 'R_TRIG', 'F_TRIG', 'SR', 'RS'] as const) }))
     const stdRoots: Root[] = std.map((s) => ({ name: s.name, ro: true, shape: { k: 'struct', name: s.type, fields: stdOutputs(s.type).map(([n, t]) => ({ name: n, shape: { k: 'scalar', t } as Shape })) } }))
     const ctr = ['k0', 'k1']
     const wctr = ['w0', 'w1']
@@ -781,6 +790,7 @@ function stdOutputs(t: StdFb['type']): [string, Ty][] {
   switch (t) {
     case 'TON': case 'TOF': case 'TP': return [['Q', 'BOOL'], ['ET', 'TIME']]
     case 'CTU': case 'CTD': return [['Q', 'BOOL'], ['CV', 'INT']]
+    case 'CTUD': return [['QU', 'BOOL'], ['QD', 'BOOL'], ['CV', 'INT']]
     case 'R_TRIG': case 'F_TRIG': return [['Q', 'BOOL']]
     case 'SR': case 'RS': return [['Q1', 'BOOL']]
   }

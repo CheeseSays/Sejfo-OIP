@@ -1320,6 +1320,27 @@ describe('VAR_IN_OUT', () => {
     expect(() => compile(`${fb}VAR b : Bump; END_VAR VAR CONSTANT k : INT := 1; END_VAR\nb(n := k);`)).toThrow(/cannot pass CONSTANT/)
   })
 
+  it("requires a STRING of exactly the parameter's capacity, in a block call and a method call", () => {
+    const fb = "FUNCTION_BLOCK Tag VAR_IN_OUT s : STRING[10]; END_VAR s := CONCAT(s, 'x'); END_FUNCTION_BLOCK\n"
+    expect(() => compile(`${fb}VAR b : Tag; t : STRING[20]; END_VAR\nb(s := t);`)).toThrow(/VAR_IN_OUT 's' needs exactly STRING\[10\], got STRING\[20\]/)
+    expect(() => compile(`${fb}VAR b : Tag; t : STRING; END_VAR\nb(s := t);`)).toThrow(/needs exactly STRING\[10\], got STRING\[80\]/)
+    // an unbounded STRING is STRING[80], on either side
+    const wide = 'FUNCTION_BLOCK Wide VAR_IN_OUT s : STRING; END_VAR s := CONCAT(s, \'x\'); END_FUNCTION_BLOCK\n'
+    expect(() => compile(`${wide}VAR b : Wide; t : STRING[10]; END_VAR\nb(s := t);`)).toThrow(/needs exactly STRING\[80\], got STRING\[10\]/)
+    const p = compile(`${wide}VAR b : Wide; t : STRING[80]; u : STRING; END_VAR\nb(s := t); b(s := u);`)
+    p.scan(0.1)
+    expect(p.get('t')).toBe('x')
+    expect(p.get('u')).toBe('x')
+    // a struct field and an array element carry their capacity too, and a named STRING type its own
+    expect(() => compile(`TYPE R : STRUCT s : STRING[12]; END_STRUCT; END_TYPE\n${fb}VAR b : Tag; r : R; END_VAR\nb(s := r.s);`)).toThrow(/got STRING\[12\]/)
+    expect(() => compile(`${fb}VAR b : Tag; a : ARRAY[1..2] OF STRING[4]; END_VAR\nb(s := a[1]);`)).toThrow(/got STRING\[4\]/)
+    expect(() => compile(`TYPE Label : STRING[10]; END_TYPE\n${fb}VAR b : Tag; l : Label; END_VAR\nb(s := l);`)).not.toThrow()
+    const m = "FUNCTION_BLOCK Box METHOD Put VAR_IN_OUT s : STRING[10]; END_VAR s := 'in'; END_METHOD END_FUNCTION_BLOCK\n"
+    expect(() => compile(`${m}VAR b : Box; t : STRING[30]; END_VAR\nb.Put(s := t);`)).toThrow(/needs exactly STRING\[10\], got STRING\[30\]/)
+    expect(() => compile(`${m}VAR b : Box; t : STRING[30]; END_VAR\nb.Put(t);`)).toThrow(/needs exactly STRING\[10\], got STRING\[30\]/)
+    expect(() => compile(`${m}VAR b : Box; t : STRING[10]; END_VAR\nb.Put(s := t);`)).not.toThrow()
+  })
+
   it('is rejected on a FUNCTION, which has nowhere to write back to', () => {
     expect(() => compile('FUNCTION F : INT VAR_IN_OUT n : INT; END_VAR F := n; END_FUNCTION\nVAR x : INT; END_VAR\n')).toThrow(/cannot take VAR_IN_OUT/)
   })

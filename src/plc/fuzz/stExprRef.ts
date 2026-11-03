@@ -55,7 +55,6 @@ function roundHalfEven(x: number): number {
 }
 
 const real = (t: Ty, x: number): number => (t === 'REAL' ? Math.fround(x) : x)
-const real3 = typeof process !== 'undefined' && process.env.PLC_FUZZ_REAL3 === '1'
 
 interface E {
   src: string
@@ -218,9 +217,9 @@ export class ExprRefGen {
         const q = b.v as bigint
         return { src: `(${a.src} ${op} ${b.src})`, t, v: W(op === '/' ? p / q : p % q) }
       }
-      case 7: { // ADD / MUL, two or three inputs
+      case 7: { // ADD / MUL, two to four inputs: four 16-bit factors pass 2^53, where binary64 stops being exact
         const f = r.pick(['ADD', 'MUL'])
-        const a = Array.from({ length: r.int(2, 3) }, x)
+        const a = Array.from({ length: r.int(2, 4) }, x)
         const vs = a.map((e) => e.v as bigint)
         return { src: `${f}(${a.map((e) => e.src).join(', ')})`, t, v: W(vs.reduce((p, q) => (f === 'ADD' ? p + q : p * q))) }
       }
@@ -288,11 +287,8 @@ export class ExprRefGen {
       }
       case 2: {
         const f = r.pick(['ADD', 'MUL'])
-        // two inputs only. With three, `ADD(a, b, c)` on REAL rounds once at the end (builtins.ts evalBuiltin sums in
-        // binary64), while `a + b + c` rounds after each step, so the two spellings differ in the last bit; both
-        // engines share that rule. PLC_FUZZ_REAL3=1 generates three inputs, expecting `+`'s per-step rounding.
-        const a = Array.from({ length: real3 ? r.int(2, 3) : 2 }, x)
-        // each step is the operator's, so each rounds to the result type
+        // two or three inputs: each step is the operator's, so each rounds to the result type, as `a + b + c` does
+        const a = Array.from({ length: r.int(2, 3) }, x)
         return { src: `${f}(${a.map((e) => e.src).join(', ')})`, t, v: a.map((e) => e.v as number).reduce((p, q) => real(t, f === 'ADD' ? p + q : p * q)) }
       }
       case 3: {

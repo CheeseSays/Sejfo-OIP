@@ -9,9 +9,10 @@
 
 import { describe, expect, it } from 'vitest'
 import { CONFORMANCE_CASES } from './conformanceCases'
-import { compile, typedRefusals } from './interpreter'
+import { compile, setScanEngine, typedRefusals } from './interpreter'
 import { codegenFallbacks } from './scanCodegen'
 import { compareEngines, randomWrites, seeded, type OracleStep } from './scanEngineOracle'
+import type { TagValue } from './types'
 
 const hash = (s: string): number => [...s].reduce((h, ch) => (Math.imul(h, 31) + ch.charCodeAt(0)) | 0, 7)
 
@@ -158,6 +159,98 @@ END_FOR;
 ${nested(3, 'IF n > 0 THEN RETURN; END_IF;')}
 n := 100;
 END_PROGRAM`)
+  })
+})
+
+describe('both engines hold to IEC: standard blocks keep inputs, ADD and MUL work step by step', () => {
+  /** Each engine runs `scans` scans of `src` and reads the names back; both must agree with `want`, and the oracle with
+   *  each other on everything they hold. */
+  const both = (src: string, scans: number, want: Record<string, TagValue>): void => {
+    for (const on of ['walker', 'typed'] as const) {
+      const was = setScanEngine(on)
+      try {
+        const p = compile(src)
+        for (let i = 0; i < scans; i++) p.scan(0.1)
+        for (const [k, v] of Object.entries(want)) expect(p.get(k), `${on}: ${k}`).toBe(v)
+      } finally {
+        setScanEngine(was)
+      }
+    }
+    const r = compareEngines(src, Array.from({ length: scans }, () => ({ dt: 0.1 })))
+    expect(r.refused).toBeUndefined()
+    expect(r.diffs).toEqual([])
+  }
+
+  it('a timer keeps IN and PT a later call leaves out', () => {
+    const src = `PROGRAM Main VAR t : TON; n : INT; q : BOOL; e : TIME; END_VAR
+n := n + 1;
+IF n = 1 THEN t(IN := TRUE, PT := T#200ms); ELSE t(); END_IF;
+q := t.Q; e := t.ET;
+END_PROGRAM`
+    both(src, 2, { q: false, e: 100 })
+    both(src, 3, { q: true, e: 200 }) // IN stayed TRUE and PT 200 ms; with them read as FALSE and 0, Q never rose
+  })
+
+  it('a counter keeps PV, and R stays as the last call gave it', () => {
+    const src = `PROGRAM Main VAR c : CTU; k : CTU; n : INT; x : BOOL; q : BOOL; v : INT; kv : INT; END_VAR
+n := n + 1; x := NOT x;
+IF n = 1 THEN c(CU := x, PV := 3); k(CU := x, R := TRUE); ELSE c(CU := x); k(CU := x); END_IF;
+q := c.Q; v := c.CV; kv := k.CV;
+END_PROGRAM`
+    both(src, 4, { v: 2, q: false, kv: 0 }) // PV read as 0 would make Q TRUE from the first count
+    both(src, 5, { v: 3, q: true, kv: 0 })
+  })
+
+  it('a trigger left without CLK sees no edge, and a latch keeps both its inputs', () => {
+    const src = `PROGRAM Main VAR f : F_TRIG; r : R_TRIG; s : SR; n : INT; fq : BOOL; rq : BOOL; sq : BOOL; END_VAR
+n := n + 1;
+IF n = 1 THEN f(CLK := TRUE); r(CLK := TRUE); s(S1 := TRUE); ELSE f(); r(); s(R := TRUE); END_IF;
+fq := f.Q; rq := r.Q; sq := s.Q1;
+END_PROGRAM`
+    both(src, 1, { fq: false, rq: true, sq: true })
+    both(src, 2, { fq: false, rq: false, sq: true }) // S1 is still TRUE, and set dominates the R the call gave
+  })
+
+  it('every standard block, called with changing subsets of its inputs', () => {
+    const src = `PROGRAM Main
+VAR n : INT; a : BOOL; b : BOOL; c : BOOL;
+  t1 : TON; t2 : TOF; t3 : TP; c1 : CTU; c2 : CTD; c3 : CTUD; r1 : R_TRIG; f1 : F_TRIG; s1 : SR; s2 : RS;
+END_VAR
+n := n + 1; a := (n MOD 3) = 0; b := (n MOD 5) < 2; c := (n MOD 7) = 1;
+CASE n MOD 4 OF
+  0: t1(IN := a, PT := T#300ms); t2(IN := b, PT := T#200ms); t3(IN := c, PT := T#250ms);
+     c1(CU := a, R := c, PV := 4); c2(CD := a, LD := c, PV := 3); c3(CU := a, CD := b, R := c, LD := b AND c, PV := 2);
+     r1(CLK := a); f1(CLK := b); s1(S1 := a, R := b); s2(S := a, R1 := b);
+  1: t1(IN := b); t2(PT := T#100ms); t3(); c1(CU := b); c2(CD := b); c3(CD := a); r1(); f1(); s1(R := c); s2(S := c);
+  2: t1(PT := T#100ms); t2(IN := a); t3(IN := a); c1(PV := 2); c2(LD := FALSE); c3(RESET := FALSE, CU := c); r1(CLK := b);
+     f1(CLK := c); s1(); s2(RESET1 := a);
+ELSE
+  t1(); t2(); t3(PT := T#50ms); c1(RESET := FALSE); c2(); c3(LD := a); r1(); f1(); s1(SET1 := c); s2();
+END_CASE;
+END_PROGRAM`
+    const r = compareEngines(src, Array.from({ length: 60 }, () => ({ dt: 0.05 })), { between: randomWrites(seeded(31), 3) })
+    expect(r.refused).toBeUndefined()
+    expect(r.fault).toBeNull()
+    expect(r.diffs).toEqual([])
+    expect(r.compared).toBeGreaterThan(60 * 20)
+  })
+
+  it('REAL ADD and MUL with three inputs round after each step, as the operators do', () => {
+    // 2^24 + 1 rounds back to 2^24 in a REAL, twice; summed in binary64 and rounded once it would be 2^24 + 2
+    both(`PROGRAM Main VAR a : REAL := 16777216.0; b : REAL := 1.0; s : REAL; s2 : REAL; same : BOOL; END_VAR
+s := ADD(a, b, b); s2 := a + b + b; same := s = s2;
+END_PROGRAM`, 1, { s: 16777216, same: true })
+    // rounded once, this product is 67178.6640625
+    both(`PROGRAM Main VAR a : REAL := 88.0; b : REAL := 125.33333587646484; c : REAL := 6.090909004211426; p : REAL; p2 : REAL; same : BOOL; END_VAR
+p := MUL(a, b, c); p2 := a * b * c; same := p = p2;
+END_PROGRAM`, 1, { p: 67178.671875, same: true })
+  })
+
+  it('an INT MUL with four inputs wraps after each step, past what binary64 holds exactly', () => {
+    // 32767^4 is past 2^53, so one wrap at the end of a binary64 product answers 0
+    both(`PROGRAM Main VAR i : INT := 32767; p : INT; p2 : INT; END_VAR
+p := MUL(i, i, i, i); p2 := i * i * i * i;
+END_PROGRAM`, 1, { p: 1, p2: 1 })
   })
 })
 

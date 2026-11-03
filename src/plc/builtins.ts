@@ -545,8 +545,10 @@ export function evalBuiltin(name: string, rt: ScalarType, args: TagValue[]): Tag
   const va = VARIADIC_ARITH[name]
   if (va) {
     const vals = args.map(num)
-    // a 32-bit product step by step through Math.imul, as the `*` operator takes it (runtime.ts isInt32)
-    const x = va === '+' ? vals.reduce((a, b) => a + b) : isInt32(rt) ? vals.reduce((a, b) => Math.imul(a | 0, b | 0)) : vals.reduce((a, b) => a * b)
+    // step by step, as `a + b + c` is: an integer wraps and a REAL rounds to f32 after each step, and a 32-bit
+    // product goes through Math.imul, as the `*` operator takes it (runtime.ts isInt32)
+    const step = isCalendar(rt) ? (x: number): number => x : (x: number): number => wrap(rt, x)
+    const x = va === '+' ? vals.reduce((a, b) => step(a + b)) : isInt32(rt) ? vals.reduce((a, b) => Math.imul(a | 0, b | 0)) : vals.reduce((a, b) => step(a * b))
     return isCalendar(rt) ? calendarValue(rt, x) : coerceNum(rt, x)
   }
   if (BINARY_ARITH[name]) {
@@ -646,7 +648,8 @@ export function emitBuiltin(name: string, rt: ScalarType, a: string[]): string {
   }
   const va = VARIADIC_ARITH[name]
   if (va === '*' && isInt32(rt)) return w(a.reduce((x, y) => `Math.imul(${x} | 0, ${y} | 0)`))
-  if (va) return isCalendar(rt) ? dated(a.join(` ${va} `)) : w(a.join(` ${va} `))
+  // an integer wraps and a REAL rounds after each step, as `a + b + c` does (evalBuiltin)
+  if (va) return isCalendar(rt) ? dated(a.join(` ${va} `)) : a.reduce((x, y) => w(`${x} ${va} ${y}`))
   if (BINARY_ARITH[name]) {
     if (name === 'SUB') return isCalendar(rt) ? dated(`${a[0]} - ${a[1]}`) : w(`${a[0]} - ${a[1]}`)
     if (isTime(rt)) return `idiv(${a[0]}, ${a[1]})`

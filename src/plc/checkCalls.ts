@@ -210,6 +210,14 @@ export function checkCallArgs(args: FbArg[], decls: readonly Decl[], what: strin
       if (!sameDataType(at, io.type)) {
         throw new StError(`VAR_IN_OUT '${io.name}' needs exactly ${typeName(io.type)}, got ${typeName(at)}`, a.pos)
       }
+      // the in-out stands for the caller's variable, so a STRING's capacity is part of its type here: a longer
+      // parameter would write text the variable has no room for
+      if (io.type === 'STRING') {
+        const want = io.maxLen ?? DEFAULT_STRING_LEN
+        const v = a.value
+        const got = (v.node === 'var' || v.node === 'member' || v.node === 'index' ? v.maxLen : undefined) ?? DEFAULT_STRING_LEN
+        if (want !== got) throw new StError(`VAR_IN_OUT '${io.name}' needs exactly STRING[${want}], got STRING[${got}]`, a.pos)
+      }
       continue
     }
     if (a.out) {

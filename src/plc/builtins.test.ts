@@ -48,6 +48,21 @@ describe('standard functions: arithmetic + selection', () => {
     expect(evalExpr('INT', 'MUX(k, 100, 200, 300)', { k: 0 }, decl)).toBe(100)
     expect(evalExpr('INT', 'MUX(k, 100, 200, 300)', { k: 2 }, decl)).toBe(300)
     expect(evalExpr('INT', 'MUX(k, 100, 200, 300)', { k: 9 }, decl)).toBe(0)
+    expect(evalExpr('INT', 'MUX(k, 100, 200, 300)', { k: 3 }, decl)).toBe(0)
+    // a negative selector too, not the selector itself
+    expect(evalExpr('INT', 'MUX(k, 100, 200, 300)', { k: -1 }, decl)).toBe(0)
+    expect(evalBuiltin('MUX', 'INT', [-1, 100, 200])).toBe(0)
+  })
+
+  it('a 32-bit product keeps its low bits, by MUL as by the * operator', () => {
+    const ud = 'VAR_INPUT a : UDINT; END_VAR '
+    expect(evalExpr('UDINT', 'a * a', { a: 0xffffffff }, ud)).toBe(1)
+    expect(evalExpr('UDINT', 'MUL(a, a)', { a: 0xffffffff }, ud)).toBe(1)
+    expect(evalExpr('UDINT', 'MUL(a, a, a)', { a: 0xffffffff }, ud)).toBe(0xffffffff)
+    const d = 'VAR_INPUT a : DINT; END_VAR '
+    expect(evalExpr('DINT', 'a * a', { a: 0x7fffffff }, d)).toBe(1)
+    expect(evalExpr('DINT', 'MUL(a, a)', { a: 0x7fffffff }, d)).toBe(1)
+    expect(evalExpr('DWORD', 'MUL(a, a)', { a: 0xffffffff }, 'VAR_INPUT a : DWORD; END_VAR ')).toBe(1)
   })
 })
 

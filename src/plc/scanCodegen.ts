@@ -31,7 +31,7 @@ import { partSandboxActive } from '../core/parts/partSandbox'
 import { builtinFor, evalBuiltin, isBuiltinFunc } from './builtins'
 import { FAULT, StFault } from './faults'
 import { type Env, identKey } from './program'
-import { bool, calendarRangeError, FB_INPUTS, idiv, imod, isCalendar, isInt, isReal, MAX_LOOP_ITERATIONS, num, roundEven, str, unboundMessage, wrap } from './runtime'
+import { bool, calendarRangeError, FB_INPUTS, idiv, imod, isCalendar, isInt, isInt32, isReal, MAX_LOOP_ITERATIONS, num, roundEven, str, unboundMessage, wrap } from './runtime'
 import type { Expr, MethodDef, ScalarType, SourcePos, Stmt, TagValue } from './types'
 import { StError } from './types'
 import { viewOf } from './typed/arena'
@@ -258,8 +258,8 @@ function integerArithmetic(fits: GenInternals['fits']): Record<string, unknown> 
       const k = w(x)
       return k === x ? k : fits(t, x, k, pos)
     }
-    // DINT / DWORD multiply through Math.imul (a double product past 2^53 has lost the low bits the wrap keeps)
-    const imul = t === 'DINT' || t === 'DWORD'
+    // a 32-bit product through Math.imul (runtime.ts isInt32)
+    const imul = isInt32(t)
     out[`mul_${t}`] = (l: number, r: number, pos: SourcePos): number => {
       const x = l * r
       const k = imul ? w(Math.imul(l | 0, r | 0)) : w(x)
@@ -275,6 +275,32 @@ interface Frame {
   root: boolean
 }
 
+/** Whether a place's read runs nothing but loads: a variable or THIS, a field of one, or an element whose subscripts
+ *  are such reads or literals. Its code can then be repeated without running anything twice. */
+function readsOnly(e: Expr): boolean {
+  switch (e.node) {
+    case 'var':
+    case 'this':
+    case 'num':
+      return true
+    case 'member':
+      return readsOnly(e.obj)
+    case 'index':
+      return readsOnly(e.obj) && e.indices.every(readsOnly)
+    default:
+      return false
+  }
+}
+
+type JumpKind = 'return' | 'exit' | 'continue'
+/** A jump whose code waits for its frame: U+0001, the kind's initial, U+0001. JSON.stringify escapes every control
+ *  character, so no name or literal in the source can contain the mark. */
+const JUMP_MARK = '\u0001'
+const JUMP_PLACEHOLDER = new RegExp(`${JUMP_MARK}([rec])${JUMP_MARK}`, 'g')
+const JUMP_KINDS: Record<string, JumpKind> = { r: 'return', e: 'exit', c: 'continue' }
+/** a jump out of a sub-function a statement list was split into: the code its caller acts on (`signals`) */
+const SUB_JUMP: Record<JumpKind, string> = { return: 'return 1;', exit: 'return 2;', continue: 'return 3;' }
+
 const isNumber = (t: string | undefined): boolean => t !== undefined && (isInt(t as ScalarType) || isReal(t as ScalarType))
 
 class Generator {
@@ -284,6 +310,8 @@ class Generator {
   readonly fns: string[] = []
   #ids = 0
   #frame: Frame = { loops: [], root: true }
+  /** the open loops' count where the statement being generated starts (null: outside any block) */
+  #base: number | null = null
 
   constructor(
     private readonly scope: GenScope,
@@ -606,7 +634,7 @@ ${lines.join(NL)}
     switch (op) {
       case '+': return WIDTH[t] ? `add_${t}(${L}, ${R}, ${pos})` : `addI(${tj}, ${L}, ${R}, ${pos})`
       case '-': return WIDTH[t] ? `sub_${t}(${L}, ${R}, ${pos})` : `subI(${tj}, ${L}, ${R}, ${pos})`
-      case '*': return WIDTH[t] ? `mul_${t}(${L}, ${R}, ${pos})` : `mulI(${tj}, ${L}, ${R}, ${pos}, ${t === 'DINT' || t === 'DWORD'})`
+      case '*': return WIDTH[t] ? `mul_${t}(${L}, ${R}, ${pos})` : `mulI(${tj}, ${L}, ${R}, ${pos}, ${isInt32(t)})`
       case '/': return divisor ? wrapCode(t, `trunc(${L} / (${R}))`) : `divI(${tj}, ${L}, ${R}, ${pos})`
       case 'MOD': return divisor ? wrapCode(t, `${L} % (${R})`) : `modI(${tj}, ${L}, ${R}, ${pos})`
     }
@@ -665,8 +693,9 @@ ${lines.join(NL)}
       else {
         const v = this.num(ix)
         // a subscript read straight from storage is checked in place: as an ix() call it can fall outside V8's
-        // inlining budget in a long body (measured: struct arrays in a 20-pass loop, 1.34 -> 0.74 µs a scan)
-        const checked = ix.node === 'var' || ix.node === 'member'
+        // inlining budget in a long body (measured: struct arrays in a 20-pass loop, 1.34 -> 0.74 µs a scan).
+        // The check repeats `v`, so it must be a read with no call in it: `a[s[Next()].j]` calls Next() once.
+        const checked = (ix.node === 'var' || ix.node === 'member') && readsOnly(ix)
           ? `(${v} < ${d.lo} || ${v} > ${d.hi} ? ixFault(${v}, ${d.lo}, ${d.hi}, ${pos}) : ${v} - ${d.lo})`
           : `ix(${v}, ${d.lo}, ${d.hi}, ${pos})`
         const term = `${checked}${stride === 1 ? '' : ` * ${stride}`}`
@@ -881,34 +910,48 @@ ${lines.join(NL)}
     return this.unsupported('this place')
   }
 
+  /** A statement list: inline when it is short, else split into sub-functions. Each statement is generated once. A
+   *  jump that leaves the statement it is in (RETURN, or EXIT / CONTINUE of a loop opened outside it) is written as a
+   *  placeholder (`jump`), and this replaces it once it knows the frame the statement lands in. Generating a statement
+   *  again for each frame cost 2^depth for nested lists (a 12 KB nested IF took 13 s to compile). */
   block(body: Stmt[]): string {
-    const mark = this.fns.length
-    const parts = body.map((s) => this.stmt(s))
-    if (body.length < 2 || parts.reduce((n, p) => n + p.length, 0) <= CHUNK) return parts.join('\n')
-    // too big for one function V8 will optimise: generate it again as sub-functions, each statement in a frame of its own
-    this.fns.length = mark
+    const outerBase = this.#base
+    const base = this.#frame.loops.length
+    const parts = body.map((s) => {
+      this.#base = base
+      return this.stmt(s)
+    })
+    this.#base = outerBase
+    // the size it has inline, every jump as written in this frame
+    const size = body.length < 2 ? 0 : parts.reduce((n, p) => n + this.resolve(p, (kind) => this.frameJump(kind)).length, 0)
+    if (size <= CHUNK) return parts.map((p) => this.resolve(p, (kind) => this.jump(kind))).join('\n')
+    // too big for one function V8 will optimise: sub-functions, each statement in a frame of its own (no loop open,
+    // not the root), so a jump out of it is a code its caller acts on
     const outer = this.#frame
     const out: string[] = []
     let group: string[] = []
-    let size = 0
+    let groupSize = 0
     const flush = (): void => {
       if (!group.length) return
       const name = `f${this.id()}`
       this.fns.push(`function ${name}(b, now, m) {\n${group.join('\n')}\nreturn 0;\n}`)
       out.push(`{ const r = ${name}(b, now, m); ${this.signals('r', outer)} }`)
       group = []
-      size = 0
+      groupSize = 0
     }
-    for (const s of body) {
-      this.#frame = { loops: [], root: false }
-      const code = this.stmt(s)
-      this.#frame = outer
-      if (size + code.length > CHUNK) flush()
+    for (const p of parts) {
+      const code = this.resolve(p, (kind) => SUB_JUMP[kind])
+      if (groupSize + code.length > CHUNK) flush()
       group.push(code)
-      size += code.length
+      groupSize += code.length
     }
     flush()
     return out.join('\n')
+  }
+
+  /** `code` with each jump placeholder replaced by what `as` writes for its kind */
+  resolve(code: string, as: (kind: JumpKind) => string): string {
+    return code.includes(JUMP_MARK) ? code.replace(JUMP_PLACEHOLDER, (_, k: string) => as(JUMP_KINDS[k]!)) : code
   }
 
   /** what a sub-function's return code means in the frame that called it */
@@ -920,7 +963,16 @@ ${lines.join(NL)}
     return s
   }
 
-  jump(kind: 'return' | 'exit' | 'continue'): string {
+  /** A jump as the code says it here. One that leaves the statement being generated depends on the frame that
+   *  statement lands in, so it is a placeholder for the enclosing block() to replace. */
+  jump(kind: JumpKind): string {
+    const f = this.#frame
+    const leaves = this.#base !== null && (kind === 'return' ? f.root : f.loops.length <= this.#base)
+    return leaves ? `${JUMP_MARK}${kind[0]}${JUMP_MARK}` : this.frameJump(kind)
+  }
+
+  /** a jump written in the current frame */
+  frameJump(kind: JumpKind): string {
     const f = this.#frame
     if (kind === 'return') return f.root ? 'return;' : 'return 1;'
     const top = f.loops[f.loops.length - 1]

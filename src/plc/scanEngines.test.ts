@@ -9,7 +9,7 @@
 
 import { describe, expect, it } from 'vitest'
 import { CONFORMANCE_CASES } from './conformanceCases'
-import { typedRefusals } from './interpreter'
+import { compile, typedRefusals } from './interpreter'
 import { codegenFallbacks } from './scanCodegen'
 import { compareEngines, randomWrites, seeded, type OracleStep } from './scanEngineOracle'
 
@@ -92,6 +92,72 @@ END_PROGRAM`
       expect(r.diffs).toEqual([])
       expect(r.compared).toBeGreaterThan(300 * 40)
     }
+  })
+})
+
+describe('the typed engine scans exactly as the walker does: evaluation order and long bodies', () => {
+  const agree = (src: string, scans = 3): void => {
+    const r = compareEngines(src, Array.from({ length: scans }, () => ({ dt: 0.1 })))
+    expect(r.refused).toBeUndefined()
+    expect(r.fault).toBeNull()
+    expect(r.diffs).toEqual([])
+    expect(r.compared).toBeGreaterThan(0)
+  }
+
+  it('a subscript read through a call runs the call once', () => {
+    agree(`TYPE S : STRUCT j : INT; END_STRUCT; END_TYPE
+VAR_GLOBAL cnt : INT; END_VAR
+FUNCTION Next : INT VAR_EXTERNAL cnt : INT; END_VAR cnt := cnt + 1; Next := 0; END_FUNCTION
+PROGRAM Main VAR_EXTERNAL cnt : INT; END_VAR VAR s : ARRAY[0..1] OF S; a : ARRAY[0..3] OF INT; r : INT; END_VAR
+r := a[s[Next()].j]; r := a[s[s[Next()].j].j];
+END_PROGRAM`)
+  })
+
+  it('32-bit products and MUL, at the edges of each type', () => {
+    agree(`PROGRAM Main
+VAR u : UDINT := 16#FFFFFFFF; d : DINT := 16#7FFFFFFF; n : DINT := -2147483647; w : DWORD := 16#FFFFFFFF;
+  ru : UDINT; ru2 : UDINT; ru3 : UDINT; rd : DINT; rd2 : DINT; rd3 : DINT; rw : DWORD; END_VAR
+ru := u * u; ru2 := MUL(u, u); ru3 := MUL(u, u, u);
+rd := d * n; rd2 := MUL(d, n); rd3 := MUL(d, d, n);
+rw := MUL(w, w, w);
+u := u - 12345; d := d - 777; n := n + 999; w := w XOR 16#00010003;
+END_PROGRAM`)
+  })
+
+  it('MUX with a selector outside its inputs', () => {
+    agree(`PROGRAM Main VAR k : INT := -2; r : INT; END_VAR
+r := MUX(k, 10, 20, 30); k := k + 1;
+END_PROGRAM`, 6)
+  })
+
+  // a statement list past one chunk is split into sub-functions (scanCodegen.ts CHUNK); EXIT, CONTINUE and RETURN deep
+  // inside nested lists cross those splits
+  const nested = (depth: number, inner: string): string => {
+    const filler = Array.from({ length: 40 }, (_, i) => `a[${i % 10}] := a[${(i + 1) % 10}] + x * ${i};`).join('\n')
+    let body = `${filler}\n${inner}`
+    for (let d = 0; d < depth; d++) body = `${filler}\nIF x > ${d - 3} THEN\n${body}\nEND_IF;\nx := x + 1;`
+    return body
+  }
+
+  it('a deeply nested statement list compiles in time linear in its size', () => {
+    const src = `PROGRAM Main VAR a : ARRAY[0..9] OF DINT; x : DINT; END_VAR\n${nested(12, '')}\nEND_PROGRAM`
+    expect(src.length).toBeGreaterThan(12_000)
+    const t0 = performance.now()
+    compile(src)
+    // 13 s when each nested list was generated again for every frame it might land in
+    expect(performance.now() - t0).toBeLessThan(1000)
+  })
+
+  it('EXIT, CONTINUE and RETURN across split nested lists', () => {
+    agree(`PROGRAM Main VAR a : ARRAY[0..9] OF DINT; x : DINT; i : INT; n : INT; m : INT; END_VAR
+x := -2;
+FOR i := 1 TO 5 DO
+${nested(4, 'IF i = 2 THEN CONTINUE; END_IF;\nn := n + 1;\nIF i = 4 THEN EXIT; END_IF;')}
+m := m + 1;
+END_FOR;
+${nested(3, 'IF n > 0 THEN RETURN; END_IF;')}
+n := 100;
+END_PROGRAM`)
   })
 })
 

@@ -308,8 +308,16 @@ contextBridge.exposeInMainWorld('oipAgent', {
   capture: (rect) => ipcRenderer.invoke('agent:capture', rect),
   /** import_model: a .glb / .step / .stp file's bytes by absolute path. @returns {Promise<{name: string, bytes: Uint8Array} | {error: string}>} */
   readModel: (path) => ipcRenderer.invoke('agent:readModel', path),
-  /** Help > Agent Connections...: main asks the user, opens or shuts the door. @returns {Promise<{enabled: boolean, url?: string, error?: string}>} */
-  manageDoor: () => ipcRenderer.invoke('agent:manageDoor'),
+  /** Settings > Agent connections: whether the door is open, and its URL. @returns {Promise<{enabled: boolean, url: string}>} */
+  doorState: () => ipcRenderer.invoke('agent:doorState'),
+  /** Turn the door on (main asks the user first) or off. @param {boolean} on @returns {Promise<{enabled: boolean, url: string, error?: string}>} */
+  setDoor: (on) => ipcRenderer.invoke('agent:setDoor', on === true),
+  /** the door opened or shut, from any window. @param {(state: {enabled: boolean, url: string}) => void} cb @returns {() => void} unsubscribe */
+  onDoorChange: (cb) => {
+    const listener = (_event, state) => cb(state)
+    ipcRenderer.on('agent:doorChanged', listener)
+    return () => ipcRenderer.removeListener('agent:doorChanged', listener)
+  },
 })
 
 // The native application menu (main.cjs buildMenu) can't reach the editor store directly, so its

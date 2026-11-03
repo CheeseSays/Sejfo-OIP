@@ -1,4 +1,5 @@
-import { Fragment, useCallback, useEffect, useState, useSyncExternalStore } from 'react'
+import { Fragment, useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
+import { agentDoorApi, takeAgentDoorReveal, type AgentDoorState } from '../agent/desktopAgent'
 import { collabServerPref, defaultCollabUrl, isCollabServerUrl, setCollabServerPref } from '../../collab/collabServer'
 import type { ReactElement } from 'react'
 import {
@@ -132,6 +133,12 @@ const M = defineMessages('settings', {
   shelfNotRead: 'not read yet',
   showFolder: 'Show folder',
   changeFolder: 'Change folder…',
+  agentConnections: 'Agent connections',
+  allowAgents: 'Allow AI agents to connect',
+  allowAgentsHint: 'lets an AI agent on this computer edit and run the open project. Any program on this computer can connect while it is on.',
+  agentCouldNotStart: 'Agent connections could not start: {error}',
+  agentUrl: 'Server address',
+  agentUrlHint: 'give this to your agent as an MCP server',
   keysIntro:
     "Tools, snapping and fly/walk movement follow each key's {position}, so the clusters stay put on an AZERTY or QWERTZ keyboard. {ctrl} shortcuts follow the printed letter, the way every other app does it. Click a shortcut to change it.",
   position: 'position',
@@ -377,6 +384,8 @@ function PreferencesSection({ store, state }: { store: EditorStore; state: Edito
       <PartLibrariesGroup />
 
       <PartsShelfGroup />
+
+      <AgentConnectionsGroup />
 
       <section className="settings-group">
         <h3>{t(M.graphics)}</h3>
@@ -645,6 +654,102 @@ function PartsShelfGroup(): ReactElement | null {
         </span>
       </Row>
     </section>
+  )
+}
+
+/**
+ * Whether an AI agent may drive this editor over MCP (the desktop app's agent door, docs/agent-tools.md), and the
+ * address to give it. Desktop only. Main owns the server and the choice: turning it on asks in a native dialog
+ * first, and the answer is remembered across launches (apps/desktop/agentDoorSetting.cjs). Help > Agent
+ * Connections... opens Settings scrolled to here.
+ */
+function AgentConnectionsGroup(): ReactElement | null {
+  const [api] = useState(agentDoorApi)
+  const [door, setDoor] = useState<AgentDoorState | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+  const ref = useRef<HTMLElement>(null)
+  useEffect(() => {
+    if (!api) return
+    let live = true
+    api
+      .doorState()
+      .then((s) => {
+        if (live) setDoor(s)
+      })
+      .catch((e: unknown) => console.warn('[oip] reading the agent door failed', e))
+    const off = api.onDoorChange((s) => setDoor(s))
+    return () => {
+      live = false
+      off()
+    }
+  }, [api])
+  // read once, as the dialog opens; scrolled once the state has rendered the section at its full height
+  const [reveal] = useState(takeAgentDoorReveal)
+  const revealed = useRef(false)
+  useEffect(() => {
+    if (door && reveal && !revealed.current) {
+      revealed.current = true
+      ref.current?.scrollIntoView({ block: 'start' })
+    }
+  }, [door, reveal])
+  if (!api || !door) return null
+  const toggle = (on: boolean): void => {
+    setBusy(true)
+    setError('')
+    api
+      .setDoor(on)
+      .then((s) => {
+        setDoor({ enabled: s.enabled, url: s.url })
+        if (s.error) setError(t(M.agentCouldNotStart, { error: s.error }))
+      })
+      .catch((e: unknown) => setError(e instanceof Error ? e.message : String(e)))
+      .finally(() => setBusy(false))
+  }
+  return (
+    <section ref={ref} className="settings-group" data-testid="settings-agent-connections">
+      <h3>{t(M.agentConnections)}</h3>
+      <Row label={t(M.allowAgents)} hint={error || t(M.allowAgentsHint)}>
+        <label className="setting-switch">
+          <input type="checkbox" data-testid="setting-agent-door" checked={door.enabled} disabled={busy} onChange={(e) => toggle(e.target.checked)} />
+          <span>{t(door.enabled ? M.on : M.off)}</span>
+        </label>
+      </Row>
+      {door.enabled && (
+        <>
+          <Row label={t(M.agentUrl)} hint={t(M.agentUrlHint)}>
+            <span className="setting-control-pair">
+              <span className="setting-path" data-testid="setting-agent-url" title={door.url}>
+                {door.url}
+              </span>
+              <CopyButton text={door.url} testId="setting-agent-copy-url" />
+            </span>
+          </Row>
+        </>
+      )}
+    </section>
+  )
+}
+
+function CopyButton({ text, testId }: { text: string; testId: string }): ReactElement {
+  const [copied, setCopied] = useState(false)
+  return (
+    <button
+      type="button"
+      className="setting-button"
+      data-testid={testId}
+      onClick={() => {
+        void navigator.clipboard?.writeText(text).then(
+          () => {
+            setCopied(true)
+            setTimeout(() => setCopied(false), 1500)
+          },
+          () => {},
+        )
+      }}
+    >
+      {t(copied ? M.copied : M.copy)}
+    </button>
   )
 }
 

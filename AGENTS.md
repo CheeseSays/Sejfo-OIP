@@ -140,7 +140,7 @@ projectTestsRun.ts); eslint enforces both.
 - **The agent door: [src/editor/agent/tools.ts](src/editor/agent/tools.ts)**, what an AI agent may do to the open
   editor, served by the desktop app over MCP at `http://127.0.0.1:5189/mcp`
   ([apps/desktop/mcpServer.cjs](apps/desktop/mcpServer.cjs) is only the transport). Off in an installed app until
-  Help > Agent Connections... allows it, on in the dev shell. Agent edits go through the store's own paths, one
+  Settings > Agent connections allows it (Help > Agent Connections... opens it there), on in the dev shell. Agent edits go through the store's own paths, one
   "Agent: ..." undo step each; a new tool is one entry in `AGENT_TOOLS`. Read [docs/agent-tools.md](docs/agent-tools.md)
   first. Gated by `verify-agent-mcp-electron.mjs`.
 - **The PLC panel is [PlcPanel.tsx](src/editor/components/plc/PlcPanel.tsx)**: it owns the program file and the window

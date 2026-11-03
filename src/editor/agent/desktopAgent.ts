@@ -42,9 +42,22 @@ interface OipAgentApi {
   capture?: AgentShell['capture']
   /** import_model: a model file's bytes by absolute path */
   readModel?: AgentShell['readModel']
-  /** Help > Agent Connections...: main asks the user, then opens or shuts the door (agentDoorSetting.cjs) */
-  manageDoor?(): Promise<{ enabled: boolean; url?: string; error?: string }>
+  /** Settings > Agent connections: whether the door is open (agentDoorSetting.cjs) */
+  doorState?(): Promise<AgentDoorState>
+  /** turn the door on (main asks the person first) or off */
+  setDoor?(on: boolean): Promise<AgentDoorState & { error?: string }>
+  /** the door opened or shut, from this window or another */
+  onDoorChange?(cb: (state: AgentDoorState) => void): () => void
 }
+
+/** The agent door as Settings shows it: open or shut, and the URL a client is given (fixed, so shown either way). */
+export interface AgentDoorState {
+  enabled: boolean
+  url: string
+}
+
+/** What Settings > Agent connections drives: present only in the desktop app. */
+export type AgentDoorApi = Required<Pick<OipAgentApi, 'doorState' | 'setDoor' | 'onDoorChange'>>
 
 function agentApi(): OipAgentApi | null {
   return (globalThis as { oipAgent?: OipAgentApi }).oipAgent ?? null
@@ -120,7 +133,22 @@ async function shellRequest(store: EditorStore, { op, args }: ShellRequest): Pro
   return { ok: false, error: `the editor does not know the request '${op}'` }
 }
 
-/** Help > Agent Connections... (commands.ts): the shell asks the user whether agents may connect, and shows the URL. */
-export function manageAgentDoor(): void {
-  void agentApi()?.manageDoor?.()
+/** The door's controls, or null in the browser and in a shell too old to offer them. */
+export function agentDoorApi(): AgentDoorApi | null {
+  const api = agentApi()
+  return api?.doorState && api.setDoor && api.onDoorChange ? (api as AgentDoorApi) : null
+}
+
+let revealDoorSection = false
+
+/** Help > Agent Connections... (commands.ts) opens Settings: this asks its Agent connections section to scroll into view. */
+export function requestAgentDoorReveal(): void {
+  revealDoorSection = true
+}
+
+/** Settings' section reads this once as it mounts: true when it was opened to show it. */
+export function takeAgentDoorReveal(): boolean {
+  const r = revealDoorSection
+  revealDoorSection = false
+  return r
 }

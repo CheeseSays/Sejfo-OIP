@@ -22,7 +22,7 @@
 //   4. the landing page's /app/?tour=1, over work, opens a fresh run in a "Tutorial" project of its own
 //      (theirs is filed untouched) and drops the param, so a reload does not make another one
 // Run: node e2e/verify-tutorial-scene-binding.mjs [--headed]
-/* global process, console, window, localStorage, document, location, URLSearchParams, indexedDB */
+/* global process, console, window, localStorage, document, location, URLSearchParams, indexedDB, sessionStorage */
 import { startServer } from './_server.mjs'
 import { afterReload, createProject, openProjectNamed, openProjectsList } from './_projectMenu.mjs'
 import { clickDemo } from './_demo.mjs'
@@ -132,8 +132,10 @@ async function main() {
 
     // Suppress the first-run offer while the board is set up. It does not mask what is under test:
     // a saved run is checked before the done flag, which is the whole point of a resume.
+    // the tab's own open-project pointer is in sessionStorage (libraryDb.ts): clear it too, so the reload boots fresh
     await page.evaluate((done) => {
       localStorage.clear()
+      sessionStorage.clear()
       localStorage.setItem(done, '1')
     }, DONE_KEY)
     await page.reload({ waitUntil: 'domcontentloaded' })

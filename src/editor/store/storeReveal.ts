@@ -12,15 +12,26 @@ export class RevealRequests {
   // (the tutorial, whose card tells the user to watch the program appear in the PLC panel). The
   // layout itself lives in App state, so this is a request, not a mutation.
   private revealPanelListeners = new Set<(panel: DockPanelId) => void>()
+  // Requests made before App subscribes: the store exists (main.tsx) before App mounts, and a request in that gap
+  // would otherwise be dropped. They are kept until the first subscriber, with no time limit, since that gap is the
+  // app's own boot.
+  private pendingPanelReveals: DockPanelId[] = []
 
   /** subscribe to panel-reveal requests (App applies them to the dock layout) */
   onRevealPanel(cb: (panel: DockPanelId) => void): () => void {
     this.revealPanelListeners.add(cb)
+    const pending = this.pendingPanelReveals
+    this.pendingPanelReveals = []
+    for (const panel of pending) cb(panel)
     return () => this.revealPanelListeners.delete(cb)
   }
 
   /** ask the app to surface a dock panel: front tab of its slot, dock un-collapsed */
   revealPanel(panel: DockPanelId): void {
+    if (this.revealPanelListeners.size === 0) {
+      if (!this.pendingPanelReveals.includes(panel)) this.pendingPanelReveals.push(panel)
+      return
+    }
     for (const cb of this.revealPanelListeners) cb(panel)
   }
 

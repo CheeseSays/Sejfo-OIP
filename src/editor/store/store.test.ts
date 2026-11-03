@@ -1930,6 +1930,22 @@ describe('autosave failure reporting', () => {
   })
 })
 
+// The store exists before App mounts and subscribes, so a panel reveal in that gap is held for App.
+describe('revealPanel', () => {
+  it('a request made before App subscribes reaches it once, without repeats', () => {
+    const store = new EditorStore()
+    store.revealPanel('st')
+    store.revealPanel('st')
+    const got: string[] = []
+    const off = store.onRevealPanel((p) => got.push(p))
+    expect(got).toEqual(['st'])
+    off()
+    store.onRevealPanel((p) => got.push(p))
+    store.revealPanel('problems')
+    expect(got).toEqual(['st', 'problems'])
+  })
+})
+
 // A reveal pairs with revealPanel('st'), which mounts a PLC panel that was a background tab on the next render: the
 // request is made before that panel can subscribe, so the store holds it for the panel that mounts.
 describe('revealStOffset', () => {

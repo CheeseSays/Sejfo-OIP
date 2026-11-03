@@ -15,8 +15,8 @@
 //   D. typed - a value typed in the shown unit is stored in the stored unit (48 in of stand height is 1.2192 m).
 //   E. back - Metric converts the conveyor back exactly (FPM is not rounded on the way) and reads m/s again.
 //   F. mm - Length mm shows and takes lengths in millimetres, and leaves conveyors and their tags in m/s.
-//   G. separate - Speed Imperial keeps the Length (speeds in FPM, lengths in mm), and a scene saved with Units 'metric-mm'
-//                   opens as Metric with Length mm.
+//   G. carried - Speed Imperial moves a Length of mm to inches in the same edit and says so (speeds in FPM, lengths
+//                   in inches), and a scene saved with Units 'metric-mm' opens as Metric with Length mm.
 // Run: node e2e/verify-display-units.mjs
 /* global process, console, window, document, localStorage */
 import { chromium } from 'playwright'
@@ -129,7 +129,7 @@ try {
   await page.evaluate(() => window.__oip.store.setState({ selectedIds: [] }))
   const length = page.locator('[data-testid="scene-length"]')
   await length.waitFor({ timeout: 10000 })
-  check((await length.inputValue()) === '', 'Length starts at Default')
+  check((await length.inputValue()) === 'm', 'Length starts at meters')
   await length.selectOption('mm')
   await page.waitForTimeout(200)
   const mm = await paramsOf(page, 'b1')
@@ -149,16 +149,18 @@ try {
   const h2 = (await paramsOf(page, 'b1'))?.standHeight
   check(typeof h2 === 'number' && Math.abs(h2 - 0.8) < 1e-9, `800 typed into the mm field stores 0.8 m (got ${h2})`)
 
-  // --- G: Units and Length are separate: Imperial keeps the Length, and a scene saved as 'metric-mm' opens in mm ---
+  // --- G: Imperial carries a Length of mm to inches, and a scene saved as 'metric-mm' opens in mm ---
   await page.evaluate(() => window.__oip.store.setState({ selectedIds: [] }))
   await select.waitFor({ timeout: 10000 })
   await select.selectOption('imperial')
   await page.waitForTimeout(200)
-  check((await length.inputValue()) === 'mm', 'switching Speed to Imperial keeps Length at mm')
+  check((await length.inputValue()) === 'in', 'switching Speed to Imperial moves Length from mm to inches')
+  const noteText = await page.locator('[data-testid="scene-units-note"]').textContent()
+  check(/Lengths now show in Inches/.test(noteText ?? ''), `the note says lengths moved (got "${noteText}")`)
   await page.evaluate(() => window.__oip.store.select('b1'))
   await page.waitForSelector('.inspector .prop-row[data-param="speedFpm"] input.spin-input', { timeout: 10000 })
   check((await readField(page, 'speedFpm'))?.unit === 'FPM', 'the speed reads FPM')
-  check((await readField(page, 'standHeight'))?.unit === 'mm', 'while lengths still read mm')
+  check((await readField(page, 'standHeight'))?.unit === 'in', 'and lengths read inches')
   const legacyErr = await page.evaluate(() =>
     window.__oip.loadSceneText(JSON.stringify({ version: window.__oip.store.getState().scene.version, parts: [], units: 'metric-mm' })),
   )

@@ -8,8 +8,7 @@ import { DEFAULT_TRANSLATE_SNAP } from './types/base'
 import type { SceneLengthUnit, SceneUnits } from './types/parts'
 
 /** How lengths and speeds are shown: the scene's Units (metric: m/s, imperial: feet per minute, and what its
- *  conveyors' speed tags carry), and its Length, which shows every length in one unit. With no Length, a length
- *  field of the system's own shows as itself and one of the other system in the system's working unit.
+ *  conveyors' speed tags carry), and its Length, which shows every length in one unit (lengthUnitOf).
  *  Built by displayUnits, which returns one shared object per combination, so `===` compares them. */
 export interface DisplayUnits {
   readonly system: SceneUnits
@@ -32,14 +31,15 @@ export function displayUnits(system: SceneUnits, length?: SceneLengthUnit): Disp
 /** Metric with no Length set: a new scene's display, and the default where no scene is at hand. */
 export const METRIC_DISPLAY = displayUnits('metric')
 
-/** The unit a read-out writes a length in: the Length, else metres or (imperial) feet and inches. */
-function readoutLength(d: DisplayUnits): SceneLengthUnit {
+/** The unit every length shows in: the Length, else metres or (imperial) inches. A scene with no Length saved
+ *  shows exactly what that unit set explicitly shows, so the two are the same setting. */
+export function lengthUnitOf(d: DisplayUnits): SceneLengthUnit {
   return d.length ?? (d.system === 'imperial' ? 'in' : 'm')
 }
 
 /** The grid-snap translate increment a viewer who never set one gets, in metres: 1 m, or 1 ft when lengths show in inches. */
 export function defaultTranslateSnap(d: DisplayUnits): number {
-  return readoutLength(d) === 'in' ? 0.3048 : DEFAULT_TRANSLATE_SNAP
+  return lengthUnitOf(d) === 'in' ? 0.3048 : DEFAULT_TRANSLATE_SNAP
 }
 
 // Each table is factors to its base (metres; metres per second). Keys are lower case: look units up lower-cased.
@@ -56,23 +56,18 @@ export function unitTable(unit: string): Readonly<Record<string, number>> | unde
   return LENGTH_UNITS[u] !== undefined ? LENGTH_UNITS : SPEED_UNITS[u] !== undefined ? SPEED_UNITS : undefined
 }
 
-const METRIC_LENGTHS = new Set(['m', 'cm', 'mm'])
-
 /**
- * The unit a quantity stored in `unit` is shown in under `d`. A length shows in the Length when one is set. Otherwise
- * a unit already of the system shows as itself (a metre field stays metres, a millimetre field millimetres), and one
- * of the other system shows in the system's working unit: inches or millimetres for a length, feet per minute or m/s
- * for a speed.
+ * The unit a quantity stored in `unit` is shown in under `d`. Every length shows in the scene's Length, whatever unit
+ * its part stores it in. A speed already of the system shows as itself, and one of the other system shows in the
+ * system's: feet per minute or m/s.
  */
 export function displayUnitFor(unit: string, d: DisplayUnits): string {
   const table = unitTable(unit)
   if (!table) return unit
   const u = unit.toLowerCase()
   if (table === LENGTH_UNITS) {
-    if (d.length) return u === d.length ? unit : d.length
-    const metric = METRIC_LENGTHS.has(u)
-    if (d.system === 'metric') return metric ? unit : 'mm'
-    return metric ? 'in' : unit
+    const length = lengthUnitOf(d)
+    return u === length ? unit : length
   }
   if (d.system === 'metric') return u === 'm/s' ? unit : 'm/s'
   return u === 'm/s' ? 'FPM' : unit
@@ -124,7 +119,7 @@ export function toStored(shown: number, k: number): number {
  * inches to a hundredth (`12' 3.50"`; under a foot, inches alone). Not for a field, which shows one number in one unit.
  */
 export function formatLength(m: number, d: DisplayUnits): string {
-  const unit = readoutLength(d)
+  const unit = lengthUnitOf(d)
   if (unit === 'm') return `${m.toFixed(3)} m`
   if (unit === 'mm') return `${(m * 1000).toFixed(1)} mm`
   const sign = m < 0 ? '-' : ''

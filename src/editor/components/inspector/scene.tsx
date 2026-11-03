@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import type { ReactElement } from 'react'
-import { sceneUnits, setSceneLengthUnit, setSceneUnits } from '../../../core/scene/sceneUnits'
+import { sceneDisplayUnits, sceneUnits, setSceneLengthUnit, setSceneUnits } from '../../../core/scene/sceneUnits'
+import { lengthUnitOf } from '../../../core/units'
 import { MAX_SIM_HZ, MIN_SIM_HZ } from '../../../core/types'
 import type { SceneLengthUnit, SceneUnits } from '../../../core/types'
 import type { EditorState, EditorStore } from '../../store/store'
@@ -43,12 +44,12 @@ const M = defineMessages('inspector.scene', {
   imperial: 'Imperial (FPM)',
   metric: 'Metric (m/s)',
   lengthTip:
-    'The unit every length is shown and typed in. Default shows meters, or inches when Speed is Imperial. Display only: the scene keeps its lengths as they are.',
+    'The unit every length is shown and typed in. Changing Speed to the other system changes it to meters or inches. Display only: the scene keeps its lengths as they are.',
   length: 'Length',
-  lengthDefault: 'Default ({unit})',
   meters: 'Meters (m)',
   millimeters: 'Millimeters (mm)',
   inches: 'Inches (in)',
+  lengthsNowShow: 'Lengths now show in {unit}.',
   fpm: 'feet per minute',
   mps: 'meters per second',
   conveyorsNowRun: { one: '{count} conveyor now runs in {unit}.', other: '{count} conveyors now run in {unit}.' },
@@ -74,7 +75,8 @@ const M = defineMessages('inspector.scene', {
  * every conveyor's speed tag carries (FPM or m/s, a REAL either way). A plant runs one convention, so this is the
  * only place it is chosen: part of the scene document, and an ordinary, undoable edit that converts every conveyor
  * with it. It cannot rewrite the program, so after a switch that moved bound speed tags it says so. Beside it, the
- * scene's Length (SceneJSON.lengthUnit): the unit every length shows in, display only, so it converts nothing.
+ * scene's Length (SceneJSON.lengthUnit): the unit every length shows in, display only, so it converts nothing. The
+ * dropdown always shows the Length in effect, and a Units switch that moves it says so in the same note.
  */
 
 /** what the last Units switch in this panel did, for the note under it: shown until Units change again (an undo
@@ -83,6 +85,7 @@ interface UnitsSwitch {
   units: SceneUnits
   switched: number
   tags: string[]
+  length?: SceneLengthUnit
 }
 
 /**
@@ -190,7 +193,7 @@ export function SceneProperties({ store, state, controller }: { store: EditorSto
               const next = e.target.value as SceneUnits
               const change = setSceneUnits(store.getState().scene, next)
               store.commit('Set scene units', change.scene)
-              setLast({ units: next, switched: change.switched, tags: change.tags })
+              setLast({ units: next, switched: change.switched, tags: change.tags, length: change.length })
             }}
           >
             <option value="imperial">{t(M.imperial)}</option>
@@ -205,28 +208,32 @@ export function SceneProperties({ store, state, controller }: { store: EditorSto
         <span className="field-control">
           <select
             data-testid="scene-length"
-            value={state.scene.lengthUnit ?? ''}
+            value={lengthUnitOf(sceneDisplayUnits(state.scene))}
             disabled={state.readOnly || state.demoSession}
             onChange={(e) => {
-              const next = (e.target.value || undefined) as SceneLengthUnit | undefined
+              const next = e.target.value as SceneLengthUnit
               store.commit('Set scene length unit', setSceneLengthUnit(store.getState().scene, next))
             }}
           >
-            {/* i18n-ok: unit symbols */}
-            <option value="">{t(M.lengthDefault, { unit: units === 'imperial' ? 'in' : 'm' })}</option>
             <option value="m">{t(M.meters)}</option>
             <option value="mm">{t(M.millimeters)}</option>
             <option value="in">{t(M.inches)}</option>
           </select>
         </span>
       </label>
-      {note && note.switched > 0 && (
+      {note && (note.switched > 0 || note.length) && (
         <p className="inspector-hint" role="status" data-testid="scene-units-note">
-          {t(M.conveyorsNowRun, { count: note.switched, unit: t(note.units === 'imperial' ? M.fpm : M.mps) })}
-          {note.tags.length > 0 && (
+          {note.switched > 0 && t(M.conveyorsNowRun, { count: note.switched, unit: t(note.units === 'imperial' ? M.fpm : M.mps) })}
+          {note.switched > 0 && note.tags.length > 0 && (
             <>
               {' '}
               {t(M.tagsNowCarry, { count: note.tags.length, tags: note.tags.join(', '), unit: t(note.units === 'imperial' ? M.fpm : M.mps) })}
+            </>
+          )}
+          {note.length && (
+            <>
+              {note.switched > 0 && ' '}
+              {t(M.lengthsNowShow, { unit: t(note.length === 'in' ? M.inches : note.length === 'mm' ? M.millimeters : M.meters) })}
             </>
           )}
         </p>

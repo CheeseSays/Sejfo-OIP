@@ -1,24 +1,27 @@
 import { describe, expect, it } from 'vitest'
-import { convertUnit, defaultTranslateSnap, displayUnitFor, displayUnits, formatLength, formatSpeed, niceStep, toStored, unitView } from './units'
+import { convertUnit, defaultTranslateSnap, displayUnitFor, displayUnits, formatLength, formatSpeed, lengthUnitOf, niceStep, toStored, unitView } from './units'
 
 const metric = displayUnits('metric')
 const imperial = displayUnits('imperial')
 const metricMm = displayUnits('metric', 'mm')
 
 describe('displayUnitFor', () => {
-  it('shows a unit of the chosen system as itself', () => {
+  it('with no Length, shows every length in metres, or inches under imperial, whatever unit it is stored in', () => {
     expect(displayUnitFor('m', metric)).toBe('m')
-    expect(displayUnitFor('mm', metric)).toBe('mm')
-    expect(displayUnitFor('m/s', metric)).toBe('m/s')
+    expect(displayUnitFor('mm', metric)).toBe('m')
+    expect(displayUnitFor('in', metric)).toBe('m')
     expect(displayUnitFor('in', imperial)).toBe('in')
-    expect(displayUnitFor('FPM', imperial)).toBe('FPM')
+    expect(displayUnitFor('ft', imperial)).toBe('in')
+    expect(displayUnitFor('m', imperial)).toBe('in')
+    expect(lengthUnitOf(metric)).toBe('m')
+    expect(lengthUnitOf(imperial)).toBe('in')
+    expect(unitView('mm', metric)).toEqual(unitView('mm', displayUnits('metric', 'm')))
   })
 
-  it('shows a unit of the other system in the working unit of this one', () => {
-    expect(displayUnitFor('m', imperial)).toBe('in')
-    expect(displayUnitFor('mm', imperial)).toBe('in')
+  it('shows a speed of the system as itself, and one of the other system in this one', () => {
+    expect(displayUnitFor('m/s', metric)).toBe('m/s')
+    expect(displayUnitFor('FPM', imperial)).toBe('FPM')
     expect(displayUnitFor('m/s', imperial)).toBe('FPM')
-    expect(displayUnitFor('in', metric)).toBe('mm')
     expect(displayUnitFor('FPM', metric)).toBe('m/s')
   })
 

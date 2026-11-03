@@ -66,6 +66,15 @@ export interface OipProjectApi {
   forget(docId: string): Promise<void>
   takePendingOpen(): Promise<string | null>
   onOpenPath(cb: (root: string) => void): () => void
+  /** A folder to open in a window of its own (a second launch naming one). Absent on older shells. */
+  onOpenPathInNewWindow?(cb: (root: string) => void): () => void
+  /** Tell the shell which document this window has open, so it can bring that window forward instead of opening it
+   *  twice. Absent on older shells. */
+  showingDocument?(docId: string | null): void
+  /** Bring forward the window that has document `docId` open, or open a new window on it. Absent on older shells. */
+  openWindow?(docId: string): Promise<'focused' | 'opened'>
+  /** Bring forward the window working in folder `root`; false when no window is. Absent on older shells. */
+  focusFolder?(root: string): Promise<boolean>
   /** A project or part file the app was launched to open, once (apps/desktop/fileOpen.cjs). Absent on older shells. */
   takePendingFile?(): Promise<OpenedDocumentFile | null>
   /** A project or part file opened while the app runs (a double-click). Absent on older shells. */

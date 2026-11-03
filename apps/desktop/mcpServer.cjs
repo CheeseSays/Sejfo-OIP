@@ -59,8 +59,9 @@ const INSTRUCTIONS =
   'definition, start with get_part_sdk. To work on another project, list_projects then open_project, or new_project.'
 
 /**
- * The renderer that serves the tools, and the calls in flight to it. One editor window serves at a time: the one
- * that announced last (the app is single-instance, so in practice there is one).
+ * The renderers that serve the tools, and the calls in flight to them. Every editor window serves its own project's
+ * tools, and calls go to one of them: the window the user focused last ({@link focus}), else the one that announced
+ * first. A call in flight stays with the window it went to.
  */
 class AgentHost {
   /**
@@ -74,6 +75,10 @@ class AgentHost {
     /** @type {{ id: number, send: (channel: string, msg: unknown) => void, isDestroyed: () => boolean } | null} */
     this.server = null
     this.tools = null
+    /** every window serving tools, by id: { sender, tools } */
+    this.serving = new Map()
+    /** the window the user focused last, which calls go to once it serves */
+    this.preferred = null
     this.nextId = 1
     /** @type {Map<number, { resolve: (r: object) => void, timer: NodeJS.Timeout, serverId: number, reloadOk?: boolean }>} */
     this.pending = new Map()
@@ -102,15 +107,34 @@ class AgentHost {
   /** A window announced its tools (or withdrew them with null). */
   serve(sender, tools) {
     if (!Array.isArray(tools)) {
-      if (this.server && this.server.id === sender.id) this.drop(sender.id, 'the editor window closed')
+      this.drop(sender.id, 'the editor window closed')
       return
     }
-    if (this.server && this.server.id !== sender.id) this.drop(this.server.id, 'another editor window took over')
-    this.server = sender
-    this.tools = tools
+    this.serving.set(sender.id, { sender, tools })
+    // calls go to it when nothing serves, when it is the window the user is in, or when it is the one serving again
+    if (this.server === null || this.server.id === sender.id || this.preferred === sender.id) this.use(sender.id)
     for (const wake of [...this.waiters, ...this.serveWaiters]) wake()
     this.waiters.clear()
     this.serveWaiters.clear()
+  }
+
+  /** Send calls to window `id` from now on. */
+  use(id) {
+    const s = this.serving.get(id)
+    if (!s) return
+    this.server = s.sender
+    this.tools = s.tools
+  }
+
+  /** The user focused window `id`: calls go to it from now on (once it serves, if it does not yet). */
+  focus(id) {
+    this.preferred = id
+    this.use(id)
+  }
+
+  /** The window calls go to now, or null while none serves. */
+  servingId() {
+    return this.server ? this.server.id : null
   }
 
   /**
@@ -118,9 +142,17 @@ class AgentHost {
    * which a request that reloads the editor (reloadOk) reads as its answer.
    */
   drop(senderId, why, reloaded = false) {
-    if (!this.server || this.server.id !== senderId) return
-    this.server = null
-    this.tools = null
+    this.serving.delete(senderId)
+    if (this.server && this.server.id === senderId) {
+      this.server = null
+      this.tools = null
+      // A reloading window comes back, and calls wait for it (its project is the one the agent works on). A closed
+      // one does not: another serving window takes its calls.
+      if (!reloaded) {
+        const next = this.serving.has(this.preferred) ? this.preferred : this.serving.keys().next().value
+        if (next !== undefined) this.use(next)
+      }
+    }
     for (const [id, p] of this.pending) {
       if (p.serverId !== senderId) continue
       clearTimeout(p.timer)

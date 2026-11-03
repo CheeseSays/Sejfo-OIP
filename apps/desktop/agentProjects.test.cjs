@@ -44,6 +44,9 @@ async function main() {
     const asked = []
     let answer = false
     let current = recent
+    /** folders another editor window has open, and the window the agent was moved to */
+    const elsewhere = new Set()
+    let drove = null
     const tools = createProjectTools({
       registry,
       grants,
@@ -55,6 +58,8 @@ async function main() {
         return answer
       },
       reloadWaitMs: 50,
+      openElsewhere: (root) => elsewhere.has(root),
+      driveWindowWith: (root) => elsewhere.has(root) && ((drove = root), true),
     })
     const tool = (name) => tools.find((t) => t.definition.name === name)
     const json = (r) => (assert.equal(r.ok, true, r.error), JSON.parse(r.text))
@@ -115,6 +120,19 @@ async function main() {
     r = await tool('open_project').run(host, { project: recent })
     assert.match(r.error, /did not come back/)
     console.log('ok: open_project, refusals')
+
+    // a project open in another window: listed as such, and open_project moves the agent there instead of opening it
+    elsewhere.add(inFolder)
+    listed = json(await tool('list_projects').run(fakeHost(), {}))
+    assert.equal(listed.projects.find((p) => p.path === inFolder).openInAnotherWindow, true)
+    assert.equal(listed.projects.find((p) => p.path === recent).openInAnotherWindow, undefined)
+    host = fakeHost()
+    r = await tool('open_project').run(host, { project: inFolder })
+    assert.match(json(r).note, /open in another window/)
+    assert.equal(drove, inFolder)
+    assert.equal(host.requests.length, 0, 'nothing reloads')
+    elsewhere.clear()
+    console.log('ok: a project open in another window')
 
     // new_project: the editor makes it; the answer names the folder it recorded last
     host = fakeHost((op, args) => {

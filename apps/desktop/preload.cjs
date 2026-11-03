@@ -132,6 +132,22 @@ contextBridge.exposeInMainWorld('oipProject', {
     return () => ipcRenderer.removeListener('project:openPath', listener)
   },
 
+  /** Hear a folder to open in a window of its own (a second launch naming one). Returns an unsubscribe fn. */
+  onOpenPathInNewWindow: (cb) => {
+    const listener = (_event, root) => cb(root)
+    ipcRenderer.on('project:openPathInNewWindow', listener)
+    return () => ipcRenderer.removeListener('project:openPathInNewWindow', listener)
+  },
+
+  /** Tell the shell which document this window has open (null for none), so it is never opened in two windows. */
+  showingDocument: (docId) => ipcRenderer.send('window:document', docId),
+
+  /** Bring forward the window with this document open, else open one on it. @returns {Promise<'focused' | 'opened'>} */
+  openWindow: (docId) => ipcRenderer.invoke('window:openDocument', docId),
+
+  /** Bring forward the window working in this folder. @returns {Promise<boolean>} false when no window is. */
+  focusFolder: (root) => ipcRenderer.invoke('window:focusFolder', root),
+
   /** The next project or part file waiting to be opened, as `{ name, kind, bytes }` or `{ error }`; null when none waits. */
   takePendingFile: () => ipcRenderer.invoke('file:takePendingOpen'),
 

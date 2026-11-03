@@ -331,8 +331,9 @@ How a round works:
   profile instead, and `OIP_PROJECTS_DIR` overrides both. **Unlink** detaches on purpose: the project stays open,
   app-only, and the shell remembers not to hand it a new folder.
 
-A folder named on the command line (`electron . <folder>`) opens at launch. The app is single instance per
-profile, so a second launch hands its folder to the running window. Double-clicking a `.oip` (or a `.oippart`)
+A folder named on the command line (`electron . <folder>`) opens at launch. The app is one process per profile, and
+a second launch naming a folder opens it in a window of its own, or brings forward the window that has it open
+([desktop-shell.md](desktop-shell.md#several-windows)). Double-clicking a `.oip` (or a `.oippart`)
 opens it in the desktop app: the installer registers both, and the file is imported as File > Import Project (or
 Import part) would, never edited in place ([desktop-shell.md](desktop-shell.md#project-and-part-files)).
 

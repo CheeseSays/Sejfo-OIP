@@ -176,6 +176,7 @@ nothing the tools do reaches outside the open document, with two exceptions:
 - **No external PLC link.** Connecting to a real or soft PLC (OpenPLC, snap7) and reading its status is a person's
   step in the PLC panel. No tool reaches it.
 - **No ladder rungs.** A ladder POU reads and writes as our text form (`set_pou`). There is no rung-level edit.
-- **One scene, one project at a time.** A project holds one scene, and the tools act on the open project.
-  `open_project` switches it. No tool joins a collab room or imports a project file (.oip), whose code comes from
+- **One scene, one project at a time.** A project holds one scene, and the tools act on the project of the window
+  the user focused last. `open_project` switches it. A project open in another window is not opened twice: the agent
+  moves to that window, and `list_projects` marks it `openInAnotherWindow`. No tool joins a collab room or imports a project file (.oip), whose code comes from
   someone else.

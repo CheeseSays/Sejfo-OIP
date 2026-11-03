@@ -12,12 +12,12 @@ import {
   supportsDocumentLibrary,
 } from '../project/documentStore'
 import type { DocumentMeta } from '../project/documentStore'
-import { openFolderDocument, openLibraryStandIn } from '../desktop/desktopProjectBridge'
+import { openDocumentInNewWindow, openFolderDocument, openLibraryStandIn } from '../desktop/desktopProjectBridge'
 import { createNewProject, UNTITLED_PROJECT } from '../project/newProject'
 import { getOipProjectApi } from '../desktop/desktopProjectApi'
 import type { FolderRecord } from '../desktop/desktopProjectApi'
 import type { EditorState, EditorStore } from '../store/store'
-import { CloseIcon, PencilIcon, PeopleIcon, TrashIcon } from './toolbarIcons'
+import { CloseIcon, PencilIcon, PeopleIcon, RestoreIcon, TrashIcon } from './toolbarIcons'
 import { renameSharedProject, sharedProjectOf } from '../project/sharedProject'
 import { defineMessages, t } from '../../core/i18n'
 
@@ -49,7 +49,11 @@ const M = defineMessages('projects', {
   deleteNamed: 'Delete {name}',
   openAnotherFirst: 'Open another project first',
   openInOtherTab: 'open in another tab',
+  openInOtherWindow: 'open in another window',
   closeOtherTabFirst: 'Open in another tab. Close it there first',
+  closeOtherWindowFirst: 'Open in another window. Close it there first',
+  openInNewWindowNamed: 'Open {name} in a new window',
+  openInNewWindow: 'Open in a new window',
   removeFromList: 'Remove from list (the folder stays)',
   delete: 'Delete',
   examples: 'Examples',
@@ -174,12 +178,22 @@ export function ProjectsOverlay({ store, state, onClose }: { store: EditorStore;
 
   const onOpen = (id: string): void => {
     if (onScreen(id)) return onClose() // already what you are looking at: the click means "never mind"
+    // on the desktop a project open in another window is that window's: bring it forward rather than open it twice
+    if (desktop && inOtherTab(id)) return onOpenInNewWindow(id)
     const folder = folderOf(id)
     if (folder === null) return run(() => openDocument(id, outgoing()))
     // A folder that cannot be read (moved, deleted, mid-edit) must not strand the project: open the
     // library's last copy as a stand-in, and the sync's banner says what is wrong with the folder.
     run(async () => ((await openFolderDocument(store, id, folder)) === null ? null : openLibraryStandIn(store, id)))
   }
+
+  /** Desktop: open the row in a window of its own, or bring forward the window that has it. */
+  const onOpenInNewWindow = (id: string): void =>
+    run(async () => {
+      const error = await openDocumentInNewWindow(id, folderOf(id))
+      if (error === null) onClose()
+      return error
+    })
 
   const onCreate = (): void => run(() => createNewProject(store, creating ?? ''))
 
@@ -268,7 +282,9 @@ export function ProjectsOverlay({ store, state, onClose }: { store: EditorStore;
                       <PeopleIcon />
                     </span>
                   )}
-                  <span className="projects-when">{onScreen(doc.id) ? t(M.openNow) : inOtherTab(doc.id) ? t(M.openInOtherTab) : relativeTime(doc.updatedAt)}</span>
+                  <span className="projects-when">
+                    {onScreen(doc.id) ? t(M.openNow) : inOtherTab(doc.id) ? t(desktop ? M.openInOtherWindow : M.openInOtherTab) : relativeTime(doc.updatedAt)}
+                  </span>
                   {desktop && (
                     <span className="projects-path" data-folder={folderOf(doc.id) !== null}>
                       {folderOf(doc.id) ?? t(M.storedInApp)}
@@ -277,6 +293,18 @@ export function ProjectsOverlay({ store, state, onClose }: { store: EditorStore;
                 </button>
               )}
               <div className="projects-actions">
+                {desktop?.openWindow && !onScreen(doc.id) && (
+                  <button
+                    className="projects-action"
+                    data-testid="projects-new-window"
+                    aria-label={t(M.openInNewWindowNamed, { name: doc.name })}
+                    title={t(M.openInNewWindow)}
+                    disabled={busy}
+                    onClick={() => onOpenInNewWindow(doc.id)}
+                  >
+                    <RestoreIcon />
+                  </button>
+                )}
                 {desktop && folderOf(doc.id) !== null && (
                   <button
                     className="projects-action"
@@ -290,7 +318,7 @@ export function ProjectsOverlay({ store, state, onClose }: { store: EditorStore;
                 <button
                   className="projects-action"
                   aria-label={t(M.renameNamed, { name: doc.name })}
-                  title={inOtherTab(doc.id) ? t(M.closeOtherTabFirst) : t(M.rename)}
+                  title={inOtherTab(doc.id) ? t(desktop ? M.closeOtherWindowFirst : M.closeOtherTabFirst) : t(M.rename)}
                   disabled={busy || inOtherTab(doc.id)}
                   onClick={() => setEditing({ id: doc.id, name: doc.name })}
                 >
@@ -305,7 +333,7 @@ export function ProjectsOverlay({ store, state, onClose }: { store: EditorStore;
                     doc.id === openId
                       ? t(M.openAnotherFirst)
                       : inOtherTab(doc.id)
-                        ? t(M.closeOtherTabFirst)
+                        ? t(desktop ? M.closeOtherWindowFirst : M.closeOtherTabFirst)
                         : folderOf(doc.id) !== null
                           ? t(M.removeFromList)
                           : t(M.delete)

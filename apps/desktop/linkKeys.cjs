@@ -27,6 +27,16 @@ function linkKey(senderId, link) {
   return `${senderId}:${link}`
 }
 
+/**
+ * Why a port is taken, when another window of this app holds it: each window has a project of its own, and two of
+ * them listening on one port is the user's to settle. '' when no other window does.
+ */
+function heldByAnotherWindow(map, senderId, port) {
+  const prefix = `${senderId}:`
+  for (const [key, entry] of map) if (!key.startsWith(prefix) && entry.port === port) return `port ${port} is in use by another Open Industry Project window; give this project a different port`
+  return ''
+}
+
 /** The keys of every link a window holds in `map`. */
 function windowKeys(map, senderId) {
   const prefix = `${senderId}:`
@@ -55,4 +65,4 @@ function onPageGone(sender, watched, close) {
 
 const BAD_LINK = 'not a link number (0-31)'
 
-module.exports = { MAX_LINKS, BROWSE_LINK, linkNo, listingLinkNo, linkKey, windowKeys, onPageGone, BAD_LINK }
+module.exports = { MAX_LINKS, BROWSE_LINK, linkNo, listingLinkNo, linkKey, windowKeys, heldByAnotherWindow, onPageGone, BAD_LINK }

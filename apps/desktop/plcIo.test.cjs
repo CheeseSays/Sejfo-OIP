@@ -58,6 +58,10 @@ async function main() {
 
   assert.deepEqual(await ipc.invoke('plcio:listen', win, { link: 1, host: '127.0.0.1', port: base + 1 }), { error: '' })
   assert.deepEqual(await ipc.invoke('plcio:listen', win, { link: 2, host: '127.0.0.1', port: base + 2 }), { error: '' })
+  // another window, with a project of its own, on a port this one holds: it is told which, not just that it is taken
+  const other = fakeWindow(9)
+  const taken = await ipc.invoke('plcio:listen', other, { link: 0, host: '127.0.0.1', port: base + 1 })
+  assert.match(taken.error, /in use by another Open Industry Project window/)
   assert.deepEqual(await ipc.invoke('plcio:listen', win, { link: 99, host: '127.0.0.1', port: base + 3 }), { error: 'not a link number (0-31)' })
 
   const a = await dial(base + 1)

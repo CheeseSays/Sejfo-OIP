@@ -170,12 +170,28 @@ export function currentDocumentId(): string | null {
   }
 }
 
+/** The document a new desktop window was opened on (`?doc=`, apps/desktop/main.cjs openDocumentWindow), or null. */
+function entryDocument(): string | null {
+  if (typeof location === 'undefined') return null
+  try {
+    const id = new URL(location.href).searchParams.get('doc')
+    return id !== null && /^doc-[a-z0-9-]+$/.test(id) ? id : null
+  } catch {
+    return null
+  }
+}
+
 /**
- * Give this tab its own pointer, read from the browser's when it has none yet. Called once before the boot reads
- * the working copy (projectFile.openWorkingCopy), so a later switch in another tab cannot move this one.
+ * Give this tab its own pointer when it has none yet: the document its URL names, else the browser's. Called once
+ * before the boot reads the working copy (projectFile.openWorkingCopy), so a later switch in another tab cannot move
+ * this one. A reload keeps the tab's pointer, whatever the URL says.
  */
 export function pinTabDocument(): void {
-  if (tabPointer() === null) setTabPointer(currentDocumentId() ?? NO_DOCUMENT)
+  if (tabPointer() === null) {
+    const asked = entryDocument()
+    if (asked !== null) setCurrentDocumentId(asked)
+    else setTabPointer(currentDocumentId() ?? NO_DOCUMENT)
+  }
   const id = currentDocumentId()
   if (id !== null) holdDocument(id)
 }

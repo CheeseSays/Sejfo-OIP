@@ -887,6 +887,16 @@ export function discardUnopenedProject(store: EditorStore): void {
   store.persistProject()
 }
 
+/** A v1 library mixes authored parts with placement snapshots: keep only what is provably not first-party. */
+export function dropV1Snapshots(result: { project: ProjectJSON; splitOff?: ProjectJSON[]; migratedFromV1?: true }): void {
+  if (!result.migratedFromV1) return
+  for (const p of [result.project, ...(result.splitOff ?? [])]) {
+    const authored = dropBundledIds(p.packages ?? [])
+    if (authored.length > 0) p.packages = authored
+    else delete p.packages
+  }
+}
+
 /**
  * Adopt a freshly validated imported project as the stored project and reboot into it. Shared by the
  * web `.oip` import and the desktop folder open (desktopProjectBridge). Adoption is a write of the working copy +
@@ -909,13 +919,7 @@ export async function adoptImportedProject(
   opts?: { docId?: string },
 ): Promise<SaveResult> {
   const project = result.project
-  if (result.migratedFromV1) {
-    for (const p of [project, ...(result.splitOff ?? [])]) {
-      const authored = dropBundledIds(p.packages ?? [])
-      if (authored.length > 0) p.packages = authored
-      else delete p.packages
-    }
-  }
+  dropV1Snapshots(result)
   // an older multi-scene document's other scenes ride across the reload, and the next boot files them
   if (result.splitOff && result.splitOff.length > 0) {
     const parked = parkSplitOff(result.splitOff)

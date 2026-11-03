@@ -13,7 +13,7 @@
 // link it belongs to.
 
 const { createServer, Socket } = require('node:net')
-const { BAD_LINK, linkKey, linkNo, onPageGone, windowKeys } = require('./linkKeys.cjs')
+const { BAD_LINK, heldByAnotherWindow, linkKey, linkNo, onPageGone, windowKeys } = require('./linkKeys.cjs')
 
 /** @type {Map<string, { server: import('node:net').Server | null, sockets: Map<number, import('node:net').Socket> }>} by linkKey */
 const links = new Map()
@@ -106,11 +106,13 @@ function registerPlcIo(ipcMain, { consent } = {}) {
     if (consent && !(await consent({ host, key: `plcio listen ${host}:${port}`, what }, sender)))
       return { error: `listening on ${host}:${port} was not allowed` }
     if (generation.get(key) !== mine) return { error: 'superseded by a newer link' }
-    const entry = { server: null, sockets: new Map() }
+    const entry = { server: null, sockets: new Map(), port }
     const server = createServer((socket) => carry(sender, entry, link, nextId++, socket, `${socket.remoteAddress}:${socket.remotePort}`))
     entry.server = server
     const error = await new Promise((resolve) => {
-      server.once('error', (e) => resolve(e.code === 'EADDRINUSE' ? `port ${port} is already in use on ${host}` : String(e.message || e)))
+      server.once('error', (e) =>
+        resolve(e.code === 'EADDRINUSE' ? heldByAnotherWindow(links, sender.id, port) || `port ${port} is already in use on ${host}` : String(e.message || e)),
+      )
       server.listen(port, host, () => resolve(''))
     })
     if (error) return { error }

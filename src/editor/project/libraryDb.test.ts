@@ -96,6 +96,28 @@ describe('the tab pointer', () => {
     expect(browser.getItem(CURRENT_DOC_KEY)).toBeNull()
   })
 
+  it('a desktop window opened on a document starts on that one (?doc=)', () => {
+    browser.setItem(CURRENT_DOC_KEY, 'doc-last')
+    vi.stubGlobal('location', { href: 'http://x/app/?doc=doc-asked' })
+    pinTabDocument()
+    expect(currentDocumentId()).toBe('doc-asked')
+    expect(browser.getItem(CURRENT_DOC_KEY)).toBe('doc-asked')
+  })
+
+  it('a reload keeps the tab on its own document, whatever ?doc= says', () => {
+    tab.setItem(CURRENT_DOC_KEY, 'doc-switched-to')
+    vi.stubGlobal('location', { href: 'http://x/app/?doc=doc-opened-on' })
+    pinTabDocument()
+    expect(currentDocumentId()).toBe('doc-switched-to')
+  })
+
+  it('ignores a ?doc= that is not a document id', () => {
+    browser.setItem(CURRENT_DOC_KEY, 'doc-last')
+    vi.stubGlobal('location', { href: 'http://x/app/?doc=../../etc' })
+    pinTabDocument()
+    expect(currentDocumentId()).toBe('doc-last')
+  })
+
   it('with no sessionStorage, the browser pointer is the only one', () => {
     vi.stubGlobal('sessionStorage', undefined)
     browser.setItem(CURRENT_DOC_KEY, 'doc-a')

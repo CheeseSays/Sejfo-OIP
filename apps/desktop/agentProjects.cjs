@@ -36,12 +36,16 @@ function projectName(root) {
  *   registry      folderRegistry.cjs: the folders the app has opened, most recent first
  *   grants        folderGrants.cjs: a folder that opens is granted first, since the editor reads it through readAt
  *   projectsRoot  () => the default projects folder (main.cjs defaultProjectsRoot)
- *   currentRoot   () => the folder the editor is working in now, or null
+ *   currentRoot   () => the folder the editor window the agent drives is working in, or null
  *   canonical     (path) => the folder's long, real path (main.cjs canonicalRoot)
  *   askToOpen     (root, name) => Promise<boolean>: the native "open this folder?" question
+ *   openElsewhere (root) => whether another editor window has that folder open (optional)
+ *   driveWindowWith (root) => move the agent to the window that has that folder open; false when none has (optional)
  */
 function createProjectTools(deps) {
   const { registry, grants, projectsRoot, currentRoot, canonical, askToOpen } = deps
+  const openElsewhere = deps.openElsewhere ?? (() => false)
+  const driveWindowWith = deps.driveWindowWith ?? (() => false)
   const reloadWaitMs = deps.reloadWaitMs ?? RELOAD_WAIT_MS
 
   /** Open Recent's folders, then the default projects folder's other project folders. */
@@ -66,7 +70,10 @@ function createProjectTools(deps) {
       if (!existsSync(join(dir, MANIFEST)) || out.some((p) => samePath(p.path, dir))) continue
       out.push({ name: projectName(dir), path: dir, openedAt: null })
     }
-    return out.map((p) => ({ ...p, open: current !== null && samePath(p.path, current) }))
+    return out.map((p) => {
+      const open = current !== null && samePath(p.path, current)
+      return { ...p, open, ...(!open && openElsewhere(p.path) ? { openInAnotherWindow: true } : {}) }
+    })
   }
 
   /** Opens without asking: a folder in Open Recent, or one directly inside the default projects folder. */
@@ -108,7 +115,8 @@ function createProjectTools(deps) {
         name: 'list_projects',
         description:
           "The user's projects: the ones opened in this app (most recent first), then any other project folder in the " +
-          "default projects folder. `open` marks the one the editor has open. open_project takes a name or a path from here.",
+          "default projects folder. `open` marks the one the editor you drive has open, and `openInAnotherWindow` one another " +
+          'editor window has open. open_project takes a name or a path from here.',
         inputSchema: { type: 'object', properties: {}, additionalProperties: false },
       },
       run: async () => text({ projects: listProjects(), projectsFolder: projectsRoot() }),
@@ -120,7 +128,8 @@ function createProjectTools(deps) {
           'Open a project in the editor, in place of the open one (which stays saved in its folder and in list_projects). ' +
           'Give `project` as a name from list_projects or the absolute path of a project folder. A project from that list ' +
           'opens at once; a folder anywhere else asks the user first. The editor reloads, and every later call acts on ' +
-          'the opened project. The agent review of the previous project closes with it.',
+          'the opened project. The agent review of the previous project closes with it. A project open in another ' +
+          'editor window is not opened twice: later calls go to that window instead, and this one keeps its project.',
         inputSchema: {
           type: 'object',
           properties: { project: { type: 'string', description: 'a name from list_projects, or an absolute folder path' } },
@@ -137,6 +146,7 @@ function createProjectTools(deps) {
         const name = projectName(root)
         if (!opensUnasked(root) && !(await askToOpen(root, name))) return { ok: false, error: `the user declined to open ${root}` }
         grants.grant(root)
+        if (driveWindowWith(root)) return text({ opened: name, path: root, note: 'it was open in another window, which later calls now act on' })
         const done = await reloadInto(host, 'openFolder', { root })
         if (!done.ok) return done
         return text({ opened: name, path: root, ...(done.already ? { note: 'it was already the open project' } : {}) })

@@ -8,9 +8,19 @@
 import { folderFilesToProject, projectToFolderFiles } from '../../core/project/projectFolder'
 import type { ProjectJSON } from '../../core/project/project'
 import { bakePart } from '../parts/bakePart'
-import { adoptImportedProject } from '../project/projectFile'
+import { adoptImportedProject, dropV1Snapshots } from '../project/projectFile'
 import { storeLocalAssets } from '../project/localAssets'
-import { clearEntryParams, currentDocumentId, fileOutgoingDocument, mintDocumentId, openDocument, supportsDocumentLibrary } from '../project/documentStore'
+import {
+  clearEntryParams,
+  currentDocumentId,
+  documentsOpenInTabs,
+  fileOutgoingDocument,
+  mintDocumentId,
+  onCurrentDocumentChange,
+  openDocument,
+  supportsDocumentLibrary,
+  writeDocument,
+} from '../project/documentStore'
 import { folderDisplayName, getOipProjectApi } from './desktopProjectApi'
 import type { FolderRead } from './desktopProjectApi'
 import { saveIntoFolder, saveToFolderNow, syncFolderNow, syncedFolderPath } from '../project/projectFolderSync'
@@ -95,7 +105,19 @@ async function readyToOpen(
     await syncFolderNow()
     return { already: true }
   }
+  // open in another window: that window is brought forward, and this one keeps its project
+  if (await openElsewhere(read)) return { already: true }
   return { already: false, result }
+}
+
+/** Bring forward the other window that has this folder's project open, if one does. */
+async function openElsewhere(read: FolderRead): Promise<boolean> {
+  const api = getOipProjectApi()
+  if (!api?.openWindow || !api.focusFolder) return false
+  if (await api.focusFolder(read.root)) return true
+  if (read.docId === null || !(await documentsOpenInTabs())?.has(read.docId)) return false
+  await api.openWindow(read.docId)
+  return true
 }
 
 /**
@@ -228,9 +250,53 @@ export function showSaveNoticeOnce(store: EditorStore, ...notice: Parameters<Edi
 }
 
 /**
+ * Open a folder's project in a window of its own, leaving this window's project as it is. A folder some window
+ * already works in is brought forward instead. The new window boots into the document written here
+ * (libraryDb.pinTabDocument), so it never files or replaces another window's project on the way. Returns an error,
+ * or null.
+ */
+export async function openFolderInNewWindow(root: string): Promise<string | null> {
+  const api = getOipProjectApi()
+  if (!api?.openWindow || !api.focusFolder) return 'This version of the desktop app cannot open a second window.'
+  if (await api.focusFolder(root)) return null
+  const read = await api.readAt(root)
+  if (!read || read.error !== undefined) return `Couldn't read ${root}:\n${read?.error ?? 'no answer from the app shell'}`
+  if (read.docId !== null && read.docId === currentDocumentId()) return null // this window's own project
+  // open in a window that is not working in the folder (a library stand-in): bring that one forward, writing nothing
+  if (read.docId !== null && (await documentsOpenInTabs())?.has(read.docId)) {
+    await api.openWindow(read.docId)
+    return null
+  }
+  const result = folderFilesToProject(read.files, { bakePart })
+  if (!result.ok) return `Couldn't open ${root}:\n${result.errors.join('\n')}`
+  dropV1Snapshots(result)
+  const id = read.docId ?? mintDocumentId()
+  // as adoptFolderProject: the new window's working copy is built from the folder, so the two start agreed
+  await api.remember(id, { path: root, name: result.project.name, baseline: null, signature: '', touch: true })
+  await storeLocalAssets(result.project)
+  if (!(await writeDocument(id, result.project))) return 'This app would not store the project, so no window was opened.'
+  await api.openWindow(id)
+  return null
+}
+
+/**
+ * Open a project the library holds in a window of its own, or bring forward the window that has it open. A project
+ * with a folder opens from the folder, the store of record. Returns an error, or null.
+ */
+export async function openDocumentInNewWindow(docId: string, root: string | null): Promise<string | null> {
+  const api = getOipProjectApi()
+  if (!api?.openWindow) return 'This version of the desktop app cannot open a second window.'
+  if (root === null) {
+    await api.openWindow(docId)
+    return null
+  }
+  return openFolderInNewWindow(root)
+}
+
+/**
  * The folder-open requests that do not start in the renderer: a folder named on the command line at
- * launch (once), and File > Open Recent or a second launch while running. Call once at mount; returns
- * the unsubscribe.
+ * launch (once), File > Open Recent, and a second launch while running, which opens a window of its own. Also tells
+ * the shell which document this window has open. Call once at mount; returns the unsubscribe.
  */
 export function connectDesktopOpenRequests(store: EditorStore): () => void {
   const api = getOipProjectApi()
@@ -238,5 +304,16 @@ export function connectDesktopOpenRequests(store: EditorStore): () => void {
   void api.takePendingOpen().then((root) => {
     if (root) void openProjectFolderPath(store, root)
   })
-  return api.onOpenPath((root) => void openProjectFolderPath(store, root))
+  api.showingDocument?.(currentDocumentId())
+  const offs = [
+    api.onOpenPath((root) => void openProjectFolderPath(store, root)),
+    onCurrentDocumentChange((id) => api.showingDocument?.(id)),
+    api.onOpenPathInNewWindow?.(
+      (root) =>
+        void openFolderInNewWindow(root).then((error) => {
+          if (error !== null) alert(error)
+        }),
+    ),
+  ]
+  return () => offs.forEach((off) => off?.())
 }

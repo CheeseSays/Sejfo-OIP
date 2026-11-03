@@ -15,7 +15,7 @@
 const { join } = require('node:path')
 
 let lib = null
-const { BAD_LINK, linkKey, linkNo, onPageGone, windowKeys } = require('./linkKeys.cjs')
+const { BAD_LINK, heldByAnotherWindow, linkKey, linkNo, onPageGone, windowKeys } = require('./linkKeys.cjs')
 
 function opcua() {
   // the client package re-exports the shared types (Variant, StatusCodes, SecurityPolicy); the server's own
@@ -253,11 +253,12 @@ function registerOpcUaServer(ipcMain, { pkiRoot, consent }) {
       onClients: (clients) => send(sender, 'opcuaserver:clients', { clients, link }),
     })
     const started = await server.start({ port, network: opts?.network === true })
-    if (started.error) return { ...started, endpoint: '' }
+    if (started.error) return { error: (/already in use/.test(started.error) && heldByAnotherWindow(servers, sender.id, port)) || started.error, endpoint: '' }
     if (generation.get(key) !== mine) {
       await server.stop()
       return { error: 'superseded by a newer start', endpoint: '' }
     }
+    server.port = port
     servers.set(key, server)
     onPageGone(sender, watched, (id) => {
       for (const k of windowKeys(servers, id)) void stopFor(k)

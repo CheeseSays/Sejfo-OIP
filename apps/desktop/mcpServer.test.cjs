@@ -148,6 +148,38 @@ async function main() {
     console.log('ok: shell tools')
   }
 
+  // 1e. several windows, one project each: calls go to the window focused last; a closed one hands over, a reloading
+  // one is waited for
+  {
+    const host = new AgentHost({ readyWaitMs: 200 })
+    const a = fakeWindow(host, 1)
+    const b = fakeWindow(host, 2)
+    host.serve(a, TOOLS)
+    host.serve(b, TOOLS)
+    assert.equal(host.servingId(), 1, 'a second window announcing does not take the calls')
+    await host.call('echo', { n: 1 })
+    assert.equal(a.calls.length, 1)
+    host.focus(2)
+    assert.equal(host.servingId(), 2, 'the focused window does')
+    await host.call('echo', { n: 2 })
+    assert.equal(b.calls.length, 1)
+    host.focus(3) // a window still booting: calls stay where they are until it serves
+    assert.equal(host.servingId(), 2)
+    const c = fakeWindow(host, 3)
+    host.serve(c, TOOLS)
+    assert.equal(host.servingId(), 3, 'and it takes them once it serves')
+    host.drop(3, 'the editor window closed')
+    assert.equal(host.servingId(), 1, 'a closed window hands its calls to one still open')
+    host.focus(1)
+    host.drop(1, 'reloaded', true)
+    assert.equal(host.servingId(), null, 'a reloading window is waited for, not replaced')
+    const pending = host.call('echo', { n: 3 })
+    host.serve(a, TOOLS)
+    assert.equal((await pending).ok, true)
+    assert.equal(host.servingId(), 1)
+    console.log('ok: several windows')
+  }
+
   // 2. over HTTP, with a window serving
   const host = new AgentHost({ readyWaitMs: 2000, callTimeoutMs: 300 })
   const started = await startMcpServer(host, { port: 0, version: '1.2.3' })

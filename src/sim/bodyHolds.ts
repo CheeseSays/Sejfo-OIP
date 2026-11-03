@@ -97,6 +97,14 @@ export class BodyHolds {
     for (const h of load) this.drop(h.bodyId)
   }
 
+  /** a rig leaving the world lets go of everything its grippers hold, so the load falls as dynamic cargo
+   *  instead of staying kinematic under a holder that no longer exists */
+  releaseRig(rig: GripRig): void {
+    const loads = [...rig.grips.values()]
+    rig.grips.clear()
+    for (const load of loads) for (const h of load) this.drop(h.bodyId)
+  }
+
   /** the pilot lets go of a carried part: every body of it the pilot holds, and its hold target */
   dropPilotPart(partId: string): void {
     this.pilotHeld.delete(partId)

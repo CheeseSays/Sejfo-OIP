@@ -42,8 +42,9 @@ export class CargoFlow {
   private unitsPending = true
   /** unit loads rebuilt mid-run (an edit while running), to be seeded again at the next step */
   private readonly unitsRebuilt = new Set<string>()
-  /** where each wrapping behavior's film roll stood last tick (world x/z), which says which way it is travelling */
-  private readonly webRollPrev = new Map<BehaviorRecord, [number, number]>()
+  /** where each wrapping behavior's film roll stood last tick (world x/z), which says which way it is travelling.
+   *  Weak, so a record a rebuild replaced is not kept for the rest of the run. */
+  private readonly webRollPrev = new WeakMap<BehaviorRecord, [number, number]>()
   /** line completions (items removed by a despawner) and their summed cycle time, for measurements() */
   private completedCount = 0
   private totalCycleSeconds = 0

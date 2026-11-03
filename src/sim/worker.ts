@@ -273,7 +273,17 @@ async function handle(msg: MainToWorker): Promise<void> {
     }
   } catch (err) {
     stopLoop()
+    paused = false
+    stepQueue = []
+    plc = null
+    // free the Jolt world and its behaviors; a throw from the teardown must not hide the error that got us here
+    try {
+      world?.dispose()
+    } catch (disposeErr) {
+      console.warn('[sim] dispose after a handler error threw', disposeErr)
+    }
     world = null
+    liveScene = null
     resetFrameWire()
     post({ type: 'error', message: err instanceof Error ? err.message : String(err) })
   }

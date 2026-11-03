@@ -355,6 +355,20 @@ describe('Pallet Dispenser (SDK part, headless)', () => {
     expect(magazine(world).map((p) => p.id).sort()).toEqual(placed)
   })
 
+  // A held body left kinematic under a removed rig would hang in the air for the rest of the run.
+  it('lets go of its load when it is deleted mid-run, and the pallets fall to the deck', () => {
+    const scene = dispenserScene({ params: { stock: 10 }, stack: 3 })
+    world = new SimWorld(Jolt, scene)
+    runFor(world, 6)
+    expect(magazine(world)).toHaveLength(3)
+    world.updateScene({ ...scene, parts: scene.parts.filter((p) => p.id !== 'disp') })
+    expect(heldIds(world).size).toBe(0)
+    runFor(world, 3)
+    const all = pallets(world)
+    expect(all).toHaveLength(3)
+    expect(Math.min(...all.map((p) => p.y))).toBeLessThan(DECK_Y + PH) // the bottom one rests on the deck
+  })
+
   for (const std of PALLET_STANDARDS) {
     it(`${std.label}: Fill places pallets of its size, and a Use sets the bottom one down standing`, () => {
       world = dispenserWorld({ params: { palletSize: std.value }, fill: true })

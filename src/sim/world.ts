@@ -849,8 +849,9 @@ export class SimWorld implements SimCore<BoxFrame> {
    * spawnScriptedConveyor for a `function`-geometry belt (geometry() builds the matching visual). One compound
    * conveyor body of run boxes + bend prisms (beltDeckSubsLocal), each facet carrying its own tangent; the
    * script's commanded surface velocity is distributed per-facet each tick (see tickBehaviors' `tan` branch),
-   * so cargo rides up/over the inclines and a PLC run-gate actually stops it. Returns false if there are no
-   * runs (degenerate segments) or the script failed to compile.
+   * so cargo rides up/over the inclines and a PLC run-gate actually stops it. Returns 'no-runs' when the
+   * segments are degenerate (nothing was built, so the caller may build a flat deck instead) and 'script-failed'
+   * when the deck was built but the script failed to compile (no fallback: it would add a second deck).
    */
   spawnScriptedBeltConveyor(
     position: [number, number, number],
@@ -861,9 +862,9 @@ export class SimWorld implements SimCore<BoxFrame> {
     source: string,
     paramsJson = '{}',
     friction = BELT_FRICTION,
-  ): boolean {
+  ): 'built' | 'no-runs' | 'script-failed' {
     const subs = beltDeckSubsLocal(segments, height, width)
-    if (subs.length === 0) return false
+    if (subs.length === 0) return 'no-runs'
     const [x, y, z] = position
     // a path bed's surface grip: the caller passes the part's declared surface (a belt, as the belt conveyor is)
     const body = this.bodies.addCompoundConveyor(subs, x, y, z, rotationY, friction)
@@ -871,14 +872,14 @@ export class SimWorld implements SimCore<BoxFrame> {
     // folds in neighbour-derived openings - the one place guards are built on both the lone and clustered path.)
     const forward: [number, number, number] = [Math.cos(rotationY), 0, -Math.sin(rotationY)]
     const handle = behavior.create(source, paramsJson)
-    if (handle <= 0) return false
+    if (handle <= 0) return 'script-failed'
     // the same entry objects addCompoundConveyor registered in the conveyors map - driving them per tick
     // mutates what the live contact listener reads (in place), exactly like a flat deck's single entry.
     const entries: ConveyorEntry[] = []
     const seen = new Set<ConveyorEntry>()
     for (const s of subs) if (s.entry && !seen.has(s.entry)) { seen.add(s.entry); entries.push(s.entry) }
     this.bus.add(behaviorRecord(handle, position, forward, null, { conveyorEntries: entries, body }))
-    return true
+    return 'built'
   }
 
   /**
@@ -929,7 +930,9 @@ export class SimWorld implements SimCore<BoxFrame> {
       if (segs && path) {
         const hv = resolved(path.heightKey)
         const height = typeof hv === 'number' && hv > 0 ? hv : pkg.geometry.bounds.top
-        if (this.spawnScriptedBeltConveyor(position, rotationY, segs, height, wid, pkg.behavior, paramsJson, packageSurfaceFriction(pkg, overrides))) return true
+        const belt = this.spawnScriptedBeltConveyor(position, rotationY, segs, height, wid, pkg.behavior, paramsJson, packageSurfaceFriction(pkg, overrides))
+        // only a belt that built nothing falls back to the flat deck; a failed script already has its bent deck
+        if (belt !== 'no-runs') return belt === 'built'
       }
       const lv = resolved(face.lengthKey)
       const len = typeof lv === 'number' && lv > 0 ? lv : pkg.geometry.bounds.length
@@ -1564,6 +1567,8 @@ export class SimWorld implements SimCore<BoxFrame> {
   private destroyPart(id: string): void {
     const group = this.partGroups.get(id)
     if (!group) return
+    // its grippers let go first: a body still held by a removed rig stays kinematic and can't be grabbed again
+    for (const rig of group.rigs ?? []) this.holds.releaseRig(rig)
     this.bodies.destroyBodies(group)
     // its scripts stop with it: a stale one would keep writing its old PLC tags
     if (group.behaviors) this.bus.remove(group.behaviors)

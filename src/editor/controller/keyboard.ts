@@ -93,7 +93,8 @@ export function onKeyDown(ec: EditorController, e: KeyboardEvent): void {
   // flight", so it can't be a single table entry. It's listed there as `fixed` - documented in
   // the shortcuts panel, never routed through the resolver, never remappable.
   if (e.key === 'Escape') {
-    if (ec.rulerVisible) ec.clearRuler()
+    if (s.presenting) ec.store.setState({ presenting: false })
+    else if (ec.rulerVisible) ec.clearRuler()
     else if (s.mode === 'placing') ec.store.cancelPlacing()
     // guard-openings mode backs out one level at a time: the selected opening, then the mode (the conveyor
     // stays selected), and only then the selection
@@ -108,7 +109,8 @@ export function onKeyDown(ec: EditorController, e: KeyboardEvent): void {
   // inline: spatial keys match the physical key so the tool cluster doesn't scatter on AZERTY,
   // the Ctrl family matches the printed legend, and the shortcuts panel renders off the same
   // table - a binding can't ship undocumented.
-  switch (resolveKeyAction(e, 'editor')) {
+  const action = resolveKeyAction(e, 'editor')
+  switch (action) {
     case 'edit.undo':
       ec.store.undo()
       e.preventDefault()
@@ -203,6 +205,16 @@ export function onKeyDown(ec: EditorController, e: KeyboardEvent): void {
       // Perspective/Orthogonal view toggle. Numpad 5 is the second chord and
       // is matched by e.code - with NumLock off that key reports 'Clear'.
       ec.store.toggleProjection()
+      e.preventDefault()
+      return
+    case 'view.front':
+    case 'view.rear':
+    case 'view.right':
+    case 'view.left':
+    case 'view.top':
+    case 'view.bottom':
+      // the orbit gizmo's axis snap. Matched by e.code, so they work with NumLock off too.
+      ec.viewAlongAxis(action)
       e.preventDefault()
       return
     case 'place.floor':

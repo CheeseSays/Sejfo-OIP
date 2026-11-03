@@ -49,6 +49,18 @@ const dataBySha = new Map<string, string>()
 const fetching = new Set<string>()
 const uploading = new Set<string>()
 const listeners = new Set<() => void>()
+// One notify per burst of arrivals: each listener re-reads every package and re-applies the scene, so joining a room
+// with N models would otherwise rebuild N times. A timer, not a microtask, so arrivals that land while a rebuild runs
+// join the next one.
+let notifyTimer: ReturnType<typeof setTimeout> | null = null
+
+function notifyArrived(): void {
+  if (notifyTimer !== null) return
+  notifyTimer = setTimeout(() => {
+    notifyTimer = null
+    for (const cb of listeners) cb()
+  }, 0)
+}
 
 /** Point the store at a room (or at nothing). Cached bytes survive, since they are named by content. */
 export function configureRoomAssets(next: RoomAssetLink | null): void {
@@ -119,7 +131,7 @@ async function fetchAsset(sha: string): Promise<void> {
             return
           }
           bytesBySha.set(sha, bytes)
-          for (const cb of listeners) cb()
+          notifyArrived()
           return
         }
       } catch {
@@ -194,4 +206,6 @@ export function resetRoomAssetsForTest(): void {
   fetching.clear()
   uploading.clear()
   listeners.clear()
+  if (notifyTimer !== null) clearTimeout(notifyTimer)
+  notifyTimer = null
 }

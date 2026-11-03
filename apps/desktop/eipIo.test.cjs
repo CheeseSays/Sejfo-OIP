@@ -15,7 +15,7 @@ const { spawn } = require('node:child_process')
 const { existsSync } = require('node:fs')
 const { createServer } = require('node:net')
 const { join } = require('node:path')
-const { EipLink, checkTarget, shutdownEip } = require('./eipIo.cjs')
+const { EipLink, checkTarget, parseTagListing, shutdownEip } = require('./eipIo.cjs')
 
 const AB_SERVER = join(__dirname, 'vendor', 'libplctag', process.platform === 'win32' ? 'ab_server.exe' : 'ab_server')
 const TAGS = ['Eye:BOOL[1]', 'Run:BOOL[1]', 'Count:DINT[1]', 'Level:INT[1]', 'Speed:REAL[1]', 'Lane:DINT[4]']
@@ -121,6 +121,30 @@ async function main() {
     const perCycle = (Date.now() - t0) / 10
     console.log(`  a write + two reads: ${perCycle.toFixed(1)} ms per cycle`)
     assert.ok(perCycle < 100, `a cycle took ${perCycle} ms`)
+
+    // 4b. the tag listing. ab_server does not implement it, so here it says so as a status, quickly, and the link
+    // still works. The listing's own layout is checked on bytes built by hand.
+    const t3 = Date.now()
+    assert.deepEqual(await plc.listTags(), { error: '', status: 'PLCTAG_ERR_UNSUPPORTED' })
+    assert.ok(Date.now() - t3 < 1500, `the refused listing took ${Date.now() - t3} ms`)
+    assert.equal((await plc.exchange([], ['Eye'])).reads[0].status, 'ok')
+    const entry = (name, type) => {
+      const b = Buffer.alloc(22 + name.length)
+      b.writeUInt32LE(7, 0)
+      b.writeUInt16LE(type, 4)
+      b.writeUInt16LE(4, 6)
+      b.writeUInt16LE(name.length, 20)
+      b.write(name, 22, 'latin1')
+      return b
+    }
+    const listing = Buffer.concat([entry('Eye', 0xc1), entry('Program:MainProgram', 0x1068), entry('Recipe', 0x8f21)])
+    assert.deepEqual(parseTagListing(listing), [
+      { name: 'Eye', type: 0xc1 },
+      { name: 'Program:MainProgram', type: 0x1068 },
+      { name: 'Recipe', type: 0x8f21 },
+    ])
+    // an entry cut short ends the walk; what came before it stands
+    assert.deepEqual(parseTagListing(listing.subarray(0, listing.length - 2)), [{ name: 'Eye', type: 0xc1 }, { name: 'Program:MainProgram', type: 0x1068 }])
 
     // 5. the PLC goes away: the next cycle times out (within the link's second), it does not hang
     server.kill()

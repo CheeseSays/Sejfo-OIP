@@ -411,7 +411,7 @@ describe('PLC demo scene', () => {
 
   // The cell is authored to be reproducible by the snap: its lane spacing is a whole number of roller pitches,
   // which keeps every chain lane in a roller gap instead of riding a roller. The snap
-  // rounds an authored spacing to whole pitches (core/snap/snapFeatures adoptedLaneSpacing), so a demo value that
+  // rounds an authored spacing to whole pitches (core/snap/snapTrack adoptedLaneSpacing), so a demo value that
   // already is one survives a re-snap untouched - and a hand-tuned value that isn'T would silently shift when
   // anyone nudges the part.
   it('the transfer\'s lane spacing is a whole number of roller pitches (a re-snap would not move it)', () => {
@@ -1725,7 +1725,7 @@ describe('PLC demo scene', () => {
     for (const pkg of scene.packages ?? []) registerPackage(pkg)
     const report = checkWiring(scene.parts, demoLink())
     expect(report.problems).toEqual([])
-    // ...and prove the check actually looked: a registry miss or a comms-disabled scene would also
+    // ...and prove the check actually looked: a registry miss or a scene with no tags wired would also
     // report zero problems, which is the shape a vacuous gate takes.
     expect(report.unresolvedPackages).toEqual([])
     expect(report.tags.length).toBeGreaterThanOrEqual(30)
@@ -1741,7 +1741,7 @@ describe('PLC demo scene', () => {
   it('wires each program tag to the right SDK part (over the device-IO bridge)', () => {
     const parts = createPlcDemoScene().parts
     const carriers = (tag: string): PartInstance[] =>
-      parts.filter((p) => p.type === 'part' && paramsOf(p).enableComms === true &&
+      parts.filter((p) => p.type === 'part' &&
         Object.values(paramsOf(p)).some((v) => v === tag))
     const carrierPkgs = (tag: string): string[] => [...new Set(carriers(tag).map((p) => pkgId(p)!))].sort()
     expect(carrierPkgs('Infeed')).toEqual(['oip.roller-conveyor'])
@@ -1901,7 +1901,6 @@ describe('PLC demo scene', () => {
     for (const tag of ESTOPS) {
       expect(byTag(tag), tag).toHaveLength(1)
       expect(paramsOf(byTag(tag)[0]!).emergencyStop, tag).toBe(true)
-      expect(paramsOf(byTag(tag)[0]!).enableComms, tag).toBe(true)
     }
     const at = (tag: string) => byTag(tag)[0]!
     const parentName = (q: PartInstance) => parts.find((g) => g.id === q.parent)?.name

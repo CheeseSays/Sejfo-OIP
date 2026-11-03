@@ -198,6 +198,9 @@ function buildContext(renderer: ThumbRenderer): ThumbContext {
     dispose() {
       disposeLights()
       renderer.dispose()
+      // dispose() leaves the WebGL context alive until GC. Thumbnails re-render on every package change,
+      // and once the browser holds too many contexts it force-loses the oldest one, the main viewport's.
+      if (renderer instanceof WebGLRenderer) renderer.forceContextLoss()
     },
   }
 }

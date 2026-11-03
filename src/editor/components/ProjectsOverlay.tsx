@@ -4,6 +4,7 @@ import { DEMO_SCENE_NAME } from '../demo/demoScenes'
 import {
   currentDocumentId,
   deleteDocument,
+  documentsOpenInTabs,
   listDocuments,
   openDocument,
   renameDocument,
@@ -11,15 +12,17 @@ import {
   supportsDocumentLibrary,
 } from '../project/documentStore'
 import type { DocumentMeta } from '../project/documentStore'
-import { openFolderDocument, openLibraryStandIn } from '../desktop/desktopProjectBridge'
+import { openDocumentInNewWindow, openFolderDocument, openLibraryStandIn } from '../desktop/desktopProjectBridge'
 import { createNewProject, UNTITLED_PROJECT } from '../project/newProject'
 import { getOipProjectApi } from '../desktop/desktopProjectApi'
 import type { FolderRecord } from '../desktop/desktopProjectApi'
 import type { EditorState, EditorStore } from '../store/store'
-import { CloseIcon, PencilIcon, TrashIcon } from './toolbarIcons'
+import { CloseIcon, PencilIcon, PeopleIcon, RestoreIcon, TrashIcon } from './toolbarIcons'
+import { renameSharedProject, sharedProjectOf } from '../project/sharedProject'
 import { defineMessages, t } from '../../core/i18n'
 
 const M = defineMessages('projects', {
+  sharedTitle: 'Shared: people with its links edit it with you',
   confirmRemove: 'Remove “{name}” from this list? Its folder stays on disk: {folder}',
   confirmDelete: 'Delete “{name}”? This cannot be undone.',
   removeFailed: 'That project could not be removed.',
@@ -45,6 +48,12 @@ const M = defineMessages('projects', {
   removeNamed: 'Remove {name}',
   deleteNamed: 'Delete {name}',
   openAnotherFirst: 'Open another project first',
+  openInOtherTab: 'open in another tab',
+  openInOtherWindow: 'open in another window',
+  closeOtherTabFirst: 'Open in another tab. Close it there first',
+  closeOtherWindowFirst: 'Open in another window. Close it there first',
+  openInNewWindowNamed: 'Open {name} in a new window',
+  openInNewWindow: 'Open in a new window',
   removeFromList: 'Remove from list (the folder stays)',
   delete: 'Delete',
   examples: 'Examples',
@@ -106,6 +115,10 @@ export function ProjectsOverlay({ store, state, onClose }: { store: EditorStore;
   // to be a real switch rather than a no-op that quietly closes the dialog.
   const openId = currentDocumentId()
   const onScreen = (id: string): boolean => id === openId && !state.demoSession
+  /** documents some tab of this browser has open (libraryDb.documentsOpenInTabs); null until read, or unknowable */
+  const [openInTabs, setOpenInTabs] = useState<ReadonlySet<string> | null>(null)
+  // Another tab's document is its working copy: a delete or rename here would be undone by that tab's next save.
+  const inOtherTab = (id: string): boolean => id !== openId && (openInTabs?.has(id) ?? false)
   const supported = supportsDocumentLibrary()
   const desktop = getOipProjectApi()
   /** document id -> the folder it lives in (desktop only; empty in the browser) */
@@ -116,13 +129,17 @@ export function ProjectsOverlay({ store, state, onClose }: { store: EditorStore;
     void getOipProjectApi()
       ?.folders()
       .then((rows) => setFolders(new Map(rows.map((r) => [r.docId, r]))))
+      .catch((e: unknown) => console.warn('[oip] listing project folders failed', e))
+    void documentsOpenInTabs()
+      .then(setOpenInTabs)
+      .catch((e: unknown) => console.warn('[oip] listing open tabs failed', e))
     void listDocuments().then((found) => {
       setDocs(found)
       // The earned moment for the durability request: they have more than one project, and they are
       // looking at the list of them. Firefox prompts for this, so asking at boot would put a storage
       // permission in front of someone who has not made anything yet (documentStore).
       if (found.length > 1) void requestDurableStorage()
-    })
+    }).catch((e: unknown) => console.warn('[oip] listing projects failed', e))
   }, [])
   useEffect(refresh, [refresh])
 
@@ -164,6 +181,8 @@ export function ProjectsOverlay({ store, state, onClose }: { store: EditorStore;
 
   const onOpen = (id: string): void => {
     if (onScreen(id)) return onClose() // already what you are looking at: the click means "never mind"
+    // on the desktop a project open in another window is that window's: bring it forward rather than open it twice
+    if (desktop && inOtherTab(id)) return onOpenInNewWindow(id)
     const folder = folderOf(id)
     if (folder === null) return run(() => openDocument(id, outgoing()))
     // A folder that cannot be read (moved, deleted, mid-edit) must not strand the project: open the
@@ -171,10 +190,18 @@ export function ProjectsOverlay({ store, state, onClose }: { store: EditorStore;
     run(async () => ((await openFolderDocument(store, id, folder)) === null ? null : openLibraryStandIn(store, id)))
   }
 
+  /** Desktop: open the row in a window of its own, or bring forward the window that has it. */
+  const onOpenInNewWindow = (id: string): void =>
+    run(async () => {
+      const error = await openDocumentInNewWindow(id, folderOf(id))
+      if (error === null) onClose()
+      return error
+    })
+
   const onCreate = (): void => run(() => createNewProject(store, creating ?? ''))
 
   const onDelete = (doc: DocumentMeta): void => {
-    if (doc.id === openId) return // the open document is the working copy; leave it first
+    if (doc.id === openId || inOtherTab(doc.id)) return // the open document is the working copy; leave it first
     const folder = folderOf(doc.id)
     const question =
       folder !== null
@@ -197,7 +224,9 @@ export function ProjectsOverlay({ store, state, onClose }: { store: EditorStore;
     // The open document is renamed through the store, so the title, the scene picker's group header
     // and the working copy all move together; the library follows on its next sync. Any other row is
     // a library-only relabel.
-    if (edit.id === openId) {
+    // a shared project's record names what its write-back saves, so it is renamed too (project/sharedProject.ts)
+    const shared = renameSharedProject(store, edit.id, edit.name)
+    if (edit.id === openId && !shared) {
       store.renameProject(edit.name)
       setDocs((prev) => prev?.map((d) => (d.id === edit.id ? { ...d, name: edit.name.trim() } : d)) ?? null)
       return
@@ -251,7 +280,14 @@ export function ProjectsOverlay({ store, state, onClose }: { store: EditorStore;
               ) : (
                 <button className="projects-name" disabled={busy} onClick={() => onOpen(doc.id)} title={onScreen(doc.id) ? t(M.alreadyOpen) : t(M.openNamed, { name: doc.name })}>
                   <span className="projects-label">{doc.name}</span>
-                  <span className="projects-when">{onScreen(doc.id) ? t(M.openNow) : relativeTime(doc.updatedAt)}</span>
+                  {sharedProjectOf(doc.id) && (
+                    <span className="projects-shared" title={t(M.sharedTitle)} aria-label={t(M.sharedTitle)}>
+                      <PeopleIcon />
+                    </span>
+                  )}
+                  <span className="projects-when">
+                    {onScreen(doc.id) ? t(M.openNow) : inOtherTab(doc.id) ? t(desktop ? M.openInOtherWindow : M.openInOtherTab) : relativeTime(doc.updatedAt)}
+                  </span>
                   {desktop && (
                     <span className="projects-path" data-folder={folderOf(doc.id) !== null}>
                       {folderOf(doc.id) ?? t(M.storedInApp)}
@@ -260,6 +296,18 @@ export function ProjectsOverlay({ store, state, onClose }: { store: EditorStore;
                 </button>
               )}
               <div className="projects-actions">
+                {desktop?.openWindow && !onScreen(doc.id) && (
+                  <button
+                    className="projects-action"
+                    data-testid="projects-new-window"
+                    aria-label={t(M.openInNewWindowNamed, { name: doc.name })}
+                    title={t(M.openInNewWindow)}
+                    disabled={busy}
+                    onClick={() => onOpenInNewWindow(doc.id)}
+                  >
+                    <RestoreIcon />
+                  </button>
+                )}
                 {desktop && folderOf(doc.id) !== null && (
                   <button
                     className="projects-action"
@@ -273,8 +321,8 @@ export function ProjectsOverlay({ store, state, onClose }: { store: EditorStore;
                 <button
                   className="projects-action"
                   aria-label={t(M.renameNamed, { name: doc.name })}
-                  title={t(M.rename)}
-                  disabled={busy}
+                  title={inOtherTab(doc.id) ? t(desktop ? M.closeOtherWindowFirst : M.closeOtherTabFirst) : t(M.rename)}
+                  disabled={busy || inOtherTab(doc.id)}
                   onClick={() => setEditing({ id: doc.id, name: doc.name })}
                 >
                   <PencilIcon size="1em" />
@@ -284,8 +332,16 @@ export function ProjectsOverlay({ store, state, onClose }: { store: EditorStore;
                   aria-label={t(folderOf(doc.id) !== null ? M.removeNamed : M.deleteNamed, { name: doc.name })}
                   // The open document is the working copy: deleting it would leave the editor holding
                   // a project the library no longer knows about. Open another one first.
-                  title={doc.id === openId ? t(M.openAnotherFirst) : folderOf(doc.id) !== null ? t(M.removeFromList) : t(M.delete)}
-                  disabled={busy || doc.id === openId}
+                  title={
+                    doc.id === openId
+                      ? t(M.openAnotherFirst)
+                      : inOtherTab(doc.id)
+                        ? t(desktop ? M.closeOtherWindowFirst : M.closeOtherTabFirst)
+                        : folderOf(doc.id) !== null
+                          ? t(M.removeFromList)
+                          : t(M.delete)
+                  }
+                  disabled={busy || doc.id === openId || inOtherTab(doc.id)}
                   onClick={() => onDelete(doc)}
                 >
                   <TrashIcon size="1em" />

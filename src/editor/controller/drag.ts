@@ -43,7 +43,7 @@ import {
   snapArc,
   sweepOpening,
 } from '../../core/guards/guardOpeningEdit'
-import { sceneUnits } from '../../core/scene/sceneUnits'
+import { sceneDisplayUnits } from '../../core/scene/sceneUnits'
 import { formatLength } from '../../core/units'
 import type { DisplayUnits } from '../../core/units'
 import { FLOOR_SURFACE_Y } from '../../core/types'
@@ -413,7 +413,7 @@ export function moveGuardOpening(ec: EditorController, drag: Drag & { kind: 'gua
   drag.last = { specs, index }
   ec.store.setTransient(withOpenings(drag.start, drag.id, specs))
   const o = specs[index]
-  ec.view.setTransformReadout(o ? openingReadout(o.arcStart, o.arcEnd, sceneUnits(s.scene)) : null)
+  ec.view.setTransformReadout(o ? openingReadout(o.arcStart, o.arcEnd, sceneDisplayUnits(s.scene)) : null)
 }
 
 /** the live readout while an opening is dragged: where it starts and ends along the guard, and its width */
@@ -1010,7 +1010,8 @@ export function finishBand(ec: EditorController, drag: Drag & { kind: 'band' }, 
     const hits = ec.view.partsInRect(x0, y0, x1, y1)
     // spawner-born cargo in the band owns no part yet - promote it, exactly as click-select does
     // (one commit for the whole band), so a running line's boxes are band-selectable at all
-    hits.push(...ec.promoteCargoBoxes(ec.view.cargoBodiesInRect(x0, y0, x1, y1)))
+    // (not while drawing another connection's shared run: its cargo is that client's, and nothing here may adopt it)
+    if (!ec.store.getState().liveFollowing) hits.push(...ec.promoteCargoBoxes(ec.view.cargoBodiesInRect(x0, y0, x1, y1)))
     // what those hits mean against the tree (grouped-subtree redirect, dedupe, shift-extend) is
     // selection policy, not pointer plumbing - see core/selection.ts
     const s = ec.store.getState()

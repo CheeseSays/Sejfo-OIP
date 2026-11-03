@@ -3,6 +3,10 @@
 // methods persist through. Extracted from store.ts verbatim - keys and defaults must stay stable
 // (they're the user's persisted preferences).
 import { isAmsNetId } from '../../core/io/ads'
+import { MAX_BROWSE_ROOTS, opcUaBrowseRoot } from '../../core/io/opcUa'
+import { isControllerName } from '../../core/io/controllerTag'
+import { MAX_SCENE_PLCS } from '../../core/scene/scenePlcs'
+import type { PlcProtocol } from '../../core/scene/scenePlcs'
 import { DEFAULT_ROTATE_SNAP_DEG, DEFAULT_TRANSLATE_SNAP } from '../../core/types'
 import type { ProjectionMode } from '../../render/api'
 import type { GridSnap, TransformSpace } from './store'
@@ -322,13 +326,11 @@ export function clearViewportState(key: string): void {
 export const EXTERNAL_PLC_KEY = 'oip-web/external-plc'
 
 /**
- * An external PLC's link settings (editor/links/externalPlc.ts): whether Play serves the scene's I/O to a PLC
- * instead of running the in-process program, on which port, and whether the network may reach it. A
- * machine setting, not the document's: which port this workstation listens on, and whether its firewall
- * should let a PLC on the network in, belongs to the workstation. What the document carries is the
- * wiring, the addresses in the parts' tags.
+ * One link to a PLC outside the app (editor/links/externalPlc.ts): how it connects, and where. For the main
+ * controller `enabled` is whether Play hands the scene's I/O to this PLC instead of running the in-process program;
+ * for a named one ({@link NamedPlcLink}) whether Play connects it at all.
  */
-export interface ExternalPlcSettings {
+export interface PlcLinkSettings {
   enabled: boolean
   /**
    * How the link runs. `serve`: the simulator is a Modbus server and the PLC polls it (OpenPLC). `poll`: the
@@ -336,9 +338,10 @@ export interface ExternalPlcSettings {
    * both exist. `opcua`: the simulator reads and writes the PLC's tags by name on its OPC UA server
    * (core/io/opcUa.ts). `eip`: the same, by name, on a Logix controller over EtherNet/IP (core/io/eip.ts). `s7`: the
    * simulator reads and writes an S7-1200/1500 CPU's I, Q and M memory and data blocks over PUT/GET (core/io/s7Io.ts).
+   * `slmp`: the simulator reads and writes a MELSEC CPU's devices (X, Y, M, D) over SLMP (core/io/slmpIo.ts).
    * `ads`: a TwinCAT PLC's symbols by name, through TwinCAT's own router on this PC (core/io/ads.ts).
    */
-  mode: 'serve' | 'poll' | 'opcua' | 'eip' | 's7' | 'ads'
+  mode: PlcProtocol
   /** serve: the port the simulator listens on */
   port: number
   /** serve: listen on every interface (a PLC on the network), not only this machine */
@@ -351,6 +354,8 @@ export interface ExternalPlcSettings {
   outputBase: number
   /** opcua: the PLC's OPC UA server */
   opcUaEndpoint: string
+  /** opcua: where the browse for tags starts, as typed (core/io/opcUa.ts opcUaBrowseRoot); empty: Objects */
+  opcUaBrowseFrom: readonly string[]
   /** eip: the controller's address (or its Ethernet module's), host[:port] */
   eipGateway: string
   /** eip: the route from that module to the controller's CPU, `1,0` = the backplane, slot 0; '' for none */
@@ -360,17 +365,45 @@ export interface ExternalPlcSettings {
   s7Port: number
   s7Rack: number
   s7Slot: number
+  /** slmp: the MELSEC CPU's address, and the port its SLMP server answers on (5000 unless something forwards it) */
+  slmpHost: string
+  slmpPort: number
   /** ads: the PLC's AMS Net ID ('' = the TwinCAT runtime on this PC) and its AMS port (851 = the first PLC) */
   adsNetId: string
   adsPort: number
-  /**
-   * The simulated PLC's own OPC UA server (editor/links/opcUaServer.ts): the program here, published by name for a
-   * SCADA or HMI. Independent of the fields above, which are for a real PLC running the scene.
-   */
+  /** read every tag and write none (the scene's ScenePlc.watch); the project's, so never kept as a preference */
+  watch?: boolean
+}
+
+/**
+ * A simulated controller's own OPC UA server (editor/links/opcUaServer.ts): its program, published by name for a
+ * SCADA or HMI, on a port of its own, as each PLC on a line has a server of its own.
+ */
+export interface UaServerSettings {
   uaServer: boolean
   uaServerPort: number
   /** listen on every interface (a SCADA on another machine), not only this one */
   uaServerNetwork: boolean
+}
+
+/**
+ * This computer's settings for a controller other than the default one, by the name a part's tag gives it:
+ * `Cell2::%IX0.0` is wired to the controller named Cell2 (core/io/controllerTag.ts). Its link to a PLC, and its
+ * OPC UA server for when the simulator runs it.
+ */
+export interface NamedPlcLink extends PlcLinkSettings, UaServerSettings {
+  name: string
+}
+
+/**
+ * The external-PLC settings: the default controller's link, the named controllers' links, and the simulated PLC's
+ * OPC UA server. A machine setting, not the document's: which port this workstation listens on, where its PLCs
+ * are, and whether its firewall should let a PLC on the network in, belongs to the workstation. What the document
+ * carries is the wiring, the addresses and controller names in the parts' tags.
+ */
+export interface ExternalPlcSettings extends PlcLinkSettings, UaServerSettings {
+  /** the named controllers, in the order Controller Properties lists them; names are unique */
+  controllers: readonly NamedPlcLink[]
 }
 
 /**
@@ -390,18 +423,28 @@ export const DEFAULT_EXTERNAL_PLC: ExternalPlcSettings = {
   inputBase: 0,
   outputBase: 0,
   opcUaEndpoint: 'opc.tcp://127.0.0.1:4840',
+  opcUaBrowseFrom: [],
   eipGateway: '127.0.0.1',
   eipPath: '1,0',
   s7Host: '192.168.0.1',
   s7Port: 102,
   s7Rack: 0,
   s7Slot: 1,
+  slmpHost: '192.168.0.1',
+  slmpPort: 5000,
   adsNetId: '',
   adsPort: 851,
   uaServer: false,
   uaServerPort: DEFAULT_UA_SERVER_PORT,
   uaServerNetwork: false,
+  controllers: [],
 }
+
+/** How many named controllers a scene lists beside its default one (core/scene/scenePlcs.ts MAX_SCENE_PLCS). */
+export const MAX_NAMED_PLCS = MAX_SCENE_PLCS - 1
+
+/** How many controllers' addresses this computer keeps, across every project it has opened (store/storePlcs.ts). */
+export const MAX_KEPT_ADDRESSES = 64
 
 const isPort = (v: unknown): v is number => typeof v === 'number' && Number.isInteger(v) && v >= 1 && v <= 65535
 const isWord = (v: unknown): v is number => typeof v === 'number' && Number.isInteger(v) && v >= 0 && v <= 65535
@@ -419,9 +462,58 @@ export const isEipPath = (v: unknown): v is string => typeof v === 'string' && /
 export function sanitizeExternalPlc(raw: unknown): ExternalPlcSettings {
   const o = typeof raw === 'object' && raw !== null ? (raw as Record<string, unknown>) : {}
   const d = DEFAULT_EXTERNAL_PLC
+  const controllers: NamedPlcLink[] = []
+  for (const c of Array.isArray(o.controllers) ? o.controllers : []) {
+    const name = typeof c === 'object' && c !== null ? (c as Record<string, unknown>).name : undefined
+    if (typeof name !== 'string' || !isControllerName(name) || controllers.some((k) => k.name.toLowerCase() === name.toLowerCase())) continue
+    if (controllers.length < MAX_KEPT_ADDRESSES) controllers.push({ name, ...sanitizePlcLink(c), ...sanitizeUaServer(c, DEFAULT_UA_SERVER_PORT + 1 + controllers.length) })
+  }
+  return {
+    ...sanitizePlcLink(o),
+    uaServer: o.uaServer === true,
+    uaServerPort: isPort(o.uaServerPort) ? o.uaServerPort : d.uaServerPort,
+    uaServerNetwork: o.uaServerNetwork === true,
+    controllers,
+  }
+}
+
+/**
+ * After sanitizing a patch, an address or number the patch set but sanitizing refused keeps its last valid value
+ * (the field then snaps back) instead of falling to the default.
+ */
+export function keepLastValid(next: PlcLinkSettings, cur: PlcLinkSettings, patch: Partial<PlcLinkSettings>): void {
+  for (const key of ['port', 'plcHost', 'plcPort', 'inputBase', 'outputBase', 'opcUaEndpoint', 'eipGateway', 'eipPath'] as const) {
+    if (patch[key] !== undefined && next[key] !== patch[key]) (next as Record<typeof key, unknown>)[key] = cur[key]
+  }
+}
+
+/**
+ * The link that serves on the same port as `who`'s (null: the default controller), when both serve on Play: two cannot
+ * listen on one port. Its name, '' for the default controller, or null when the port is its own.
+ */
+export function servePortClash(settings: ExternalPlcSettings, who: string | null): string | null {
+  const serving = [
+    ...(settings.enabled && settings.mode === 'serve' ? [{ name: '', port: settings.port }] : []),
+    ...settings.controllers.filter((c) => c.enabled && c.mode === 'serve').map((c) => ({ name: c.name, port: c.port })),
+  ]
+  const self = serving.find((s) => s.name === (who ?? ''))
+  if (!self) return null
+  return serving.find((s) => s !== self && s.port === self.port)?.name ?? null
+}
+
+/** An OPC UA server's settings with every field valid; `port` when the port is not one. */
+export function sanitizeUaServer(raw: unknown, port: number): UaServerSettings {
+  const o = typeof raw === 'object' && raw !== null ? (raw as Record<string, unknown>) : {}
+  return { uaServer: o.uaServer === true, uaServerPort: isPort(o.uaServerPort) ? o.uaServerPort : port, uaServerNetwork: o.uaServerNetwork === true }
+}
+
+/** One link's settings with every field valid. */
+export function sanitizePlcLink(raw: unknown): PlcLinkSettings {
+  const o = typeof raw === 'object' && raw !== null ? (raw as Record<string, unknown>) : {}
+  const d = DEFAULT_EXTERNAL_PLC
   return {
     enabled: o.enabled === true,
-    mode: o.mode === 'poll' || o.mode === 'opcua' || o.mode === 'eip' || o.mode === 's7' || o.mode === 'ads' ? o.mode : 'serve',
+    mode: o.mode === 'poll' || o.mode === 'opcua' || o.mode === 'eip' || o.mode === 's7' || o.mode === 'slmp' || o.mode === 'ads' ? o.mode : 'serve',
     port: isPort(o.port) ? o.port : d.port,
     network: o.network === true,
     plcHost: isPlcHost(o.plcHost) ? o.plcHost : d.plcHost,
@@ -429,17 +521,20 @@ export function sanitizeExternalPlc(raw: unknown): ExternalPlcSettings {
     inputBase: isWord(o.inputBase) ? o.inputBase : d.inputBase,
     outputBase: isWord(o.outputBase) ? o.outputBase : d.outputBase,
     opcUaEndpoint: isOpcUaEndpoint(o.opcUaEndpoint) ? o.opcUaEndpoint : d.opcUaEndpoint,
+    // a start point that is not a path or a NodeId is dropped, and the rest kept
+    opcUaBrowseFrom: Array.isArray(o.opcUaBrowseFrom)
+      ? o.opcUaBrowseFrom.filter((r): r is string => typeof r === 'string' && opcUaBrowseRoot(r) !== null).slice(0, MAX_BROWSE_ROOTS)
+      : d.opcUaBrowseFrom,
     eipGateway: isPlcHost(o.eipGateway) ? o.eipGateway : d.eipGateway,
     eipPath: isEipPath(o.eipPath) ? o.eipPath : d.eipPath,
     s7Host: isPlcHost(o.s7Host) ? o.s7Host : d.s7Host,
     s7Port: isPort(o.s7Port) ? o.s7Port : d.s7Port,
     s7Rack: isWhole(o.s7Rack, 0, 7) ? o.s7Rack : d.s7Rack,
     s7Slot: isWhole(o.s7Slot, 0, 31) ? o.s7Slot : d.s7Slot,
+    slmpHost: isPlcHost(o.slmpHost) ? o.slmpHost : d.slmpHost,
+    slmpPort: isPort(o.slmpPort) ? o.slmpPort : d.slmpPort,
     adsNetId: isAmsNetId(o.adsNetId) ? o.adsNetId : d.adsNetId,
     adsPort: isPort(o.adsPort) ? o.adsPort : d.adsPort,
-    uaServer: o.uaServer === true,
-    uaServerPort: isPort(o.uaServerPort) ? o.uaServerPort : d.uaServerPort,
-    uaServerNetwork: o.uaServerNetwork === true,
   }
 }
 

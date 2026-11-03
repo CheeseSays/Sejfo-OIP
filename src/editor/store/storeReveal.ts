@@ -12,15 +12,26 @@ export class RevealRequests {
   // (the tutorial, whose card tells the user to watch the program appear in the PLC panel). The
   // layout itself lives in App state, so this is a request, not a mutation.
   private revealPanelListeners = new Set<(panel: DockPanelId) => void>()
+  // Requests made before App subscribes: the store exists (main.tsx) before App mounts, and a request in that gap
+  // would otherwise be dropped. They are kept until the first subscriber, with no time limit, since that gap is the
+  // app's own boot.
+  private pendingPanelReveals: DockPanelId[] = []
 
   /** subscribe to panel-reveal requests (App applies them to the dock layout) */
   onRevealPanel(cb: (panel: DockPanelId) => void): () => void {
     this.revealPanelListeners.add(cb)
+    const pending = this.pendingPanelReveals
+    this.pendingPanelReveals = []
+    for (const panel of pending) cb(panel)
     return () => this.revealPanelListeners.delete(cb)
   }
 
   /** ask the app to surface a dock panel: front tab of its slot, dock un-collapsed */
   revealPanel(panel: DockPanelId): void {
+    if (this.revealPanelListeners.size === 0) {
+      if (!this.pendingPanelReveals.includes(panel)) this.pendingPanelReveals.push(panel)
+      return
+    }
     for (const cb of this.revealPanelListeners) cb(panel)
   }
 
@@ -52,6 +63,31 @@ export class RevealRequests {
     }
     this.pendingStReveal = null
     for (const cb of this.revealStOffsetListeners) cb(offset)
+  }
+
+  // "Type into the code": a click on the PLC panel's dock tab puts the keyboard in the text, so the click that brings the
+  // panel up is also the one that starts typing. A background tab mounts its panel on the next render, so the request
+  // waits briefly for it, like revealStOffset.
+  private focusStListeners = new Set<() => void>()
+  private pendingStFocus: number | null = null
+
+  /** subscribe to "type into the code" requests (the mounted ST editor serves them while it shows text) */
+  onFocusStCode(cb: () => void): () => void {
+    this.focusStListeners.add(cb)
+    const at = this.pendingStFocus
+    this.pendingStFocus = null
+    if (at !== null && Date.now() - at <= ST_REVEAL_HOLD_MS) cb()
+    return () => this.focusStListeners.delete(cb)
+  }
+
+  /** ask the ST editor to take the keyboard */
+  focusStCode(): void {
+    if (this.focusStListeners.size === 0) {
+      this.pendingStFocus = Date.now()
+      return
+    }
+    this.pendingStFocus = null
+    for (const cb of this.focusStListeners) cb()
   }
 
   // "Show the tasks": the PLC panel's organizer brings its Tasks section into view, unfolded. The same shape as

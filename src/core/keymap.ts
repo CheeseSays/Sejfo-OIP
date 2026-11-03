@@ -101,6 +101,7 @@ export const KEY_BINDINGS = [
   { id: 'edit.delete', mode: 'editor', group: 'Edit', label: 'Delete', keys: ['Delete', 'Backspace'] },
   { id: 'edit.sideGuards', mode: 'editor', group: 'Edit', label: 'Edit guard openings', keys: ['KeyG'], hint: 'with a conveyor selected: drag along a guard to cut an opening, Delete removes the clicked one, Esc exits' },
   { id: 'edit.rename', mode: 'editor', group: 'Edit', label: 'Rename', keys: ['F2'], hint: 'the selected part in the scene tree, or the declaration under the caret in the PLC text' },
+  { id: 'edit.goToDefinition', mode: 'editor', group: 'Edit', label: 'Go to definition', keys: ['F12'], hint: 'where the name under the caret in the PLC text is declared' },
   { id: 'edit.moveUp', mode: 'editor', group: 'Edit', label: 'Move up one slot', keys: ['ctrl+ArrowUp'], match: 'logical' },
   { id: 'edit.moveDown', mode: 'editor', group: 'Edit', label: 'Move down one slot', keys: ['ctrl+ArrowDown'], match: 'logical' },
   { id: 'edit.lock', mode: 'editor', group: 'Edit', label: 'Lock', keys: ['ctrl+KeyL'], match: 'logical' },
@@ -110,7 +111,7 @@ export const KEY_BINDINGS = [
   { id: 'edit.group', mode: 'editor', group: 'Edit', label: 'Select as one', keys: ['ctrl+KeyG'], match: 'logical', hint: 'a viewport click on any part inside selects the whole' },
   { id: 'edit.ungroup', mode: 'editor', group: 'Edit', label: 'Select parts individually', keys: ['ctrl+shift+KeyG'], match: 'logical' },
   { id: 'edit.reparent', mode: 'editor', group: 'Edit', label: 'Reparent to new node', keys: ['ctrl+KeyJ'], match: 'logical', hint: 'wraps the selection in a fresh Group' },
-  { id: 'ui.cancel', mode: 'editor', group: 'Edit', label: 'Cancel / deselect', keys: ['Escape'], fixed: true, hint: 'also backs out of placing, a drag, or the ruler' },
+  { id: 'ui.cancel', mode: 'editor', group: 'Edit', label: 'Cancel / deselect', keys: ['Escape'], fixed: true, hint: 'also backs out of Present, placing, a drag, or the ruler' },
 
   // --- placement & snapping ------------------------------------------------
   { id: 'snap.grid', mode: 'editor', group: 'Snapping', label: 'Grid snap', keys: ['KeyY'] },
@@ -125,6 +126,13 @@ export const KEY_BINDINGS = [
   { id: 'view.space', mode: 'editor', group: 'View', label: 'Local / global space', keys: ['KeyT'] },
   { id: 'view.trackball', mode: 'editor', group: 'View', label: 'Trackball rotate', keys: ['KeyU'] },
   { id: 'view.projection', mode: 'editor', group: 'View', label: 'Perspective / orthographic', keys: ['KeyO', 'Numpad5'] },
+  // The orbit gizmo's axis balls from the keyboard: an orthographic view down a world axis, Ctrl for the opposite side
+  { id: 'view.front', mode: 'editor', group: 'View', label: 'Front view', keys: ['Numpad1'], hint: 'Ctrl for the rear' },
+  { id: 'view.rear', mode: 'editor', group: 'View', label: 'Rear view', keys: ['ctrl+Numpad1'] },
+  { id: 'view.right', mode: 'editor', group: 'View', label: 'Right view', keys: ['Numpad3'], hint: 'Ctrl for the left' },
+  { id: 'view.left', mode: 'editor', group: 'View', label: 'Left view', keys: ['ctrl+Numpad3'] },
+  { id: 'view.top', mode: 'editor', group: 'View', label: 'Top view', keys: ['Numpad7'], hint: 'Ctrl for the bottom' },
+  { id: 'view.bottom', mode: 'editor', group: 'View', label: 'Bottom view', keys: ['ctrl+Numpad7'] },
   { id: 'view.flowArrows', mode: 'editor', group: 'View', label: 'Flow arrows', keys: ['Period'] },
   { id: 'camera.freelook', mode: 'editor', group: 'View', label: 'Free fly', keys: ['shift+KeyF'], hint: 'or hold the right mouse button' },
   { id: 'view.distractionFree', mode: 'editor', group: 'View', label: 'Distraction-free mode', keys: ['ctrl+shift+F11', 'meta+shift+KeyD'], match: 'logical' },
@@ -141,6 +149,8 @@ export const KEY_BINDINGS = [
   // in text, dialogs, menus and free fly, whose boost is Space too (see App.tsx).
   { id: 'sim.playPause', mode: 'editor', group: 'Simulation', label: 'Play / pause', keys: ['Space'], hint: 'starts a stopped simulation; F5 / F6 in the desktop app' },
   { id: 'sim.stop', mode: 'editor', group: 'Simulation', label: 'Stop', keys: ['shift+Space'], hint: 'Shift+F5 in the desktop app' },
+  // Shift+Period types '>', which reads as "next". Auto-repeat steps again, so holding it plays the run slowly.
+  { id: 'sim.step', mode: 'editor', group: 'Simulation', label: 'Step one physics step', keys: ['shift+Period'], hint: 'while paused; F7 in the desktop app' },
 
   // --- help ----------------------------------------------------------------
   { id: 'ui.shortcuts', mode: 'editor', group: 'Help', label: 'Keyboard shortcuts', keys: ['shift+Slash'] },
@@ -435,7 +445,10 @@ const TOKEN_LABEL: Record<string, string> = {
   ArrowDown: '↓',
   ArrowLeft: '←',
   ArrowRight: '→',
+  Numpad1: 'Numpad 1',
+  Numpad3: 'Numpad 3',
   Numpad5: 'Numpad 5',
+  Numpad7: 'Numpad 7',
 }
 
 /** the chord as a human reads it: `ctrl+shift+KeyZ` → `Ctrl+Shift+Z` (`⌘⇧Z` on a Mac) */

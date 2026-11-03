@@ -1,5 +1,5 @@
-import { lazy, Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import type { CSSProperties, PointerEvent as ReactPointerEvent, ReactElement } from 'react'
+import { lazy, Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
+import type { CSSProperties, MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent, ReactElement } from 'react'
 import {
   commsTags,
   controllerFor,
@@ -10,6 +10,9 @@ import {
   type DocumentEdit,
   type StBlock,
   type TagRename,
+  type WatchInstance,
+  watchInstances,
+  watchScopes,
 } from '../../../plc'
 import type { Controller } from '../../../core/controller'
 import { dialectRefusal, foreignDialectNote, isKnownDialect } from '../../../core/dialect'
@@ -17,7 +20,7 @@ import { resolveKeyAction } from '../../../core/keymap'
 import { askName } from '../../nameDialog'
 import { commandDisabledReason, commandEnabled, runCommand } from '../../commands'
 import { commitControllerEdit } from '../../program/controllerCommit'
-import { getCollabContext } from '../../../collab/session'
+import { getCollabContext, subscribeCollab } from '../../../collab/session'
 import type { EditorController } from '../../controller'
 import type { EditorState, EditorStore } from '../../store/store'
 import { dockPanelTitle } from '../../dockLayout'
@@ -36,6 +39,11 @@ import { PlcFileMenu } from './PlcFileMenu'
 import { providePlcReading } from '../../program/plcReading'
 import { CheckIcon, CopyIcon, DockIcon, ExternalLinkIcon, FoldIcon, MaximizeIcon } from '../toolbarIcons'
 import { defineMessages, t } from '../../../core/i18n'
+import { ContextMenu, type MenuItem } from '../inspector/menu'
+import { primaryKey } from '../../keyHint'
+import { activeClipboard } from '../../dialogHost'
+import { addToWatchList, resolveWatch, watchListKey } from '../../program/plcWatchList'
+import { currentDocumentId } from '../../project/documentStore'
 
 const M = defineMessages('stEditor', {
   viewOnlyLink: 'Disabled on a view-only link',
@@ -47,6 +55,13 @@ const M = defineMessages('stEditor', {
   renameIntro: "Every use of it in {where} follows, and so does the scene's wiring.",
   rename: 'Rename',
   notRenamed: '{name} was not renamed',
+  noDefinition: 'No definition here',
+  noDefinitionDetail: 'Put the caret on a name the program declares (a variable, a member, a block, a function or a type) and press {keys} again.',
+  goToDefinition: 'Go to definition',
+  goToDefinitionOf: 'Go to definition of {name}',
+  foldDeclarations: 'Fold all declarations',
+  foldDeclarationsHint: 'Collapse every VAR section, TYPE and STRUCT, leaving the statements',
+  unfoldAll: 'Unfold all',
   notRunning: 'The program is not running',
   reloadAttached:
     'Your edits are not running yet. Reload restarts the program with them (Ctrl/Cmd-Enter): its timers, counters and steps start over, the scene carries on',
@@ -55,6 +70,21 @@ const M = defineMessages('stEditor', {
   hideOrganizer: 'Hide the organizer: the program as a tree of tasks, programs and types',
   showOrganizer: 'Show the organizer: the program as a tree of tasks, programs and types',
   organizer: 'Organizer',
+  addNameToWatch: 'Add {name} to Watch',
+  addToWatch: 'Add to Watch',
+  addToWatchHint: 'Follow its live value in the Watch dock',
+  addToWatchNone: 'Right-click a variable to watch it',
+  forceName: 'Force {name}',
+  forceHint: 'Hold it at its current value across scans until released, whatever the program writes',
+  releaseName: 'Release {name}',
+  releaseHint: 'Let the program write it again',
+  notForced: '{name} was not forced',
+  cut: 'Cut',
+  copy: 'Copy',
+  paste: 'Paste',
+  selectAll: 'Select All',
+  pasteRefused: 'The browser did not hand over the clipboard',
+  pasteRefusedDetail: 'Press {keys} in the code to paste instead.',
   programView: 'Program view',
   textTitle: 'The program as Structured Text',
   text: 'Text',
@@ -124,7 +154,7 @@ interface StEditorProps {
   docked?: boolean
   /**
    * Read-the-program surface: the code, its POU index and the PLC status, with every command
-   * that WRITES dropped. This is the mobile Logic sheet (App), where the program runs on Play
+   * that WRITES dropped. This is the mobile PLC sheet (App), where the program runs on Play
    * but a phone keyboard is no way to author ST.
    *
    * Not `store.setReadOnly` - that flag is the collaborative view-only link and
@@ -246,12 +276,12 @@ interface TableFacts {
   problems: string[]
 }
 /** Parses (twice, with the check), so it is for a quiet period after an edit, not a keystroke. */
-function tableFactsOf(source: string, controller: Controller | null, scanMs: number): TableFacts {
+function tableFactsOf(source: string, controller: Controller | null, scanMs: number, defaultName: string): TableFacts {
   const running = controllerFor(source, controller, scanMs)
   return {
     shown: controller ?? defaultController(source, scanMs),
     ownConfiguration: !controller && declaresConfiguration(source),
-    problems: running ? controllerDiagnostics(source, running).controller : [],
+    problems: running ? controllerDiagnostics(source, running, { defaultName }).controller : [],
   }
 }
 const sameTableFacts = (a: TableFacts, b: TableFacts): boolean =>
@@ -301,7 +331,9 @@ const dockBtn: CSSProperties = {
   padding: '0 4px',
   font: '13px ui-sans-serif, system-ui, sans-serif',
 }
-const controls: CSSProperties = { display: 'flex', flexDirection: 'column', gap: 8, flexShrink: 0 }
+// the status lines under the code: capped and scrolled, or in a short docked panel a long list of bind warnings
+// pushes the code editor down to no height at all
+const controls: CSSProperties = { display: 'flex', flexDirection: 'column', gap: 8, flexShrink: 0, maxHeight: '40%', overflowY: 'auto' }
 // the commands at the header row's right end (marginLeft: auto keeps them there whatever stands to their left)
 const commandGroup: CSSProperties = { display: 'flex', alignItems: 'center', gap: 4, flex: 'none', marginLeft: 'auto', padding: '3px 6px' }
 // sized to the toggle beside them, so the row stays one control tall
@@ -356,15 +388,29 @@ export function StEditor({ store, state, controller, docked = false, viewOnly = 
   // physics steps in the sim worker, so this only climbs when the cycle time is set below what
   // one physics step can drain (sim/plcHost.ts) - the cue to raise scan time
   const [overruns, setOverruns] = useState(0)
+  // which instance's values the code shows for a PROGRAM that runs as several, by type upper-cased: picked on the
+  // organizer's instance rows or the chip on the PROGRAM's header (plc/watchScope.ts). Not the document's: a view.
+  const [picked, setPicked] = useState<Readonly<Record<string, string>>>({})
+  const pickedRef = useRef(picked)
+  pickedRef.current = picked
+  const [pickInstance] = useState(() => (type: string, instance: string) => setPicked((was) => ({ ...was, [type.toUpperCase()]: instance })))
   // collaborative room binding (null in solo mode): the shared ST Y.Text + its CodeMirror
   // extension. In a room CodeMirror binds STRAIGHT to the shared text (that's what makes
-  // co-editing work); the store mirrors it so everything else has one place to read.
-  const [collab] = useState(getCollabContext)
+  // co-editing work); the store mirrors it so everything else has one place to read. Followed, not read once: Share
+  // can take a solo tab into a room without a reload (editor/roomEntry.ts), and the code editor then remounts on it.
+  const collab = useSyncExternalStore(subscribeCollab, getCollabContext)
   // the program to seed the editor with, read once on mount - from the store, which the boot path
   // has already loaded from whichever document owns it (project, room, demo)
   const [initialSource] = useState(() => store.getState().stProgram)
   const ctrlRef = useRef(controller)
   ctrlRef.current = controller
+  // What hears a force set or released. Kept here and fed from the controller once there is one: a subscriber that
+  // arrives before the viewport makes the controller (the Devices list, memoised once) would otherwise never hear one.
+  const forceListeners = useRef(new Set<() => void>())
+  useEffect(() => controller?.onPlcForces(() => { for (const cb of forceListeners.current) cb() }), [controller])
+  // ...and what hears a program attach or detach, relayed the same way
+  const statusListeners = useRef(new Set<() => void>())
+  useEffect(() => controller?.onProgramStatus(() => { for (const cb of statusListeners.current) cb() }), [controller])
   // CodeMirror owns the buffer; sourceRef mirrors it for the run/attach handlers
   const editorRef = useRef<StCodeEditorHandle>(null)
   const sourceRef = useRef(initialSource)
@@ -389,7 +435,7 @@ export function StEditor({ store, state, controller, docked = false, viewOnly = 
   // task table the organizer shows (with its problems, which take the checker).
   const [bodyRuns, setBodyRuns] = useState(() => topLevelStatements(initialSource))
   const [typeNames, setTypeNames] = useState<ReadonlyMap<number, readonly string[]>>(() => typeNamesOf(blocks))
-  const [tableFacts, setTableFacts] = useState(() => tableFactsOf(initialSource, store.getState().controller, store.getState().stScanMs))
+  const [tableFacts, setTableFacts] = useState(() => tableFactsOf(initialSource, store.getState().controller, store.getState().stScanMs, store.getState().externalPlc.mainName))
   // The ladder view draws from React state, which the text view has none of (a keystroke must not
   // re-render this panel), so the source is mirrored into state ONLY while the ladder is what is showing.
   // The face the panel opens on is its main POU's (`openingFace`), so a controller that runs a ladder opens on rungs.
@@ -418,6 +464,8 @@ export function StEditor({ store, state, controller, docked = false, viewOnly = 
   // A code reveal that came before the lazy text editor did: a jump from a background tab mounts this panel, and the
   // editor's chunk lands after it, so the store's replay of the request finds no editor yet. Served on its onReady.
   const pendingReveal = useRef<number | null>(null)
+  // the same for a dock-tab click's focus request (store.focusStCode)
+  const pendingFocus = useRef(false)
   // the File command menu: placed by its top edge (opening down from ⋯, which sits in the header row) or, when a short
   // dock leaves no room below, by its bottom edge
   // the attach error is the controller table's, so the line under the code points at the organizer's tasks
@@ -484,7 +532,7 @@ export function StEditor({ store, state, controller, docked = false, viewOnly = 
       const names = typeNamesOf(parseDocument(src).blocks)
       setTypeNames((cur) => (sameTypeNames(cur, names) ? cur : names))
       const s = store.getState()
-      const table = tableFactsOf(src, s.controller, s.stScanMs)
+      const table = tableFactsOf(src, s.controller, s.stScanMs, s.externalPlc.mainName)
       setTableFacts((cur) => (sameTableFacts(cur, table) ? cur : table))
       // The last ladder went (an undo, a delete in the text): a sheet with nothing on it is no face of this program.
       // NO_LADDER by identity means the program does not even spell LADDER; a merely EMPTY set can be a program that
@@ -590,7 +638,7 @@ export function StEditor({ store, state, controller, docked = false, viewOnly = 
   // The table the organizer shows changes with the store's controller and scan time as well as with the code: a table
   // edit commits both, but a retime of the default table changes only the scan time.
   useEffect(() => {
-    const table = tableFactsOf(currentSource(), state.controller, state.stScanMs)
+    const table = tableFactsOf(currentSource(), state.controller, state.stScanMs, state.externalPlc.mainName)
     setTableFacts((cur) => (sameTableFacts(cur, table) ? cur : table))
     // currentSource reads refs; only the store's half of the table is a dependency
   }, [state.controller, state.stScanMs])
@@ -647,7 +695,16 @@ export function StEditor({ store, state, controller, docked = false, viewOnly = 
       return renameDeclaration(ctx, scope, at.word!, to.trim()).then((why) => {
         if (why !== null) showReport({ headline: t(M.notRenamed, { name: at.word! }), detail: why, items: [], tone: 'warn', keepOnEdit: false })
       })
-    })
+    }).catch((e) => console.warn('[oip] rename failed:', e))
+  }
+
+  /** Move the caret to where the name under it is declared (plc/tags.ts `definitionAt`). */
+  const goToDefinitionAt = (offset: number): void => {
+    void import('../../../plc/tags').then(({ definitionAt }) => {
+      const at = definitionAt(currentSource(), offset)
+      if (at !== null) editorRef.current?.revealOffset(at)
+      else showReport({ headline: t(M.noDefinition), detail: t(M.noDefinitionDetail, { keys: primaryKey('edit.goToDefinition') ?? '' }), items: [], tone: 'warn', keepOnEdit: false })
+    }).catch((e) => console.warn('[oip] go to definition failed:', e))
   }
 
   const showText = (offset: number): void => {
@@ -693,9 +750,24 @@ export function StEditor({ store, state, controller, docked = false, viewOnly = 
     showReport,
     showLanded,
     watch: () => ctrlRef.current?.plcWatch,
+    monitored: picked,
+    pickInstance,
+    forces: () => ctrlRef.current?.plcForces ?? {},
+    aliases: () => ctrlRef.current?.plcAliases ?? new Map(),
+    force: (key) => (ctrlRef.current ? ctrlRef.current.forcePlcValue(key) : t(M.notRunning)),
+    releaseForce: (key) => ctrlRef.current?.releasePlcForces(key),
+    onForces: (cb) => {
+      forceListeners.current.add(cb)
+      return () => forceListeners.current.delete(cb)
+    },
+    onProgramStatus: (cb) => {
+      statusListeners.current.add(cb)
+      return () => statusListeners.current.delete(cb)
+    },
     toggleBit: (key) => ctrlRef.current?.togglePlcBit(key) ?? false,
     // (NOT `?? 'not running'`: a write that WORKED answers null)
     writeLive: (key, text) => (ctrlRef.current ? ctrlRef.current.writePlcValue(key, text) : t(M.notRunning)),
+    addToWatch: (name) => addToWatch(name),
     tags: () => commsTags(stateRef.current.scene.parts),
     undo: () => editorRef.current?.undo(),
     redo: () => editorRef.current?.redo(),
@@ -733,6 +805,92 @@ export function StEditor({ store, state, controller, docked = false, viewOnly = 
     [],
   )
 
+  /** Add to Watch, from the text's menu or the rungs': onto the project's list, with the Watch dock brought forward. */
+  const addToWatch = (name: string): void => {
+    const s = stateRef.current
+    addToWatchList(watchListKey(currentDocumentId(), s.projectName, s.collab), [name], s.projectName)
+    store.revealPanel('watch')
+  }
+
+  // The code's right-click menu: Add to Watch for the variable clicked, and the editing items the browser's own menu
+  // had, which this one replaces. Shift+right-click still opens the browser's.
+  const [textMenu, setTextMenu] = useState<{ x: number; y: number; items: MenuItem[] } | null>(null)
+  const openTextMenu = (e: ReactMouseEvent<HTMLDivElement>): void => {
+    if (e.shiftKey || !editorRef.current) return
+    e.preventDefault()
+    // the menu key fires this with no pointer position: the menu opens at the caret
+    const point = e.clientX === 0 && e.clientY === 0 ? null : { x: e.clientX, y: e.clientY }
+    const at = editorRef.current.contextAt(point)
+    if (!at) return
+    const editor = editorRef.current
+    // contextAt put the caret at the click, so the name under the caret is the one clicked
+    const caret = editor.caret()
+    const has = at.selected !== ''
+    const later = (fn: () => void) => () => void window.setTimeout(fn, 0)
+    // Force / Release: for a variable the running program holds as one value (its watch key), only while it runs
+    // read in the POU the click is in, so a block's local is never forced as the program's variable of that name
+    const image = ctx.live && at.name !== null ? ctx.watch() : null
+    const src = editor.getValue()
+    const scoped = image && at.name !== null && caret ? watchScopes(src, watchInstances(src, controllerFor(src, stateRef.current.controller, stateRef.current.stScanMs)), pickedRef.current).keyAt(caret.offset, at.name) : null
+    const forceKey = image && scoped !== null ? resolveWatch(scoped, image).key : null
+    const forced = forceKey !== null && forceKey in ctx.forces()
+    const forceOrRelease = (key: string): void => {
+      if (forced) return ctx.releaseForce(key)
+      const refused = ctx.force(key)
+      if (refused !== null) showReport({ headline: t(M.notForced, { name: key }), detail: refused, items: [], tone: 'warn', keepOnEdit: false })
+    }
+    const copyText = (): Promise<boolean> =>
+      (activeClipboard()?.writeText(at.selected) ?? Promise.reject(new Error('no clipboard'))).then(
+        () => true,
+        () => false,
+      )
+    setTextMenu({
+      x: at.at.x,
+      y: at.at.y,
+      items: [
+        {
+          label: at.name !== null ? t(M.addNameToWatch, { name: at.name }) : t(M.addToWatch),
+          testid: 'st-add-to-watch',
+          disabled: at.name === null,
+          title: t(at.name !== null ? M.addToWatchHint : M.addToWatchNone),
+          onClick: later(() => at.name !== null && addToWatch(at.name)),
+        },
+        ...(forceKey !== null
+          ? [{ label: t(forced ? M.releaseName : M.forceName, { name: forceKey }), testid: 'st-force', title: t(forced ? M.releaseHint : M.forceHint), onClick: later(() => forceOrRelease(forceKey)) }]
+          : []),
+        {
+          label: caret?.word ? t(M.goToDefinitionOf, { name: caret.word }) : t(M.goToDefinition),
+          testid: 'st-go-to-definition',
+          keys: primaryKey('edit.goToDefinition'),
+          disabled: !caret?.word,
+          onClick: later(() => caret && goToDefinitionAt(caret.offset)),
+        },
+        { label: '-', onClick: () => {} },
+        { label: t(M.cut), testid: 'st-cut', keys: primaryKey('edit.cut'), disabled: readOnly || !has, title: readOnly ? readOnlyNote : undefined, onClick: later(() => void copyText().then((ok) => ok && editor.replaceSelection('', 'delete.cut')).catch((e) => console.warn('[oip] cut failed:', e))) },
+        { label: t(M.copy), testid: 'st-copy', keys: primaryKey('edit.copy'), disabled: !has, onClick: later(() => void copyText()) },
+        {
+          label: t(M.paste),
+          testid: 'st-paste',
+          keys: primaryKey('edit.paste'),
+          disabled: readOnly,
+          title: readOnly ? readOnlyNote : undefined,
+          onClick: later(() => {
+            const clip = activeClipboard()
+            void (clip ? clip.readText() : Promise.reject(new Error('no clipboard'))).then(
+              (text) => editor.replaceSelection(text, 'input.paste'),
+              () => showReport({ headline: t(M.pasteRefused), detail: t(M.pasteRefusedDetail, { keys: primaryKey('edit.paste') ?? '' }), items: [], tone: 'warn', keepOnEdit: false }),
+            )
+          }),
+        },
+        { label: t(M.selectAll), testid: 'st-select-all', onClick: later(() => editor.selectAll()) },
+        { label: '-', onClick: () => {} },
+        { label: t(M.foldDeclarations), testid: 'st-fold-declarations', title: t(M.foldDeclarationsHint), onClick: later(() => editor.foldDeclarations()) },
+        { label: t(M.unfoldAll), testid: 'st-unfold-all', onClick: later(() => editor.unfoldAll()) },
+      ],
+    })
+  }
+
+
   // the divider between the organizer and the code: drag to resize, remembered on release
   const orgResize = useRef<{ sx: number; bw: number } | null>(null)
   const onOrgResizeDown = (e: ReactPointerEvent<HTMLDivElement>): void => {
@@ -750,6 +908,18 @@ export function StEditor({ store, state, controller, docked = false, viewOnly = 
     if (e.currentTarget.hasPointerCapture(e.pointerId)) e.currentTarget.releasePointerCapture(e.pointerId)
     setOrganizer((cur) => (saveOrganizerPref(cur), cur))
   }
+
+  // A click on this panel's dock tab: take the keyboard, but only in the text view. The ladder sheet and the organizer
+  // keep their own keys, and focus decides whether a key edits the program or drives the viewport.
+  useEffect(
+    () =>
+      store.onFocusStCode(() => {
+        if (viewRef.current !== 'text') return
+        if (editorRef.current) editorRef.current.focus()
+        else pendingFocus.current = true
+      }),
+    [store],
+  )
 
   // "Go to the line" from outside this panel (the Problems dock clicking a compile error). Only a
   // MOUNTED editor can answer, which is exactly why it is a subscription and not a prop: docked,
@@ -776,12 +946,23 @@ export function StEditor({ store, state, controller, docked = false, viewOnly = 
 
   // Poll the live variable image while a program is running (it changes every scan, independent of store updates, so
   // it can't ride the normal React subscription). It feeds the editor's inline value overlays; the cleanup clears them
-  // when monitoring ends (the sim stops, or a runtime fault drops the program).
+  // when monitoring ends (the sim stops, or a runtime fault drops the program). The program instances go with the
+  // image: the `x` written in a PROGRAM is published as its instance's `Main.x` (plc/watchScope.ts). They are read
+  // again only when the text changes.
   useEffect(() => {
     if (!attached || !state.running) return
+    let instancesOf = ''
+    let instances: WatchInstance[] = []
     const id = setInterval(() => {
       const w = ctrlRef.current?.plcWatch
-      if (w) editorRef.current?.setWatchValues(w)
+      if (w) {
+        const src = sourceRef.current
+        if (src !== instancesOf) {
+          instancesOf = src
+          instances = watchInstances(src, controllerFor(src, stateRef.current.controller, stateRef.current.stScanMs))
+        }
+        editorRef.current?.setWatchValues(w, instances, pickedRef.current, pickInstance)
+      }
       setOverruns(ctrlRef.current?.plcScanStats?.overruns ?? 0)
     }, 120)
     return () => {
@@ -983,18 +1164,26 @@ export function StEditor({ store, state, controller, docked = false, viewOnly = 
                 {/* the text editor stays MOUNTED under the ladder: it owns the buffer, its undo history and a room's binding */}
                 <div
                   style={view === 'ladder' ? { ...editorHostWrap, display: 'none' } : editorHostWrap}
+                  onContextMenu={openTextMenu}
                   onKeyDown={(e) => {
-                    // (resolved, never compared: core/keymap.ts owns which chord means Rename)
-                    if (resolveKeyAction(e, 'editor') !== 'edit.rename') return
+                    // (resolved, never compared: core/keymap.ts owns which chord means Rename and Go to definition)
+                    const action = resolveKeyAction(e, 'editor')
+                    if (action !== 'edit.rename' && action !== 'edit.goToDefinition') return
                     e.preventDefault()
                     e.stopPropagation()
-                    renameAtCaret()
+                    if (action === 'edit.rename') renameAtCaret()
+                    else {
+                      const at = editorRef.current?.caret()
+                      if (at) goToDefinitionAt(at.offset)
+                    }
                   }}
                 >
                   <Suspense fallback={null}>
                     <StCodeEditor
+                      key={collab ? 'room' : 'solo'}
                       ref={editorRef}
-                      initialValue={initialSource}
+                      // in a room CodeMirror binds to the shared text, so it starts from exactly that text
+                      initialValue={collab ? collab.ytext.toString() : initialSource}
                       onChange={(v) => {
                         persistSource(v) // persist every edit so a reload restores it
                         // the downloaded file is a snapshot of the text as it WAS, so the moment the text
@@ -1004,6 +1193,7 @@ export function StEditor({ store, state, controller, docked = false, viewOnly = 
                       }}
                       getTags={() => commsTags(stateRef.current.scene.parts)}
                       getController={(src) => controllerFor(src, stateRef.current.controller, stateRef.current.stScanMs)}
+                      getDefaultPlc={() => stateRef.current.externalPlc.mainName}
                       lints={foreignDialect === null}
                       onUndo={() => store.undoProgramEditAt(editorRef.current?.getValue() ?? sourceRef.current)}
                       onRedo={() => store.redoProgramEditAt(editorRef.current?.getValue() ?? sourceRef.current)}
@@ -1022,6 +1212,8 @@ export function StEditor({ store, state, controller, docked = false, viewOnly = 
                         const at = pendingReveal.current
                         pendingReveal.current = null
                         if (at !== null && viewRef.current === 'text') editorRef.current?.revealOffset(at)
+                        else if (pendingFocus.current && viewRef.current === 'text') editorRef.current?.focus()
+                        pendingFocus.current = false
                       }}
                       style={editorHost}
                     />
@@ -1038,6 +1230,7 @@ export function StEditor({ store, state, controller, docked = false, viewOnly = 
                   >
                     {copied ? <CheckIcon /> : <CopyIcon />}
                   </button>
+                  {textMenu && <ContextMenu x={textMenu.x} y={textMenu.y} items={textMenu.items} onClose={() => setTextMenu(null)} />}
                 </div>
               </div>
             </div>

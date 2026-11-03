@@ -111,7 +111,7 @@ export function loadParts(page, parts) {
   }, parts)
 }
 
-/** One row of a guide's wiring table, done as the reader does it: select the part, open Comms, tick Enable Comms, type. */
+/** One row of a guide's wiring table, done as the reader does it: select the part, open Comms, type. */
 export async function wire(page, row, { expect, says, partIds }) {
   const id = partIds[row.part]
   if (!expect(!!id, `the guide's part "${row.part}" is one this scene has`)) return
@@ -122,12 +122,9 @@ export async function wire(page, row, { expect, says, partIds }) {
   const head = page.locator('.inspector-group-head', { hasText: fieldLabel(says('Comms')) }).first()
   await head.waitFor({ timeout: 10000 })
   if ((await head.getAttribute('aria-expanded')) === 'false') await head.click()
-  const enable = page.locator('label.field', { has: page.locator('.field-label', { hasText: fieldLabel(says('Enable Comms')) }) }).locator('input[type="checkbox"]')
-  if (expect((await enable.count()) === 1, `${row.part}: the Inspector has "Enable Comms"`) && !(await enable.isChecked())) await enable.check()
   const field = page.locator('label.field', { has: page.locator('.field-label', { hasText: fieldLabel(row.field) }) }).locator('input').first()
-  // the Comms fields render once the Enable Comms commit has gone through the store
   await field.waitFor({ timeout: 10000 }).catch(() => {})
-  if (!expect((await field.count()) === 1, `${row.part}: the Inspector has "${row.field}" once comms are on`)) return
+  if (!expect((await field.count()) === 1, `${row.part}: the Inspector has "${row.field}"`)) return
   await field.fill(row.address)
   await field.press('Enter')
   await sleep(200)
@@ -138,7 +135,7 @@ export async function wire(page, row, { expect, says, partIds }) {
   expect(stored, `${row.part}: "${row.field}" holds ${row.address}`)
 }
 
-/** Simulation > External PLC…, through the command palette (the native menu is out of a script's reach). */
+/** Simulation > PLC Controllers…, through the command palette (the native menu is out of a script's reach). */
 export async function openExternalPlc(page, { expect, says }) {
   // the palette's chord is the app's, and a focused code editor keeps it (a reader in the PLC panel's editor reaches
   // for the menu instead): leave any text field first
@@ -146,7 +143,7 @@ export async function openExternalPlc(page, { expect, says }) {
   await page.keyboard.press('Control+Shift+P')
   const input = page.locator('.palette-input')
   await input.waitFor({ timeout: 10000 })
-  const command = says('External PLC…')
+  const command = says('PLC Controllers…')
   await input.fill(command)
   const item = page.locator('.palette-item', { has: page.locator('.palette-label', { hasText: labelled(command) }) }).first()
   expect((await item.locator('.palette-group').innerText()).trim() === says('Simulation'), `"${command}" is under Simulation, as the guide's menu path says`)

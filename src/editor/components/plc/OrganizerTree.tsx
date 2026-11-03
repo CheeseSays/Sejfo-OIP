@@ -1,15 +1,30 @@
-import { memo, useEffect, useImperativeHandle, useLayoutEffect, useRef, useState, forwardRef } from 'react'
+import { memo, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, forwardRef } from 'react'
 import type { KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent, ReactElement, ReactNode } from 'react'
 import type { Controller } from '../../../core/controller'
 import { resolveKeyAction } from '../../../core/keymap'
 import { addTask, moveProgram, programsOnTask, removeProgram, removeTask, scheduleProgram, type DeviceTags, type TagRename } from '../../../plc'
-import type { TaskTree, TaskTreeProgram, TaskTreeTask } from '../../../plc/taskTree'
+import type { TaskTree, TaskTreeGroup, TaskTreeProgram, TaskTreeTask } from '../../../plc/taskTree'
 import { DeviceTagsDialogChunk } from './deviceTagsChunk'
+import { forcedDeviceIds } from '../../program/plcForces'
 import { ContextMenu, type MenuItem } from '../inspector/menu'
 import { FoldIcon } from '../toolbarIcons'
 import { defineMessages, t } from '../../../core/i18n'
 
 const M = defineMessages('organizer', {
+  plcDefaultSimulated: 'default · simulated',
+  plcDefaultExternal: 'default · external PLC',
+  plcSimulated: 'simulated',
+  plcExternal: 'external PLC',
+  plcHint: '{name}: its tasks and the program instances on them. Double-click for Controller Properties',
+  plcNoProgram: 'Runs on a PLC outside the app.',
+  plcUnlisted: 'not set up',
+  plcUnlistedNote: 'Not one of the project\'s controllers yet, so nothing runs its tasks.',
+  plcSetUp: 'Set up',
+  plcSetUpHint: 'Open Controller Properties, where {name} is added to the project and given where it runs',
+  exportSt: 'Export {name}\'s Program (.st)',
+  exportXml: 'Export {name}\'s Program (PLCopen XML)',
+  exportHint: 'Download what goes onto {name}: its tasks, the program instances on them and the POUs they use',
+  newTaskOn: 'New Task on {name}',
   everyStep: 'Every step',
   everyStepHint: 'On no task: run once every physics step, after the periodic tasks',
   tableInCode: 'These tasks are written in the code (its CONFIGURATION): edit them there, or move them into the organizer first',
@@ -73,10 +88,16 @@ const M = defineMessages('organizer', {
     one: 'Comms OFF: {wired} of {count} tag field wired. Click to select, double-click for its tags',
     other: 'Comms OFF: {wired} of {count} tag fields wired. Click to select, double-click for its tags',
   },
+  deviceHint: {
+    one: '{wired} of {count} tag field wired. Click to select, double-click for its tags',
+    other: '{wired} of {count} tag fields wired. Click to select, double-click for its tags',
+  },
   commsOn: 'Comms on',
   commsOff: 'Comms off',
   noTagsWired: 'no tags wired',
   commsOffShort: 'comms off',
+  forced: 'forced',
+  forcedHint: 'A tag of this device is forced: the running program holds it until released',
   deviceTagsHint: 'Its tags, to copy and edit',
   deviceTags: 'tags…',
   organizer: 'Program organizer',
@@ -174,6 +195,10 @@ export interface OrganizerContent {
     menu: (p: TaskTreeProgram, parts: ProgramMenuParts & { schedule: MenuItem }, scheduled: boolean) => MenuItem[]
     /** why it cannot stop running (the one that runs the statements outside every PROGRAM), or null */
     pinned: (p: TaskTreeProgram) => string | null
+    /** a click on a running instance also makes it the one whose live values the code shows */
+    monitor: (p: TaskTreeProgram) => void
+    /** for a PROGRAM that runs as several instances, the badge on the one whose values the code shows; else null */
+    shown: (p: TaskTreeProgram) => { label: string; title: string } | null
   }
   /** what the unscheduled list holds: PROGRAM types, and null for the code outside every PROGRAM */
   unscheduled: (tree: TaskTree) => (string | null)[]
@@ -191,12 +216,27 @@ export interface OrganizerContent {
  * it (components/plc/plcDevices.ts `useOrganizerDevices`), and the object must be stable across renders: it is a prop of
  * the memoized `Popups`, which is what keeps opening a device's tags from re-rendering a tree of hundreds of tags.
  */
+/** Forcing a device's tags from its dialog, while the program runs (EditorController.forcePlcValue). */
+export interface DeviceForcing {
+  /** the running program's watch key for a tag a part names; null when there is none to force (stopped, a direct
+   *  address, a name the program does not have) */
+  keyOf: (tag: string) => string | null
+  forces: () => Readonly<Record<string, number | boolean>>
+  onForces: (cb: () => void) => () => void
+  force: (key: string) => string | null
+  release: (key: string) => void
+  /** told when a program attaches or detaches (Play, Stop, a reload); returns an unsubscribe */
+  onProgramStatus: (cb: () => void) => () => void
+}
+
 export interface OrganizerDevices {
   list: readonly DeviceTags[]
   /** select the part in the scene */
   select: (id: string) => void
   setTag: (id: string, key: string, value: string) => void
   setComms: (id: string, on: boolean) => void
+  /** force a tag from the device's dialog while the program runs; absent where nothing runs a program */
+  forcing?: DeviceForcing
   /** the scene cannot be written (a view-only link); not the tree's `readOnly`, which also stands for a
    *  program this build may not edit (core/dialect.ts): that gates the program text, and a part's wiring is not program text */
   readOnly: boolean
@@ -204,6 +244,9 @@ export interface OrganizerDevices {
 
 export interface OrganizerTreeProps {
   content: OrganizerContent
+  /** the scene's controllers, for the Tasks section's heading per controller: the default one's name, and each other
+   *  one with whether the simulator runs it (core/scene/scenePlcs.ts) */
+  plcs?: { defaultName: string; defaultSimulated: boolean; named: readonly { name: string; simulated: boolean }[] }
   /** the table the program runs from: the scene's own, or the default one a program with none runs from */
   controller: Controller
   /** that table as a tree (plc/taskTree.ts) */
@@ -221,13 +264,13 @@ export interface OrganizerTreeProps {
   activeBlock?: number
   /** drawn over the code in a narrow panel: a pick closes it */
   onPicked?: () => void
-  /** where the program runs, for the Controller node, in a word or two */
-  runsOn: string
   /** the scene's devices, under the program's groups; omitted where there is no scene to show (a test harness) */
   devices?: OrganizerDevices
   /** Controller Properties */
   onControllerProperties: () => void
   editController: (next: Controller, renames: TagRename[], label: string) => void
+  /** download one controller's program (null: the default one): what goes onto that PLC */
+  onExportController?: (plc: string | null, target: 'iec-text' | 'plcopen-xml') => void
 }
 
 /** A row's keydown for the keymap's Rename (keymap.ts edit.rename, F2 by default): `act` when it is pressed. The event
@@ -323,6 +366,7 @@ const Popups = memo(
             readOnly={devices.readOnly}
             onSetTag={(key, value) => devices.setTag(device.id, key, value)}
             onSetComms={(on) => devices.setComms(device.id, on)}
+            forcing={devices.forcing}
             onClose={() => setDeviceOpen(null)}
           />
         )}
@@ -331,8 +375,19 @@ const Popups = memo(
   }),
 )
 
+/** The devices with a tag field on a forced variable, re-read when a force is set or released. */
+function useForcedDevices(devices: OrganizerDevices | undefined): ReadonlySet<string> {
+  const forcing = devices?.forcing
+  const list = devices?.list
+  const [rev, setRev] = useState(0)
+  useEffect(() => (forcing ? forcing.onForces(() => setRev((n) => n + 1)) : undefined), [forcing])
+  // (rev: a force set or released changes the answer without changing the list)
+  return useMemo(() => (forcing && list ? forcedDeviceIds(list, forcing.forces(), forcing.keyOf) : new Set<string>()), [forcing, list, rev])
+}
+
 export function OrganizerTree(props: OrganizerTreeProps): ReactElement {
-  const { content, controller, tree, ownConfiguration, problems, readOnly, readOnlyNote, revealTasks, activeBlock = -1, onPicked, runsOn, devices, onControllerProperties, editController } = props
+  const { content, controller, tree, ownConfiguration, problems, readOnly, readOnlyNote, revealTasks, activeBlock = -1, onPicked, devices, onControllerProperties, editController } = props
+  const forcedDevices = useForcedDevices(devices)
   const tableLocked = readOnly || ownConfiguration
 
   const rootRef = useRef<HTMLDivElement>(null)
@@ -372,16 +427,18 @@ export function OrganizerTree(props: OrganizerTreeProps): ReactElement {
   // why the last table command could not be done (a task that still runs programs)
   const [note, setNote] = useState<string | null>(null)
 
-  // Problems, and the panel's own "Open tasks" links, ask for the Tasks section
+  // Problems, and the panel's own "Open tasks" links, ask for the tasks, which are the default controller's
   useEffect(() => {
     if (revealTasks === 0) return
     setFolded((f) => {
-      if (!f.has('tasks')) return f
+      if (!f.has('controller')) return f
       const next = new Set(f)
-      next.delete('tasks')
+      next.delete('controller')
       return next
     })
-    requestAnimationFrame(() => {
+    // (the tree's own window: in a popped-out panel the main window may be minimised, and its frames stop)
+    const win = rootRef.current?.ownerDocument.defaultView ?? window
+    win.requestAnimationFrame(() => {
       const box = rootRef.current
       const at = tasksRef.current
       if (box && at) box.scrollTop += at.getBoundingClientRect().top - box.getBoundingClientRect().top - 4
@@ -522,43 +579,6 @@ export function OrganizerTree(props: OrganizerTreeProps): ReactElement {
     draftField,
   }
 
-  // ---- the controller ---------------------------------------------------------------------------------------------
-
-  const controllerClosed = folded.has('controller')
-  const controllerSection = (
-    <div className="org-section" data-testid="org-group" data-group="controller" role="group" aria-label={t(M.controller)}>
-      <div
-        className="org-head top"
-        role="treeitem"
-        tabIndex={0}
-        aria-expanded={!controllerClosed}
-        data-testid="org-controller"
-        title={t(M.controllerHint)}
-        onClick={() => toggle('controller')}
-        onDoubleClick={(e) => {
-          e.stopPropagation()
-          onControllerProperties()
-        }}
-        onContextMenu={(e) => openMenu(e, [{ label: t(M.properties), testid: 'org-controller-properties', onClick: onControllerProperties }, ...content.controllerMenu(ctx)])}
-        onKeyDown={(e) => {
-          if (e.key !== 'Enter') return
-          e.preventDefault()
-          e.stopPropagation()
-          onControllerProperties()
-        }}
-      >
-        <span className="org-fold" aria-hidden="true">
-          <FoldIcon closed={controllerClosed} />
-        </span>
-        <span className="org-title">{t(M.controller)}</span>
-        <span className="org-kind" data-testid="org-controller-runs-on">
-          {runsOn}
-        </span>
-      </div>
-      {!controllerClosed && content.controllerChildren(ctx)}
-    </div>
-  )
-
   // ---- tasks ------------------------------------------------------------------------------------------------------
 
   const openProgramProps = (index: number): void => openDialog((close) => content.programDialog(index, close, ctx))
@@ -568,11 +588,13 @@ export function OrganizerTree(props: OrganizerTreeProps): ReactElement {
   const programRow = (p: TaskTreeProgram, scheduled: boolean): ReactElement => {
     const index = content.program.block(p)
     const open = (): void => {
+      if (scheduled) content.program.monitor(p)
       if (index < 0) return
       content.program.open(index)
       picked()
     }
     const pinned = content.program.pinned(p)
+    const shown = scheduled ? content.program.shown(p) : null
     const stop = (): void => editTable(removeProgram(controller, p.index), [], t(M.undoStopRunning, { name: p.name }))
     const run = (): void => editTable(scheduleProgram(controller, p.type), [], t(M.undoRun, { name: p.type ?? content.program.label(p) }))
     const firstTask = controller.tasks[0]?.name
@@ -622,6 +644,11 @@ export function OrganizerTree(props: OrganizerTreeProps): ReactElement {
       >
         <span className="org-name">{content.program.label(p)}</span>
         {kind !== null && <span className="org-kind">{kind}</span>}
+        {shown && (
+          <span className="org-kind" data-testid="org-monitored" title={shown.title}>
+            {shown.label}
+          </span>
+        )}
         {!p.exists && (
           <span className="org-kind warn" title={t(M.missingHint)}>
             {t(M.missing)}
@@ -742,70 +769,155 @@ export function OrganizerTree(props: OrganizerTreeProps): ReactElement {
     </div>
   )
 
-  const tasksClosed = folded.has('tasks')
-  const tasksSection = (
-    <div className="org-section" ref={tasksRef} data-testid="org-group" data-group="tasks" role="group" aria-label={t(M.tasks)}>
+  // ---- the controllers --------------------------------------------------------------------------------------------
+
+  /**
+   * One controller, owning its tasks and the program instances on them: IEC's resource. The default controller's node
+   * also holds the code outside every POU, which is its own, and what concerns the whole table: its problems, an
+   * instance on a task the table lacks, and the PROGRAMs nothing runs. A PLC outside the app runs no program here, and
+   * says so. With one controller there is one node, so adding another adds a sibling and moves nothing.
+   */
+  const controllerNode = (g: TaskTreeGroup): ReactElement => {
+    const isDefault = g.plc === null
+    const several = tree.groups.length > 1
+    const name = isDefault ? (props.plcs?.defaultName ?? t(M.controller)) : g.plc!
+    const key = isDefault ? 'controller' : `plc:${g.plc}`
+    const closed = folded.has(key)
+    const entry = isDefault ? undefined : props.plcs?.named.find((c) => c.name.toLowerCase() === g.plc!.toLowerCase())
+    // a controller only a task names, which the project does not list: nothing runs it, so the node claims no setup
+    const unlisted = !isDefault && props.plcs !== undefined && entry === undefined
+    const simulated = isDefault ? (props.plcs?.defaultSimulated ?? true) : (entry?.simulated ?? false)
+    // a lone controller says where it runs as the runs-on line always has; beside others it is also the default one
+    const kind = unlisted
+      ? t(M.plcUnlisted)
+      : !isDefault
+        ? t(simulated ? M.plcSimulated : M.plcExternal)
+        : several
+          ? t(simulated ? M.plcDefaultSimulated : M.plcDefaultExternal)
+          : t(simulated ? M.plcSimulated : M.plcExternal)
+    const addTaskHere = (): void => editTable(addTask(controller, g.plc ?? undefined), [], t(M.undoAddTask))
+    const menu: MenuItem[] = [
+      { label: t(M.properties), testid: isDefault ? 'org-controller-properties' : 'org-plc-properties', onClick: onControllerProperties },
+      { label: t(M.newTaskOn, { name }), testid: isDefault ? 'org-controller-new-task' : 'org-plc-new-task', disabled: tableLocked, title: tableTitle(t(M.newTaskHint)), onClick: addTaskHere },
+      ...(isDefault ? content.controllerMenu(ctx) : []),
+      // beside other controllers each PLC takes a download of its own; alone, the File menu's export is the whole program
+      ...(props.onExportController && several && !ownConfiguration && (g.tasks.some((k) => k.programs.length > 0) || g.continuous.length > 0)
+        ? [
+            { label: '-', onClick: () => {} },
+            { label: t(M.exportSt, { name }), testid: 'org-export-st', title: t(M.exportHint, { name }), onClick: () => props.onExportController!(g.plc, 'iec-text') },
+            { label: t(M.exportXml, { name }), testid: 'org-export-xml', title: t(M.exportHint, { name }), onClick: () => props.onExportController!(g.plc, 'plcopen-xml') },
+          ]
+        : []),
+    ]
+    const tasks = (
+      <>
+        {g.tasks.map(taskNode)}
+        {looseGroup(isDefault ? 'every-step' : `every-step-${g.plc}`, '⟳', t(M.everyStep), t(M.everyStepHint), g.continuous)}
+      </>
+    )
+    return (
       <div
-        className="org-head top"
-        role="button"
-        tabIndex={0}
-        aria-expanded={!tasksClosed}
-        onClick={() => toggle('tasks')}
-        onKeyDown={(e) => e.key === 'Enter' && toggle('tasks')}
-        onContextMenu={(e) => openMenu(e, [{ label: t(M.newTask), disabled: tableLocked, title: tableTitle(t(M.newTaskHint)), onClick: () => editTable(addTask(controller), [], t(M.undoAddTask)) }])}
+        key={key}
+        className="org-section"
+        data-testid={isDefault ? 'org-group' : 'org-plc'}
+        data-group={isDefault ? 'controller' : undefined}
+        data-plc={g.plc ?? ''}
+        role="group"
+        aria-label={name}
       >
-        <span className="org-fold" aria-hidden="true">
-          <FoldIcon closed={tasksClosed} />
-        </span>
-        <span className="org-title">{t(M.tasks)}</span>
-        {!ownConfiguration && <span className="org-count">{tree.tasks.length}</span>}
-        {problems.length > 0 && (
-          <span className="org-problem-count" data-testid="org-problem-count" title={problems.join('\n')}>
-            {t(M.problems, { count: problems.length })}
+        <div
+          className="org-head top"
+          role="treeitem"
+          tabIndex={0}
+          aria-expanded={!closed}
+          data-testid={isDefault ? 'org-controller' : 'org-plc-head'}
+          title={isDefault ? t(M.controllerHint) : t(M.plcHint, { name })}
+          onClick={() => toggle(key)}
+          onDoubleClick={(e) => {
+            e.stopPropagation()
+            onControllerProperties()
+          }}
+          onContextMenu={(e) => openMenu(e, menu)}
+          onKeyDown={(e) => {
+            if (e.key !== 'Enter') return
+            e.preventDefault()
+            e.stopPropagation()
+            onControllerProperties()
+          }}
+        >
+          <span className="org-fold" aria-hidden="true">
+            <FoldIcon closed={closed} />
           </span>
-        )}
-        {!tableLocked && (
-          <button
-            type="button"
-            className="org-btn"
-            data-testid="org-new-task"
-            title={t(M.addTaskHint)}
-            aria-label={t(M.addTask)}
-            onClick={(e) => {
-              e.stopPropagation()
-              editTable(addTask(controller), [], t(M.undoAddTask))
-            }}
-          >
-            +
-          </button>
-        )}
-      </div>
-      {!tasksClosed && (
-        <div className="org-children">
-          {problems.map((m) => (
-            <div key={m} className="org-error" role="alert" data-testid="org-problem">
-              ⚠ {m}
-            </div>
-          ))}
-          {note && (
-            <div className="org-error" role="alert" data-testid="org-note">
-              ⚠ {note}
-            </div>
+          {/* i18n-ok: the controller's name, as the tags spell it */}
+          <span className="org-title">{name}</span>
+          <span className="org-kind" data-testid={isDefault ? 'org-controller-runs-on' : 'org-plc-kind'} data-unlisted={unlisted || undefined}>
+            {kind}
+          </span>
+          {isDefault && problems.length > 0 && (
+            <span className="org-problem-count" data-testid="org-problem-count" title={problems.join('\n')}>
+              {t(M.problems, { count: problems.length })}
+            </span>
           )}
-          {ownConfiguration ? (
-            content.ownConfiguration(ctx)
-          ) : (
-            <>
-              {tree.tasks.map(taskNode)}
-              {looseGroup('every-step', '⟳', t(M.everyStep), t(M.everyStepHint), tree.continuous)}
-              {looseGroup('missing-task', '⚠', t(M.missingTask), t(M.missingTaskHint), tree.lost)}
-              {unscheduledGroup}
-            </>
+          {!tableLocked && (
+            <button
+              type="button"
+              className="org-btn"
+              data-testid={isDefault ? 'org-new-task' : 'org-plc-new-task-button'}
+              title={t(M.newTaskOn, { name })}
+              aria-label={t(M.newTaskOn, { name })}
+              onClick={(e) => {
+                e.stopPropagation()
+                addTaskHere()
+              }}
+            >
+              +
+            </button>
           )}
         </div>
-      )}
-    </div>
-  )
+        {!closed && (
+          <div className="org-children">
+            {isDefault && content.controllerChildren(ctx)}
+            {isDefault ? (
+              <div ref={tasksRef} data-testid="org-group" data-group="tasks" role="group" aria-label={t(M.tasks)}>
+                {problems.map((m) => (
+                  <div key={m} className="org-error" role="alert" data-testid="org-problem">
+                    ⚠ {m}
+                  </div>
+                ))}
+                {note && (
+                  <div className="org-error" role="alert" data-testid="org-note">
+                    ⚠ {note}
+                  </div>
+                )}
+                {ownConfiguration ? (
+                  content.ownConfiguration(ctx)
+                ) : (
+                  <>
+                    {tasks}
+                    {looseGroup('missing-task', '⚠', t(M.missingTask), t(M.missingTaskHint), tree.lost)}
+                    {unscheduledGroup}
+                  </>
+                )}
+              </div>
+            ) : (
+              <>
+                {unlisted && (
+                  <div className="org-error" role="alert" data-testid="org-plc-unlisted">
+                    ⚠ {t(M.plcUnlistedNote)}
+                    <button type="button" className="org-btn org-inline-btn" data-testid="org-plc-set-up" title={t(M.plcSetUpHint, { name })} onClick={onControllerProperties}>
+                      {t(M.plcSetUp)}
+                    </button>
+                  </div>
+                )}
+                {tasks}
+              </>
+            )}
+            {!simulated && !unlisted && g.tasks.length === 0 && g.continuous.length === 0 && <div className="org-empty">{t(M.plcNoProgram)}</div>}
+          </div>
+        )}
+      </div>
+    )
+  }
 
   // ---- the scene's devices ------------------------------------------------------------------------------------------
 
@@ -849,12 +961,18 @@ export function OrganizerTree(props: OrganizerTreeProps): ReactElement {
                             key={dev.id}
                             className="org-row"
                             data-testid="org-device"
-                            title={t(dev.enabled ? M.deviceHintOn : M.deviceHintOff, { count: dev.fields.length, wired })}
+                            title={t(!dev.switchable ? M.deviceHint : dev.enabled ? M.deviceHintOn : M.deviceHintOff, { count: dev.fields.length, wired })}
                             onClick={() => d.select(dev.id)}
                             onDoubleClick={() => popups.current?.device(dev.id)}
                           >
-                            <span className={`org-comms${dev.enabled ? ' on' : ''}`} title={t(dev.enabled ? M.commsOn : M.commsOff)} />
+                            {/* the switch's state, for a part that declares one; any other part is connected by its named tags */}
+                            {dev.switchable && <span className={`org-comms${dev.enabled ? ' on' : ''}`} title={t(dev.enabled ? M.commsOn : M.commsOff)} />}
                             <span className="org-name">{dev.name}</span>
+                            {forcedDevices.has(dev.id) && (
+                              <span className="org-forced" data-testid="org-device-forced" title={t(M.forcedHint)}>
+                                {t(M.forced)}
+                              </span>
+                            )}
                             <span className="org-kind">{dev.fields.filter((f) => f.value !== '').map((f) => f.value).join(', ') || t(dev.enabled ? M.noTagsWired : M.commsOffShort)}</span>
                             <span className="org-cmds">
                               <button type="button" className="org-btn" data-testid="org-device-tags" title={t(M.deviceTagsHint)} onClick={(e) => { e.stopPropagation(); popups.current?.device(dev.id) }}>
@@ -890,8 +1008,7 @@ export function OrganizerTree(props: OrganizerTreeProps): ReactElement {
           {readOnlyNote}
         </div>
       )}
-      {controllerSection}
-      {tasksSection}
+      {tree.groups.map(controllerNode)}
       {content.groups(ctx)}
       {devices && devicesSection(devices)}
       <Popups ref={popups} devices={devices} />

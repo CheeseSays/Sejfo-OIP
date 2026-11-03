@@ -516,9 +516,17 @@ describe('validateTestSpec - notEquals, a tag or probe on the right, windows, pa
 
   it('needs a zone on passed, a known colour, and no filter it does not have', () => {
     expect(errorsOf({ at: 1, probe: { passed: {} }, min: 0 }).join()).toMatch(/passed\.zone is required/)
-    expect(errorsOf({ at: 1, probe: { passed: { zone, color: 'purple' } }, min: 0 }).join()).toMatch(/color must be red\/green\/blue or a "#rrggbb" tint/)
+    expect(errorsOf({ at: 1, probe: { passed: { zone, color: 'purple' } }, min: 0 }).join()).toMatch(/color must be red\/green\/blue\/yellow or a "#rrggbb" tint/)
     expect(errorsOf({ at: 1, probe: { count: { color: '#e0101' } }, min: 0 }).join()).toMatch(/color must be/)
     expect(errorsOf({ at: 1, probe: { count: { colour: 'red' } }, min: 0 }).join()).toMatch(/count\.colour is not a filter/)
+  })
+
+  it('needs a zone and a heading on square, and takes heading on square only', () => {
+    expect(errorsOf({ always: true, probe: { square: { zone, heading: 30, color: 'red' } }, max: 10 })).toEqual([])
+    expect(errorsOf({ always: true, probe: { square: { heading: 30 } }, max: 10 }).join()).toMatch(/square\.zone is required/)
+    expect(errorsOf({ always: true, probe: { square: { zone } }, max: 10 }).join()).toMatch(/square\.heading is required/)
+    expect(errorsOf({ always: true, probe: { square: { zone, heading: '30' } }, max: 10 }).join()).toMatch(/square\.heading is required/)
+    expect(errorsOf({ always: true, probe: { count: { zone, heading: 30 } }, max: 10 }).join()).toMatch(/count\.heading is not a filter/)
   })
 })
 

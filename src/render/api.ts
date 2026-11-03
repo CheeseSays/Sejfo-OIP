@@ -2,6 +2,7 @@ import type { Vector3 } from 'three'
 import type { BoxFrame, CargoKindName, CargoShapeRef } from '../core/frame'
 import type { PartInstance, SceneJSON } from '../core/types'
 import type { DisplayUnits } from '../core/units'
+import type { SubPose } from '../core/rig/rigPose'
 
 export interface RenderStats {
   drawCalls: number
@@ -398,7 +399,7 @@ export interface IRenderView {
    *  actuation preview - e.g. a blade stop shown raised so an author can check placement without
    *  pressing Play). Routes to the same joint/subPose/lamp appliers the running frame uses. No-op
    *  while running (applyBoxFrame owns the rig then) unless the part is hand-posed, or for a part with no rig. */
-  applyIdlePose(partId: string, pose: { joints?: Record<string, number>; subPoses?: Record<string, { position?: [number, number, number]; rotation?: [number, number, number] }>; lamps?: Record<string, boolean> }): void
+  applyIdlePose(partId: string, pose: { joints?: Record<string, number>; subPoses?: Record<string, SubPose>; lamps?: Record<string, boolean> }): void
   /** the parts whose rig joints the editor poses (applyIdlePose) even while running, the sim's joint frames for them
    *  ignored: a flex conveyor the walking character is pulling, whose shape is ahead of the sim's */
   setHandPosed(partIds: readonly string[]): void
@@ -543,8 +544,15 @@ export interface IRenderView {
   /** show the ruler measurement line + readout between two world points; null clears it */
   setRuler(a: [number, number, number] | null, b: [number, number, number] | null): void
 
-  /** animate the camera to frame these parts (F key) */
-  focusOn(ids: readonly string[]): void
+  /**
+   * animate the camera to look down `dir` (a unit world axis) at the orbit target, in auto-ortho: the
+   * orbit gizmo's axis-ball click, and Numpad 1 / 3 / 7
+   */
+  snapToAxis(dir: Vector3): void
+
+  /** animate the camera to frame these parts (F key); `instant` places it in this call (capture_view, which may
+   *  run while the window is minimized and frames come about once a second) */
+  focusOn(ids: readonly string[], opts?: { instant?: boolean }): void
 
   /** start follow mode: the camera rig tracks these parts' center as they move (double-F) */
   startFollow(ids: readonly string[]): void
@@ -564,6 +572,11 @@ export interface IRenderView {
 
   /** current camera position + orbit target, for detecting whether the view has moved */
   cameraPose(): { px: number; py: number; pz: number; tx: number; ty: number; tz: number }
+  /**
+   * The camera position + a point it really looks at: the orbit target, or, in pilot mode or a freelook flight (which
+   * turn the camera and leave the target behind), a point straight ahead. What someone following this view is shown.
+   */
+  lookPose(): { px: number; py: number; pz: number; tx: number; ty: number; tz: number }
 
   /**
    * Zoom as if `e` had reached the canvas. For DOM drawn over the scene as part of it (annotation chips):

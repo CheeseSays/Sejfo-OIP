@@ -7,7 +7,7 @@
 // memory the way build-parts builds it (scripts/lib/buildPart.mjs). The checks below run on that build, and a
 // manifest or behavior beside it that differs from the build is a `stale` problem: either part.js changed and was not
 // built, or the file was edited (by the app's Part Editor or an agent tool) and the next build would undo it.
-// Three checks, cheapest first, and then a readout of what the part is once baked:
+// Four checks, cheapest first, and then a readout of what the part is once baked:
 //
 //   1. schema - the manifest against @oip/part-sdk's manifest.schema.json. Catches what the app would
 //                  silently IGNORE: an unknown key (`noColision`) validates, bakes, and does nothing.
@@ -18,6 +18,10 @@
 //                  rig is also MEASURED: rest-pose FK places every collider box and each mesh link's GLB box
 //                  (scripts/lib/glb.mjs), and a model outside its bounds, or a collider well outside the model,
 //                  is a warning with the fix (an off-centre import, stale bounds, a missing bounds.bottom).
+//   4. host facts - a drawn part's host-fed params (src/core/parts/hostFacts.ts): one its own declarations say it
+//                  needs and it leaves out is a warning, since that fact then never reaches it.
+//   A category one or two letters off a standard one, or off one an earlier folder in the run names, is a warning
+//   too: any name is a catalog tab of its own (src/core/parts/partCategory.ts).
 //
 // Before this existed a part could only be checked by building a whole project folder around it and running
 // validate-project (in two agent trials, both routed through a project just to see a bake error).
@@ -30,7 +34,7 @@ import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createServer } from 'vite'
 import { buildPart, hasPartSource } from './lib/buildPart.mjs'
-import { emptyBox, growBox, isEmpty, meshLinkBox, parseGlb } from './lib/glb.mjs'
+import { drawnElsewhere, emptyBox, growBox, isEmpty, meshLinkBox, parseGlb } from './lib/glb.mjs'
 import { checkManifestSchema } from './lib/manifestSchema.mjs'
 
 const repo = resolve(dirname(fileURLToPath(import.meta.url)), '..')
@@ -63,6 +67,10 @@ try {
   const { linkHalfExtents, qApply, resolvedMeshScale, rigRestExtent, rigWorldPoses } = await vite.ssrLoadModule('/src/core/rig/rigPose.ts')
   const { instantiatePartScript } = await vite.ssrLoadModule('/src/core/parts/partScript.ts')
   const { compileRig } = await vite.ssrLoadModule('/src/core/rig/rigCompile.ts')
+  const { hostFactWarnings } = await vite.ssrLoadModule('/src/core/parts/hostFacts.ts')
+  const { PART_CATEGORIES, nearCategory } = await vite.ssrLoadModule('/src/core/parts/partCategory.ts')
+  // the categories a part's could be a misspelling of: the standard four, and those the folders checked before it name
+  const knownCategories = [...PART_CATEGORIES]
 
   for (const target of targets) {
     const report = { folder: target, ok: false, problems: [] }
@@ -134,7 +142,7 @@ try {
       beams: links.filter((l) => l.beam).map((l) => l.name),
       zones: links.filter((l) => l.zone).map((l) => l.name),
       loadCells: links.filter((l) => l.loadCell).map((l) => l.name),
-      colliders: links.filter((l) => l.collision !== 'none' && ['box', 'cylinder'].includes(l.shape.kind)).map((l) => l.name).concat(links.filter((l) => l.shape.kind === 'mesh' && l.collision?.box).map((l) => l.name)),
+      colliders: links.filter((l) => l.collision !== 'none' && ['box', 'cylinder'].includes(l.shape.kind)).map((l) => l.name).concat(links.filter((l) => ['mesh', 'frame'].includes(l.shape.kind) && l.collision?.box).map((l) => l.name)),
       conveys: links.filter((l) => l.conveys).map((l) => l.name).concat('conveys' in geo && geo.conveys ? ['(whole part)'] : []),
       snap: pkg.snap ? Object.keys(pkg.snap).filter((k) => pkg.snap[k] !== undefined) : [],
       ...(pkg.useParam ? { useParam: pkg.useParam } : {}),
@@ -187,13 +195,17 @@ try {
         }
         const model = emptyBox()
         const colliders = emptyBox()
-        const shown = (l) => !l.showParam || defaults[l.showParam] !== false
+        // a posable array's copies stand wherever the behavior puts them (round a sorter's chain), so their rest row
+        // says nothing about the part's size: they and what geometry() hangs on them are left out of the measure
+        const shown = (l) => (!l.showParam || defaults[l.showParam] !== false) && !l.array?.posable
+        const posableRows = geo.links.some((l) => l.array?.posable)
+        if (posableRows) report.summary.posableRows = geo.links.filter((l) => l.array?.posable).map((l) => l.name)
         for (const l of geo.links) {
           const pose = poses.get(l.name)
           if (!pose || !shown(l)) continue
           if (l.shape.kind === 'mesh') {
             const json = glbOf(l.shape.asset)
-            const b = json && meshLinkBox(json, l.shape)
+            const b = json && meshLinkBox(json, { ...l.shape, drawnElsewhere: drawnElsewhere(geo.links, l) })
             // NODE-SCALING stretches the mesh about the link origin, per axis (a leg grown to the stand height)
             const f = l.shape.sizeParams ? resolvedMeshScale(l.shape.sizeParams, defaults) : [1, 1, 1]
             if (b) place({ min: b.min.map((v, k) => v * f[k]), max: b.max.map((v, k) => v * f[k]) }, pose, model)
@@ -204,7 +216,7 @@ try {
             const h = linkHalfExtents(l, defaults)
             place({ min: [-h[0], -h[1], -h[2]], max: h }, pose, model)
           }
-          const collides = (primitive && l.collision !== 'none') || (l.shape.kind === 'mesh' && l.collision?.box)
+          const collides = (primitive && l.collision !== 'none') || (['mesh', 'frame'].includes(l.shape.kind) && l.collision?.box)
           if (collides) {
             const h = linkHalfExtents(l, defaults)
             place({ min: [-h[0], -h[1], -h[2]], max: h }, pose, colliders)
@@ -278,7 +290,8 @@ try {
         if (!isEmpty(colliders)) {
           report.summary.measured = { ...report.summary.measured, colliders: fmt(colliders) }
           // a collider a little proud of the mesh is common and deliberate (a blade's contact face); 5 cm is a mistake
-          if (!isEmpty(model)) outside(colliders, model, 'a collider', 'the model', 0.05)
+          // with posable rows left out the model is not the whole part, so a collider past it says nothing
+          if (!isEmpty(model) && !posableRows) outside(colliders, model, 'a collider', 'the model', 0.05)
         }
       } catch (e) {
         report.warnings.push(`could not measure the rig: ${e.message}`)
@@ -310,6 +323,19 @@ try {
     if (geo.kind === 'rig' && report.summary.colliders.length === 0 && report.summary.conveys.length === 0 && report.summary.zones.length === 0) {
       report.warnings.push('no link builds a collision body (mesh links are visual-only unless they declare `collision`): cargo will pass through this part')
     }
+    // The facts the host hands a drawn part through fixed-name params (a guard opening, a beam hole, a merge's wall):
+    // one the part leaves out never reaches it, with no error (src/core/parts/hostFacts.ts)
+    try {
+      for (const w of hostFactWarnings(pkg, createSdkPart(pkg, 'check-part-probe', [0, 0, 0]))) report.warnings.push(w)
+    } catch (e) {
+      report.warnings.push(`could not check the host-fed params: ${e.message}`)
+    }
+    // any category name is a catalog tab of its own, so one a letter or two off a known one ("Device") is probably a typo
+    if (typeof pkg.category === 'string') {
+      const near = nearCategory(pkg.category, knownCategories)
+      if (near) report.warnings.push(`category "${pkg.category}" makes a catalog tab of its own, beside "${near}". If you meant "${near}", use that`)
+      knownCategories.push(pkg.category)
+    }
     report.ok = report.problems.length === 0
   }
 } finally {
@@ -331,7 +357,7 @@ if (asJson) {
     if (!s) continue
     const box = (b) => `x ${b.x.join('..')}  y ${b.y.join('..')}  z ${b.z.join('..')}`
     if (s.footprint) console.log(`    footprint at default params (m, part-local): ${box(s.footprint)}${s.footprintFrom ? `   ← ${s.footprintFrom}` : ''}`)
-    if (s.measured?.model) console.log(`    measured model at rest:                     ${box(s.measured.model)}`)
+    if (s.measured?.model) console.log(`    measured model at rest:                     ${box(s.measured.model)}${s.posableRows ? `  (without the posable rows ${s.posableRows.join(', ')}, which stand where step() puts them)` : ''}`)
     if (s.measured?.colliders) console.log(`    measured colliders at rest:                 ${box(s.measured.colliders)}`)
     for (const g of s.signals) console.log(`    signal  ${(g.dir ?? '?').padEnd(3)} ${(g.type ?? '?').padEnd(4)} ${g.name}${g.fixed ? ' (fixed name)' : ` = "${g.tag}"`}`)
     for (const j of s.joints) console.log(`    joint   ${j.name} (${j.type} on ${j.link}, ${j.range.join('..')})${j.servo ? `  servo: ${j.servo.maxVelocity}/s, ${j.servo.maxAccel}/s²${j.servo.modulo ? `, wraps at ${j.servo.modulo}` : ''}` : ''}`)

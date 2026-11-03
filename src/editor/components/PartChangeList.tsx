@@ -29,7 +29,9 @@ export function useSignalImpacts(
   const [impactLib, setImpactLib] = useState<typeof import('../../plc/updateImpact') | null>(null)
   useEffect(() => {
     let open = true
-    void import('../../plc/updateImpact').then((m) => open && setImpactLib(m))
+    void import('../../plc/updateImpact')
+      .then((m) => open && setImpactLib(m))
+      .catch((e: unknown) => console.warn('[oip] the update-impact module failed to load', e))
     return () => {
       open = false
     }

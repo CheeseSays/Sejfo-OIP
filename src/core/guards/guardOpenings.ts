@@ -2,6 +2,7 @@ import { FRAME_WALL_THICKNESS, GUARD_CONTACT_TOLERANCE } from '../types'
 import type { PartInstance } from '../types'
 import type { PartEnd } from '../parts/partGeometry'
 import type { BedGuardHost } from '../conveyor/conveyorBeds'
+import type { ParamValue } from '../parts/partApi'
 import { bedOf, bedView, conveyorEndsOf, guardPusherContacts, isConveyorLike, isGuardPusher, toLocalXZ } from '../parts/partGeometry'
 import { endAtHostHeight, junctionMouths, mitresKey, sortCuts } from './guardExtents'
 import type { GuardMitres } from './guardExtents'
@@ -119,8 +120,8 @@ export function hostGuardFrame(host: PartInstance): BedGuardHost | null {
 /**
  * Openings on `host`'s left/right guards from every other conveyor's end that
  * butts against it, and from every guard pusher mounted on it. `host` must be a bed whose guards open (a belt, a
- * straight or a spur); other types return empty. A spur opens for pushers only: it is itself a merge and takes
- * end joins only, so a conveyor end placed against its side leaves the guard closed (checkLayout.ts warns).
+ * straight or a spur); other types return empty. A bed that takes end joins only (a spur: it is itself a merge)
+ * opens for pushers only, so a conveyor end placed against its side leaves the guard closed (checkLayout.ts warns).
  */
 export function deriveGuardOpenings(host: PartInstance, others: readonly PartInstance[]): GuardOpenings {
   const result: GuardOpenings = { left: [], right: [] }
@@ -129,7 +130,8 @@ export function deriveGuardOpenings(host: PartInstance, others: readonly PartIns
   // openings live in the host's local centreline X; the guard builders (belt geometry / rig guard-splitter)
   // read them in that same frame. bedLo..bedHi is the length span, hw the half-width at which the guards sit.
   const { bedLo, bedHi, hw, slope } = frame
-  const takesMerges = bedView(host, 'spur') === null
+  // a bed that takes end joins only (a spur) opens for a device mounted on its guard, never for a conveyor end
+  const takesMerges = !(bedOf(host)?.endJoinsOnly ?? false)
   let mitres: GuardMitres | undefined
 
   for (const other of others) {
@@ -221,6 +223,26 @@ function addAuthoredOpenings(host: PartInstance, result: GuardOpenings, bedLo: n
   const authored = straightGuardOpenings(rowsToOpeningSpecs(rows as number[][]), bedHi - bedLo)
   for (const [a, b] of authored.left) result.left.push([round(a + bedLo), round(b + bedLo)])
   for (const [a, b] of authored.right) result.right.push([round(a + bedLo), round(b + bedLo)])
+}
+
+/**
+ * Fold a host's openings into a drawn straight or spur bed's `guardGaps` param as rows [x0, x1, side ±1] in its own
+ * local X (the frame deriveGuardOpenings measures in), so its geometry() leaves those gaps in its guards and the sim,
+ * reading the same params, leaves them in its colliders. A no-op unless the part declares the param. A belt takes its
+ * openings in `guardOpenings` instead, in arc length (render/parts/sdk/functionMesh.ts withNeighborOpenings), and a
+ * rig's guard links are split by the host, so neither takes gaps.
+ */
+export function withGuardGaps(
+  part: PartInstance,
+  params: Record<string, ParamValue>,
+  openings: GuardOpenings | undefined,
+): Record<string, ParamValue> {
+  if (!openings || (openings.left.length === 0 && openings.right.length === 0) || part.type !== 'part') return params
+  if (!getPackage(part.packageId)?.params.guardGaps || bedView(part, 'path') !== null) return params
+  const rows: number[][] = []
+  for (const [a, b] of openings.left) rows.push([a, b, -1])
+  for (const [a, b] of openings.right) rows.push([a, b, 1])
+  return { ...params, guardGaps: rows as unknown as ParamValue }
 }
 
 function hasOpenings(op: GuardOpenings): boolean {

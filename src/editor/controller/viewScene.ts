@@ -5,7 +5,8 @@
 
 import { ancestorIds, subtreeIds } from '../../core/scene/hierarchy'
 import { getPackage } from '../../core/parts/partRegistry'
-import { productRefsOf, servoJointsJson, unitPiecesOf } from '../../core/parts/partPackage'
+import { definitionsUsedBy, servoJointsJson } from '../../core/parts/partPackage'
+import { posableArraysJson } from '../../core/rig/rigPose'
 import { settleIdlePose, withJointRests } from '../../sim/idlePose'
 import { withFlexPose } from '../../core/parts/partGeometry'
 import type { FlexPose } from '../../core/parts/partGeometry'
@@ -86,7 +87,7 @@ export function poseWalkedFlexes(view: IRenderView, s: EditorState, scene: Scene
     const pkg = part?.type === 'part' ? getPackage((part as SdkPart).packageId) : undefined
     if (!part || !pkg || pkg.geometry.kind !== 'rig') continue
     const params = (part as SdkPart).params ?? {}
-    const pose = withJointRests(settleIdlePose(pkg.behavior, params, 0, undefined, servoJointsJson(pkg.geometry)), pkg.geometry.joints, params)
+    const pose = withJointRests(settleIdlePose(pkg.behavior, params, 0, undefined, servoJointsJson(pkg.geometry), posableArraysJson(pkg.geometry)), pkg.geometry.joints, params)
     if (pose) view.applyIdlePose(id, pose)
   }
 }
@@ -176,18 +177,11 @@ export function forSim(w: WalkOverlays, store: EditorStore, scene: SceneJSON): S
   const walked = withWalkFlex(w, scene, walkFlex)
   const base = focusId !== null ? isolatedRunScene(walked, focusId) : walked
   const pkgs = [...(base.packages ?? [])]
-  // a unit load that stacks itself builds its pallet and cases from their packages (core/frame unitPieces), and a
-  // spawner makes the product its params name (productRefsOf), which no placed part embeds when nothing else in the
-  // scene uses them; the worker only knows what it is handed
-  for (const part of base.parts) {
-    const own = part.type === 'part' ? getPackage(part.packageId) : undefined
-    if (!own) continue
-    const pieces = unitPiecesOf(own)
-    for (const id of [...(pieces ? [pieces.pallet, pieces.case] : []), ...(part.type === 'part' ? productRefsOf(part.params, own) : [])]) {
-      const pkg = pkgs.some((p) => p.id === id) ? undefined : getPackage(id)
-      if (pkg) pkgs.push(pkg)
-    }
-  }
+  const have = new Set(pkgs.map((p) => p.id))
+  // The worker only knows the packages it is handed: every one the parts use, whether or not the scene embeds it. A
+  // part whose package is missing there still draws, but the sim builds it with no bodies and cargo falls through it.
+  // That covers the products a spawner makes and a unit load's pieces, which no placed part may embed.
+  for (const pkg of definitionsUsedBy(base.parts, getPackage)) if (!have.has(pkg.id)) pkgs.push(pkg)
   if (pkgs.length === 0) return base
   return { ...base, packages: pkgs.map((p) => getPackage(p.id) ?? p) }
 }

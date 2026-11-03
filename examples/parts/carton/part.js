@@ -35,6 +35,9 @@ const WALL = 0.01 // a collider wall
 const TAPE_T = 0.003 // how far the tape stands off the closed flaps
 const TAPE_W = 0.048 // the width of the tape strip
 const ref = (axis, param, rest = {}) => ({ axis, param, ...rest })
+// A rotationParams entry takes radians (the rest `rotation` is radians), so a fold written in degrees goes through this.
+const D2R = Math.PI / 180
+const degRef = (r) => ({ ...r, scale: (r.scale ?? 1) * D2R, ...(r.add !== undefined ? { add: r.add * D2R } : {}), ...(r.min !== undefined ? { min: r.min * D2R } : {}), ...(r.max !== undefined ? { max: r.max * D2R } : {}) })
 
 // The default case, 0.4 x 0.3 x 0.25. Every number that follows a param carries its ref, spelled out: the build fits a
 // ref to a plain linear param, not a product that is clamped, and it cannot fit a rotation to a param at all.
@@ -76,7 +79,7 @@ definePart({
   },
   rig() {
     const wall = (name, parent, size, sizeParams, offset, offsetParams, rotationParams) => ({
-      name, parent, shape: { kind: 'box', size, sizeParams }, offset, offsetParams, rotationParams, collision: 'none', colorParam: 'color', roughness: 0.9,
+      name, parent, shape: { kind: 'box', size, sizeParams }, offset, offsetParams, rotationParams: rotationParams?.map(degRef), collision: 'none', colorParam: 'color', roughness: 0.9,
     })
     const links = [
       // the collider is hollow, so a case can be filled: four walls, and a floor at an end only once that end is closed. A
@@ -95,7 +98,7 @@ definePart({
       // the drawn shell hangs from a root of its own, so the hidden collider takes none of it with it
       { name: 'shell', shape: { kind: 'frame' }, offset: [0, 0, 0], collision: 'none' },
       // the section's shear: turned by the opening angle, the long walls hang from it and turn back so they stay level
-      { name: 'shear', parent: 'shell', shape: { kind: 'frame' }, offset: [0, 0, 0], rotationParams: [ref(2, 'open', { scale: 90 })], collision: 'none' },
+      { name: 'shear', parent: 'shell', shape: { kind: 'frame' }, offset: [0, 0, 0], rotationParams: [degRef(ref(2, 'open', { scale: 90 }))], collision: 'none' },
       wall('wall1', 'shear', [L, T, H], [ref(0, 'length'), ref(2, 'height')], [-W / 2, 0, 0], [ref(0, 'width', { scale: -0.5 })], [ref(2, 'open', { scale: -90 })]),
       wall('wall3', 'shear', [L, T, H], [ref(0, 'length'), ref(2, 'height')], [W / 2, 0, 0], [ref(0, 'width', { scale: 0.5 })], [ref(2, 'open', { scale: -90 })]),
       // the short walls, turned with the shear
@@ -110,7 +113,7 @@ definePart({
           ? { axis: 0, param: foldParam, scale: 30 * s, add: -90 * s, min: s > 0 ? 0 : -90, max: s > 0 ? 90 : 0 }
           : { axis: 0, param: foldParam, scale: 30 * s, min: s > 0 ? 0 : -90, max: s > 0 ? 90 : 0 }
         const hinge = `hinge${w.name.slice(4)}${end}`
-        links.push({ name: hinge, parent: w.name, shape: { kind: 'frame' }, offset: [0, 0, zSign * H / 2], offsetParams: [ref(2, 'height', { scale: zSign * 0.5 })], rotationParams: [angle], collision: 'none' })
+        links.push({ name: hinge, parent: w.name, shape: { kind: 'frame' }, offset: [0, 0, zSign * H / 2], offsetParams: [ref(2, 'height', { scale: zSign * 0.5 })], rotationParams: [degRef(angle)], collision: 'none' })
         // a panel's thickness sits on the side that ends up outside the end once it has folded, and the long flaps lie over the short ones
         const layer = w.major ? 1.5 : 0.5
         const lenParam = w.name === 'wall1' || w.name === 'wall3' ? 'length' : 'width'

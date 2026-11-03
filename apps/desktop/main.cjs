@@ -7,10 +7,10 @@ const { existsSync, mkdirSync, realpathSync, writeFileSync, readFileSync } = req
 const { spawn } = require('node:child_process')
 const { pathToFileURL } = require('node:url')
 const { listWorkspace } = require('./partsWorkspace.cjs')
-const { listShelf, readChosenShelf, writeChosenShelf, writeShelfPart } = require('./partsShelf.cjs')
+const { listShelf, readChosenShelf, shelfSignature, writeChosenShelf, writeShelfPart } = require('./partsShelf.cjs')
 const { documentFileArg, readDocumentFile } = require('./fileOpen.cjs')
 const { applyFolderWrites, folderSignature, hasProjectManifest, readProjectFolder } = require('./projectFolderIo.cjs')
-const { createFolderRegistry } = require('./folderRegistry.cjs')
+const { createFolderRegistry, samePath } = require('./folderRegistry.cjs')
 const { createFolderGrants } = require('./folderGrants.cjs')
 const { createEndpointConsent } = require('./endpointConsent.cjs')
 const { registerPlcIo } = require('./plcIo.cjs')
@@ -18,7 +18,8 @@ const { registerOpcUaIo } = require('./opcUaIo.cjs')
 const { registerEipIo, shutdownEip } = require('./eipIo.cjs')
 const { registerAdsIo, shutdownAds } = require('./adsIo.cjs')
 const { registerOpcUaServer } = require('./opcUaServer.cjs')
-const { AgentHost, DEFAULT_PORT: MCP_DEFAULT_PORT, registerAgentHost, startMcpServer } = require('./mcpServer.cjs')
+const { AgentHost, DEFAULT_PORT: MCP_DEFAULT_PORT, readModel, registerAgentHost, startMcpServer } = require('./mcpServer.cjs')
+const { createProjectTools } = require('./agentProjects.cjs')
 const { guardIpc, isAppUrl, isTrustedSender, navigateDisposition, openDisposition, originOf } = require('./shellTrust.cjs')
 const { APP_URL, registerScheme, serve: serveDistProtocol } = require('./distProtocol.cjs')
 const { distIsBuilt } = require('./pagesHost.cjs')
@@ -326,8 +327,11 @@ app.on('web-contents-created', (_event, contents) => {
 function createWindow(url = TARGET_URL) {
   const saved = loadWindowState()
   startingTheme(saved)
+  // a second window opens over the focused one, moved down and across so both title bars show
+  const beside = focusedAppWindow()
+  const near = beside?.getNormalBounds()
   const win = new BrowserWindow({
-    ...visibleBounds(saved?.bounds),
+    ...visibleBounds(near ? { ...near, x: near.x + 32, y: near.y + 32 } : saved?.bounds),
     ...iconOption,
     ...titleBar(),
     // …only until the geometry below is applied - NOT until ready-to-show. A window shown before
@@ -389,8 +393,21 @@ function createWindow(url = TARGET_URL) {
     if (child && popoutOwner.get(child.id) === win) tintTitleBar(child, color, symbol, true)
   })
 
-  // First run (no memory) → maximize; otherwise restore whatever maximized state the user left.
-  if (!saved || saved.maximized) win.maximize()
+  // First run (no memory) → maximize; otherwise restore whatever maximized state the user left. A second window
+  // follows the one it opened beside.
+  if (beside ? beside.isMaximized() : !saved || saved.maximized) win.maximize()
+
+  // which project this window has: forgotten when its page goes, until the new page reports again
+  const contentsId = win.webContents.id
+  const forget = () => {
+    windowDocs.delete(contentsId)
+    windowRoots.delete(contentsId)
+  }
+  win.webContents.on('did-navigate', forget)
+  win.webContents.once('destroyed', () => {
+    forget()
+    enabledByWindow.delete(contentsId)
+  })
 
   // On screen from ~320ms - a second before the renderer paints, and that is the point: a window IS
   // the "it launched" signal, and the alternative measured as ~700ms of nothing at all. What must not
@@ -414,6 +431,20 @@ function createWindow(url = TARGET_URL) {
   }
   win.on('close', saveWindowState)
 
+  // A fullscreen window has no frame, so the caption buttons go, but Chromium keeps reporting their strip
+  // as env(titlebar-area-*) and the toolbar would keep an empty gap for them. The page drops its inset on
+  // this instead (preload.cjs, toolbar.css). Covers F11 and the page's own requestFullscreen. Each event
+  // sends its own state: on Windows, F11's enter/leave events fire while isFullScreen() still reads the old one.
+  const sendFullScreen = (on) => {
+    if (!win.isDestroyed()) win.webContents.send('shell:fullscreen', on)
+  }
+  for (const [ev, on] of [['enter-full-screen', true], ['leave-full-screen', false], ['enter-html-full-screen', true], ['leave-html-full-screen', false]]) {
+    win.on(ev, () => sendFullScreen(on))
+  }
+  win.webContents.on('did-finish-load', () => {
+    if (win.isFullScreen()) sendFullScreen(true)
+  })
+
   // `url` may be a promise (a caller resolving where the app is): the window is on screen meanwhile.
   Promise.resolve(url).then(
     (u) => {
@@ -429,8 +460,94 @@ function createWindow(url = TARGET_URL) {
   return win
 }
 
-// The project folder the window is working in: the open/save dialogs' starting point.
+// ── Windows, one project each ─────────────────────────────────────────────────────────────────────
+// Each app window has its own project open (docs/desktop-shell.md "Several windows"). Main keeps which document and
+// which folder each one has, by webContents id, so a project is never open in two windows: opening it again brings
+// its window forward. The page reports its document (window:document) and its folder (project:attach); a reload or
+// a closed window forgets both until the page reports again.
+const windowDocs = new Map()
+const windowRoots = new Map()
+/** A document id as the page mints them (src/editor/project/libraryDb.ts mintDocumentId). */
+const DOC_ID = /^doc-[a-z0-9-]+$/
+
+// The folder the window that attached last is working in: the dialogs' starting point for a window with no folder.
 let projectRoot = null
+
+/** The windows running the app: not a popped-out panel, whose page is its opener's, nor the licenses page. */
+function appWindows() {
+  return BrowserWindow.getAllWindows().filter((w) => !w.isDestroyed() && !popoutOwner.has(w.id) && !licenseContents.has(w.webContents.id))
+}
+
+/** The app window focused last, so a request from outside any window (a second launch, an agent) goes to it. */
+let lastAppWindow = null
+
+/** The app window that has the focus, or had it last. */
+function focusedAppWindow() {
+  const focused = BrowserWindow.getFocusedWindow()
+  const owner = focused ? appWindow(focused) : null
+  if (owner && !owner.isDestroyed() && appWindows().includes(owner)) return owner
+  if (lastAppWindow && !lastAppWindow.isDestroyed()) return lastAppWindow
+  return appWindows()[0] ?? null
+}
+
+/** The window the agent door drives: the one whose page serves the tools now (mcpServer.cjs AgentHost). */
+function agentWindow() {
+  const id = agentHost.servingId()
+  return (id !== null && appWindows().find((w) => w.webContents.id === id)) || focusedAppWindow()
+}
+
+function bringForward(win) {
+  if (win.isMinimized()) win.restore()
+  win.focus()
+}
+
+/** The app window with document `docId` open, other than `except`, or null. */
+function windowWithDocument(docId, except = null) {
+  return appWindows().find((w) => w !== except && windowDocs.get(w.webContents.id) === docId) ?? null
+}
+
+/** The app window working in folder `root` (by its folder, or by the document the registry knows it as), or null. */
+function windowWithFolder(root, except = null) {
+  const byRoot = appWindows().find((w) => w !== except && windowRoots.has(w.webContents.id) && samePath(windowRoots.get(w.webContents.id), root))
+  if (byRoot) return byRoot
+  const docId = registry.byPath(root)?.docId
+  return docId ? windowWithDocument(docId, except) : null
+}
+
+/** The folder window `win` works in, else the last one attached. */
+function rootOf(win) {
+  return (win && windowRoots.get(win.webContents.id)) || projectRoot
+}
+
+/** Where the app is served, once the app is ready (whenReady); a new window loads it. */
+let appUrl = null
+
+/** Bring forward the window with `docId` open, or open a window on it (libraryDb.pinTabDocument reads `?doc=`). */
+async function openDocumentWindow(docId) {
+  const holder = windowWithDocument(docId)
+  if (holder) {
+    bringForward(holder)
+    return 'focused'
+  }
+  const base = await appUrl
+  const url = new URL(base)
+  url.searchParams.set('doc', docId)
+  createWindow(url.toString())
+  return 'opened'
+}
+
+/**
+ * A folder opened from outside the app (a second launch, Open Recent from another window's menu): its window comes
+ * forward, or `from` opens it in a window of its own. The page does the opening, since it owns the format
+ * (desktopProjectBridge.openFolderInNewWindow).
+ */
+function openFolderWindow(root, from) {
+  const holder = windowWithFolder(root)
+  if (holder) return bringForward(holder)
+  if (!from || from.isDestroyed()) return
+  bringForward(from)
+  from.webContents.send('project:openPathInNewWindow', root)
+}
 
 // ── Project folders ───────────────────────────────────────────────────────────────────────────────
 // On the desktop a project IS a folder (docs/projects.md): the renderer keeps it in step both ways
@@ -535,7 +652,7 @@ function readProjectAt(root) {
 async function pickOpenProjectFolder(win) {
   const result = await dialog.showOpenDialog(win, {
     title: 'Open Project Folder',
-    defaultPath: projectRoot || defaultProjectsRoot(),
+    defaultPath: rootOf(win) || defaultProjectsRoot(),
     properties: ['openDirectory'],
   })
   if (result.canceled || result.filePaths.length === 0) return null
@@ -550,7 +667,7 @@ async function pickSaveProjectFolder(win) {
   const result = await dialog.showOpenDialog(win, {
     title: 'Save Project to Folder',
     buttonLabel: 'Save Here',
-    defaultPath: projectRoot || defaultProjectsRoot(),
+    defaultPath: rootOf(win) || defaultProjectsRoot(),
     properties: ['openDirectory', 'createDirectory', 'promptToCreate'],
   })
   if (result.canceled || result.filePaths.length === 0) return null
@@ -580,23 +697,24 @@ if (pendingOpen) grants.grant(pendingOpen)
 // A project or part FILE the app was launched to open (a double-click on a .oip / .oippart, "Open with", or macOS's
 // open-file before the window exists), handed to the renderer as bytes once it asks (fileOpen.cjs). No grant: the
 // renderer never learns the path, so the folder the file sat in stays out of its reach.
-let pendingFile = documentFileArg(process.argv)
+// Every file waits here until the renderer takes it. Sending the bytes outright lost a file opened while the renderer
+// was still starting (its listener connects only once the editor exists), with no word to the person.
+const pendingFiles = []
+const launchFile = documentFileArg(process.argv)
+if (launchFile) pendingFiles.push(launchFile)
 
-/** Hand a project or part file to the window, or keep it for the window that has not asked yet. */
+/** Keep a project or part file for the window, bring the window forward, and tell it a file is waiting. */
 function openDocumentFile(path) {
-  const win = BrowserWindow.getAllWindows()[0]
-  if (!win || win.isDestroyed() || win.webContents.isLoading()) {
-    pendingFile = path
-    return
-  }
-  if (win.isMinimized()) win.restore()
-  win.focus()
-  win.webContents.send('file:open', readDocumentFile(path))
+  pendingFiles.push(path)
+  const win = focusedAppWindow()
+  if (!win || win.isDestroyed()) return
+  bringForward(win)
+  if (!win.webContents.isLoading()) win.webContents.send('file:pending')
 }
 
 // Pick a folder of parts and scan it (null if cancelled), for the renderer to IMPORT into the open project's parts
-// (src/editor/parts/packageSource.ts). Read once: the folder is a source, not a live second home for those parts. Shared by
-// the renderer IPC (window.oipParts.pickWorkspace) and the File menu so both paths behave identically.
+// (src/editor/parts/packageSource.ts, Import part > A folder of parts…). Read once: the folder is a source, not a live
+// second home for those parts.
 async function pickWorkspace(win) {
   const result = await dialog.showOpenDialog(win, {
     title: 'Import Parts from Folder',
@@ -753,10 +871,27 @@ function registerIpc() {
   ipcMain.handle('project:createFolder', (_event, name, beside) => createProjectFolder(name, beside))
   // The project folder the window is now working in: remember it as the pickers' starting point. (Its parts/ is
   // the folder sync's to read and write - the shell watches nothing of its own.)
-  ipcMain.on('project:attach', (_event, root) => {
+  ipcMain.on('project:attach', (event, root) => {
     if (typeof root !== 'string' || root === '') return
     if (!grants.allows(root)) return refusePath('project:attach', root)
     projectRoot = root
+    windowRoots.set(event.sender.id, root)
+  })
+  // Several windows, one project each (windowDocs above). The page reports which document it has open, and asks
+  // for a document's window (brought forward, or opened) or a folder's (brought forward only).
+  ipcMain.on('window:document', (event, docId) => {
+    if (typeof docId === 'string' && DOC_ID.test(docId)) windowDocs.set(event.sender.id, docId)
+    else windowDocs.delete(event.sender.id)
+  })
+  ipcMain.handle('window:openDocument', (_event, docId) => {
+    if (typeof docId !== 'string' || !DOC_ID.test(docId)) return 'refused'
+    return openDocumentWindow(docId)
+  })
+  ipcMain.handle('window:focusFolder', (event, root) => {
+    if (typeof root !== 'string' || root === '') return false
+    const holder = windowWithFolder(root, BrowserWindow.fromWebContents(event.sender))
+    if (holder) bringForward(holder)
+    return holder !== null
   })
   ipcMain.handle('project:reveal', (_event, root) => {
     if (typeof root !== 'string' || root === '') return 'no folder'
@@ -789,10 +924,9 @@ function registerIpc() {
     pendingOpen = null
     return root
   })
-  // A project or part file the app was opened with, handed over once as bytes (fileOpen.cjs).
+  // The next project or part file waiting to be opened, as bytes (fileOpen.cjs), or null. Each is handed over once.
   ipcMain.handle('file:takePendingOpen', () => {
-    const path = pendingFile
-    pendingFile = null
+    const path = pendingFiles.shift()
     return path ? readDocumentFile(path) : null
   })
   // Edit / reveal a custom part's behavior script from the editor UI (Inspector buttons).
@@ -809,7 +943,8 @@ function registerIpc() {
   // The parts SHELF (partsShelf.cjs, docs/parts-shelf.md): parts kept outside any project, for projects to copy
   // from. The page never names a path: it lists the shelf, and hands a part over by id to be written into it.
   ipcMain.handle('shelf:list', () => listShelf(shelfRoot()))
-  ipcMain.handle('shelf:write', (_event, id, manifestJson, behaviorSource) => writeShelfPart(shelfRoot(), id, manifestJson, behaviorSource))
+  ipcMain.handle('shelf:signature', () => shelfSignature(shelfRoot()))
+  ipcMain.handle('shelf:write', (_event, id, manifestJson, behaviorSource, thumbnail) => writeShelfPart(shelfRoot(), id, manifestJson, behaviorSource, thumbnail))
   ipcMain.handle('shelf:pickFolder', async (event) => {
     const result = await dialog.showOpenDialog(BrowserWindow.fromWebContents(event.sender), {
       title: 'Choose Parts Shelf Folder',
@@ -862,6 +997,9 @@ function registerIpc() {
   registerOpcUaServer(ipcMain, { pkiRoot: join(app.getPath('userData'), 'opcua-pki'), consent: allows })
   // The agent door: tool calls from the MCP server (mcpServer.cjs) go to the editor window that serves them
   registerAgentHost(ipcMain, agentHost)
+  // The Inspector's USD import: a root layer the person picked, read with the layers and images beside it. USD layers
+  // only, the one kind whose model is spread over its folder (editor/usdImport.ts)
+  ipcMain.handle('model:readUsd', (_event, path) => (typeof path === 'string' && /\.(usd|usda|usdc)$/i.test(path) ? readModel(path) : { error: 'not a USD layer file' }))
   // ...and whether it is open at all: Help > Agent Connections... asks main, which owns the server and the choice
   // Help > Check for Updates..., and the newer-build banner's "Get the update" (updater.cjs)
   // the downloaded update the page's notice offers (DesktopUpdateToast): which version, and its Restart
@@ -875,9 +1013,15 @@ function registerIpc() {
     if (win) buildMenu(win, model)
   })
   // {commandId: enabled}, pushed whenever the editor's state changes what's allowed.
-  ipcMain.on('menu:enabled', (_event, map) => {
+  // Each window's own: the menu shows the focused window's (browser-window-focus in whenReady).
+  ipcMain.on('menu:enabled', (event, map) => {
     if (!map || typeof map !== 'object') return
-    lastEnabled = { ...lastEnabled, ...map }
+    const id = event.sender.id
+    const now = { ...(enabledByWindow.get(id) ?? {}), ...map }
+    enabledByWindow.set(id, now)
+    if (menuWindowId !== null && menuWindowId !== id) return
+    menuWindowId = id
+    lastEnabled = now
     applyEnabled(map)
   })
 
@@ -1001,16 +1145,6 @@ function showAbout(win) {
 /** Items main owns outright - nothing here needs the renderer's state. */
 function shellMenuItem(kind, win) {
   switch (kind) {
-    case 'partsFolder':
-      return {
-        // the renderer imports the scan into the open project's parts (packageSource.ts)
-        label: 'Import Parts from Folder…',
-        accelerator: 'CmdOrCtrl+Shift+O',
-        click: async () => {
-          const scan = await pickWorkspace(win)
-          if (scan) win.webContents.send('parts:workspace', scan)
-        },
-      }
     case 'recent': {
       // Main owns this one because it owns the list (folderRegistry.cjs). A click hands the folder to the
       // renderer, which opens it exactly as if it had been picked.
@@ -1026,6 +1160,9 @@ function shellMenuItem(kind, win) {
                 click: (_i, w) => {
                   const target = appWindow(w, win)
                   grants.grant(row.path) // the user picked it from the menu
+                  // open in another window: that one comes forward, and this one keeps its project
+                  const holder = windowWithFolder(row.path, target)
+                  if (holder) return bringForward(holder)
                   if (target && !target.isDestroyed()) target.webContents.send('project:openPath', row.path)
                 },
               })),
@@ -1113,8 +1250,6 @@ const BOOTSTRAP_MENU = [
   {
     label: 'File',
     items: [
-      { type: 'shell', id: 'partsFolder' },
-      { type: 'separator' },
       { type: 'shell', id: 'quit' },
     ],
   },
@@ -1156,9 +1291,12 @@ const BOOTSTRAP_MENU = [
 // The last model the renderer sent, so a second window (or macOS re-activate) rebuilds the real menu
 // instead of dropping back to the bootstrap one.
 let menuModel = BOOTSTRAP_MENU
-// The latest {commandId: enabled} the renderer pushed. A rebuild (Open Recent changing) starts from the
+// The latest {commandId: enabled} the focused window pushed. A rebuild (Open Recent changing) starts from the
 // model's snapshot, which is as old as the model, so the live flags are put back on top of it.
 let lastEnabled = {}
+/** Every window's latest {commandId: enabled}, by webContents id, and the window whose the menu shows. */
+const enabledByWindow = new Map()
+let menuWindowId = null
 
 function applyEnabled(map) {
   const menu = Menu.getApplicationMenu()
@@ -1170,7 +1308,7 @@ function applyEnabled(map) {
 }
 
 function refreshMenu(win) {
-  const target = win || BrowserWindow.getAllWindows()[0]
+  const target = win || focusedAppWindow()
   if (!target) return
   buildMenu(target)
   applyEnabled(lastEnabled)
@@ -1254,30 +1392,29 @@ app.on('open-url', (event, url) => {
   event.preventDefault()
   const link = parseDeepLink(url)
   if (!link) return
-  const win = BrowserWindow.getAllWindows()[0]
+  const win = focusedAppWindow()
   if (win) openLinkIn(win, link)
   else launchLink = link
 })
 
-// One app per profile: the profile holds ONE working copy of the open project, and two windows over it
-// would each take the other's saves for a conflict. A second launch hands its folder or browser link (if it
-// named one) to the window already open, and brings that window forward.
+// One process per profile: it owns which window has which project, so a project is never open in two. A second
+// launch hands what it named to this one: a browser link or a file goes to the focused window, and a folder opens in
+// a window of its own, or brings forward the window that has it.
 if (!app.requestSingleInstanceLock()) {
   app.quit()
 } else {
   app.on('second-instance', (_event, argv) => {
-    const win = BrowserWindow.getAllWindows()[0]
+    const win = focusedAppWindow()
     if (!win) return
     const link = deepLinkFromArgv(argv)
     if (link) return openLinkIn(win, link)
     // a project or part file double-clicked while the app runs
     const file = documentFileArg(argv)
     if (file) return openDocumentFile(file)
-    if (win.isMinimized()) win.restore()
-    win.focus()
     const root = projectFolderArg(argv)
-    if (root) grants.grant(root) // named on a second launch's command line
-    if (root && !win.isDestroyed()) win.webContents.send('project:openPath', root)
+    if (!root) return bringForward(win)
+    grants.grant(root) // named on a second launch's command line
+    openFolderWindow(root, win)
   })
 }
 
@@ -1286,7 +1423,44 @@ if (!app.requestSingleInstanceLock()) {
 // At a FIXED port, because a client is configured with the URL once. Whether it is open is the user's choice
 // (agentDoorSetting.cjs: an installed app starts shut, the development shell open; OIP_MCP=0 / OIP_MCP_PORT
 // override), made and changed in Help > Agent Connections... (manageAgentDoor) and remembered in userData.
-const agentHost = new AgentHost()
+// list_projects, open_project and new_project run here (agentProjects.cjs): main owns which folders may open
+const agentHost = new AgentHost({
+  shellTools: createProjectTools({
+    registry,
+    grants,
+    projectsRoot: defaultProjectsRoot,
+    currentRoot: () => rootOf(agentWindow()),
+    // a project open in another window: the agent moves to that window rather than open it twice
+    driveWindowWith: (root) => {
+      const holder = windowWithFolder(root, agentWindow())
+      if (!holder) return false
+      bringForward(holder)
+      agentHost.focus(holder.webContents.id)
+      return true
+    },
+    openElsewhere: (root) => windowWithFolder(root, agentWindow()) !== null,
+    canonical: canonicalRoot,
+    askToOpen: askAgentOpen,
+  }),
+})
+
+// open_project on a folder outside Open Recent and the projects folder: the user says whether the agent may open it
+async function askAgentOpen(root, name) {
+  const win = agentWindow()
+  if (win) bringForward(win)
+  const opts = {
+    type: 'question',
+    title: 'Open Project',
+    message: `An AI agent asks to open "${name}".`,
+    detail: `${root}\n\nThis folder is not one you have opened in the app. The project you have open now stays saved.`,
+    buttons: ['Open', 'Cancel'],
+    defaultId: 1,
+    cancelId: 1,
+    noLink: true,
+  }
+  const { response } = await (win ? dialog.showMessageBox(win, opts) : dialog.showMessageBox(opts))
+  return response === 0
+}
 const DOOR_SETTING_FILE = join(app.getPath('userData'), 'agent-door.json')
 const doorStart = doorAtStartup({
   env: process.env,
@@ -1387,6 +1561,7 @@ app.whenReady().then(() => {
   void startAgentDoor()
   // a promise either way, so a missing build reaches createWindow's error box instead of throwing here
   const url = prodMode ? Promise.resolve().then(prodUrl) : TARGET_URL
+  appUrl = Promise.resolve(url)
   // the launch link's room applies to this first window only; `activate` re-creates at the plain URL
   const win = createWindow(Promise.resolve(url).then(withLaunchLink))
   buildMenu(win)
@@ -1394,7 +1569,7 @@ app.whenReady().then(() => {
   updater = setupUpdater({
     app,
     dialog,
-    getWindow: () => (win.isDestroyed() ? BrowserWindow.getAllWindows()[0] ?? null : win),
+    getWindow: () => focusedAppWindow(),
     // to every window running the app (not a popped-out panel, whose page is the opener's, nor the licenses page)
     notifyReady: (version) => {
       for (const w of BrowserWindow.getAllWindows()) {
@@ -1402,6 +1577,19 @@ app.whenReady().then(() => {
         w.webContents.send('app:updateReady', version)
       }
     },
+  })
+  // The focused window is the one the menu's enablement, the agent door and a second launch speak for. A popped-out
+  // panel stands for the window that opened it.
+  app.on('browser-window-focus', (_event, focused) => {
+    const owner = appWindow(focused)
+    if (!owner || owner.isDestroyed() || !appWindows().includes(owner)) return
+    lastAppWindow = owner
+    const id = owner.webContents.id
+    agentHost.focus(id)
+    if (menuWindowId === id) return
+    menuWindowId = id
+    lastEnabled = enabledByWindow.get(id) ?? {}
+    applyEnabled(lastEnabled)
   })
   app.on('activate', () => {
     // a macOS open-url with no window open leaves its link for this one

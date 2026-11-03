@@ -2,7 +2,7 @@
 // lives in the sim project because it runs the behavior once (via the embeddable runtime) to bake the
 // exported-param schema so importers render the Inspector without executing code.
 //
-// These modules - core/parts/partApi (types) + core/parts/partPackage (format + validate) + this helper - are the
+// These modules - core/parts/partApi (types) + core/parts/partPackage (format) + core/parts/partValidate + this helper - are the
 // internal shape of the future `@oip/part-sdk` npm package an external author installs in their own IDE.
 // The app also calls buildPackage from its import flow (drop a behavior.js + manifest → a part package).
 
@@ -31,7 +31,7 @@ export function buildPackage(manifest: PackageManifest, behaviorSource: string):
 
 /**
  * Inverse of buildPackage: serialize a registered package back into the on-disk workspace-folder format
- * (`manifest.json` + `behavior.js`), the format a part folder holds and File > Import Parts from Folder… reads
+ * (`manifest.json` + `behavior.js`), the format a part folder holds and Import part > A folder of parts… reads
  * (apps/desktop/partsWorkspace.cjs). Its tests pin that buildPackage reads back exactly what this writes.
  */
 export function packageToWorkspaceFiles(pkg: PartPackage): { manifestJson: string; behaviorJs: string } {

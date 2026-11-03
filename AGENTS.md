@@ -33,7 +33,7 @@ PLCs) built in TypeScript / three.js / Jolt-physics. It also ships a native surf
 | Eager-JS census | `npm run eager-census` (the first-frame JS graph by source module; `-- --no-build`, `-- --top 40`) |
 | Dev on prod assets | `OIP_DEV_PROD_ASSETS=1 npm run dev` (serves `/models` + `/textures` from `dist/`) |
 | ST oracles | `npm run st-oracle` (MATIEC) · `st-oracle:ed3` (STruC++) · `st-oracle:xml` · `st-oracle:openplc` · `st-oracle:dry`; on Windows `wsl -u root -- bash scripts/oracle-wsl.sh all` |
-| PLC in the loop | `npm run openplc-loop` (OpenPLC over Modbus TCP) · `npm run s7-loop` (snap7 over S7) |
+| PLC in the loop | `npm run openplc-loop` (OpenPLC over Modbus TCP) · `npm run openplc-loop:cells` (OpenPLC as a second controller beside the program) · `npm run s7-loop` (snap7 over S7) |
 | Headless CLIs | `catalog`, `check-part`, `add-part`, `edit-part`, `duplicate-parts`, `rename-tag`, `assign-io`, `snap-part`, `shot-part`, `inspect-glb`, `import-model`, `validate-project`, `check-st`, `check-wiring`, `check-layout`, `test-project`, `check-flow`, `bench-sim`, `capabilities`, `build-part-sdk`, `build-parts`, `build-library`, `sign-library`, `library-key`, `check-submission`, `library-corpus`, `bake-walls`, `sdk-usage`, `retired-kinds` |
 
 The headless CLIs, the oracles and the PLC loops are documented in [docs/cli.md](docs/cli.md): no browser, real exit
@@ -88,7 +88,7 @@ a choice is unclear, take the conservative one. Concretely:
   (THIRD_PARTY_NOTICES.md).
 - **No vendor-derived data or behaviour**: nothing captured from a vendor's software, and no behaviour fitted to its
   output. Where IEC leaves a choice open, the engine's rule is ours and documented as ours.
-- **Connecting is fine**: protocol clients talk to equipment the user owns (Modbus, OPC UA, S7, ADS through the user's
+- **Connecting is fine**: protocol clients talk to equipment the user owns (Modbus, OPC UA, S7, SLMP, ADS through the user's
   own TcAdsDll, EtherNet/IP through libplctag). Reading another tool's spellings on input and writing IEC is fine.
 - **Claims**: "a subset of IEC 61131-3 ... not certified"; never "compliant", "certified" or a logo. Vendor names only
   to identify a product (THIRD_PARTY_NOTICES.md lists the marks), never as our specification ("as CODESYS does").

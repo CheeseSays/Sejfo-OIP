@@ -22,14 +22,14 @@
 // Timing: the folder's fingerprint is checked once a second (cheap - sizes and dates, no contents);
 // the project is serialized only when the fingerprint moved or the app saved something since.
 
-import { AGENT_GUIDE, PROJECT_MANIFEST, folderFilesToProject, projectToFolderFiles, unreferencedProjectFiles } from '../../core/project/projectFolder'
+import { AGENT_GUIDE, PROGRAM_DIR, PROGRAM_FILE, PROJECT_MANIFEST, folderFilesToProject, partFolderPaths, projectToFolderFiles, unreferencedProjectFiles } from '../../core/project/projectFolder'
 import type { ProjectFolderFile } from '../../core/project/projectFolder'
 import type { ProjectJSON } from '../../core/project/project'
 import {
   advanceBaseline,
   agreedBaseline,
   diskAfter,
-  programLayoutBaseline,
+  layoutBaseline,
   planFolderSync,
   resolveConflicts,
   sceneUntouched,
@@ -43,6 +43,7 @@ import type { FolderRead, FolderRecordPatch } from '../desktop/desktopProjectApi
 import type { SceneSwapGuard } from './projectFolderLink'
 import type { EditorStore } from '../store/store'
 import { onShippedAssetsWarmed } from '../parts/shippedAssetCache'
+import { onSharedWriteBack, ownSharedProject, sharedProjectNow } from './sharedProject'
 import { FOLDER_OPTIONS } from './folderOptions'
 
 /**
@@ -114,24 +115,36 @@ let generation = 0
 let stopListening: (() => void) | null = null
 let stopArming: (() => void) | null = null
 let unloadHooked = false
+/** what the last round that loaded the folder took in, for sync_folder's answer (agent/contextTools.ts) */
+let lastLoad: FolderSyncReport | null = null
 
 const fileText = (files: readonly ProjectFolderFile[] | null, path: string): string | undefined => {
   const contents = files?.find((f) => f.path === path)?.contents
   return typeof contents === 'string' ? contents : undefined
 }
 
-/** Nothing is synced while the document is not this session's to write: a room, a view-only link, a tab
- *  that yielded to another, a stored project this build could not open. */
+/** Nothing is synced while the document is not this session's to write: someone else's room, a view-only link, a
+ *  tab that yielded to another, a stored project this build could not open. A project of the user's own that they
+ *  shared is still theirs, so its folder keeps following it (project/sharedProject.ts), from the room. */
 function mayWrite(s: EditorStore): boolean {
   const state = s.getState()
-  return !state.collab && !state.readOnly && !state.unopenedProject
+  return (!state.collab || ownsSharedFolder()) && !state.readOnly && !state.unopenedProject
+}
+
+/** this tab is in the room of a shared project of the user's own, and the linked folder is that project's */
+function ownsSharedFolder(): boolean {
+  const shared = ownSharedProject()
+  return shared !== null && link !== null && shared.docId === link.docId
 }
 
 /** The app's rendering of the project as folder files. (`_theirs` pinned which scene the manifest marked active
  *  while a project held several; kept so the call sites read the same.) */
 function mineFiles(s: EditorStore, _theirs: readonly ProjectFolderFile[] | null): ProjectFolderFile[] {
   // a built-in copy's model (a url asset with a sha256) is written as its file once its bytes are at hand
-  return projectToFolderFiles(s.snapshotProject(), FOLDER_OPTIONS)
+  // in its room a shared project is the room plus what the room does not carry (its tests: deleting their files would
+  // lose them), under the record's name (sharedProject.ts)
+  const shared = s.getState().collab ? ownSharedProject() : null
+  return projectToFolderFiles(shared ? sharedProjectNow(s, shared) : s.snapshotProject(), FOLDER_OPTIONS)
 }
 
 /** Everything but the generated agent guide, which is written after any real write. */
@@ -157,10 +170,14 @@ export function noteForUnreferenced(paths: readonly string[]): string | null {
   if (paths.length === 0) return null
   const shown = paths.slice(0, 4).join(', ')
   const rest = paths.length > 4 ? `, +${paths.length - 4} more` : ''
-  return (
-    `Ignored ${paths.length} file${paths.length === 1 ? '' : 's'} this project does not reference: ${shown}${rest}. ` +
-    `Add it to ${PROJECT_MANIFEST} (the "program" array, or the "tests" array) for it to take effect.`
-  )
+  // each kind of file joins the project through its own array, so the hint names only the ones that apply
+  // (a part folder told to go in "program" would be listed in the wrong place)
+  const hints: string[] = []
+  if (paths.some((p) => p.startsWith('parts/'))) hints.push('a part folder (parts/<id>) in "packages"')
+  if (paths.some((p) => p.startsWith(`${PROGRAM_DIR}/`) || p === PROGRAM_FILE)) hints.push('a program file in "program"')
+  if (paths.some((p) => p.startsWith('tests/'))) hints.push('a test in "tests"')
+  const head = `Ignored ${paths.length} file${paths.length === 1 ? '' : 's'} this project does not reference: ${shown}${rest}.`
+  return hints.length > 0 ? `${head} To use one, list it in ${PROJECT_MANIFEST}: ${hints.join(', ')}.` : head
 }
 
 /** What the folder holds that the project never references, for the banner. */
@@ -205,13 +222,13 @@ async function round(reason: 'poll' | 'write'): Promise<void> {
 
   // First round after the working copy was built from this folder: the two are the same project, so
   // whatever differs between them is rendering, not an edit. Agree on it and move nothing - unless the folder names
-  // other program files than the app writes, which is a layout to rewrite, not a rendering (core/project/folderSync.ts
-  // programLayoutBaseline; checked every round, since an agent can write that layout at any time).
+  // other program or test files than the app writes, which is a layout to rewrite, not a rendering (core/project/folderSync.ts
+  // layoutBaseline; checked every round, since an agent can write that layout at any time).
   if (l.baseline === null && l.trustDisk) {
     l.baseline = { disk: {}, mine: agreedBaseline(mine, mine).mine }
   } else if (l.baseline === null) {
     const agreed = agreedBaseline(mine, theirs)
-    const relaid = programLayoutBaseline(agreed, mine, theirs)
+    const relaid = layoutBaseline(agreed, mine, theirs)
     if (relaid === null) {
       l.baseline = agreed
       l.agreedManifest = fileText(theirs, PROJECT_MANIFEST)
@@ -222,10 +239,17 @@ async function round(reason: 'poll' | 'write'): Promise<void> {
     l.baseline = relaid
     l.agreedManifest = fileText(theirs, PROJECT_MANIFEST)
   } else {
-    l.baseline = programLayoutBaseline(l.baseline, mine, theirs) ?? l.baseline
+    l.baseline = layoutBaseline(l.baseline, mine, theirs) ?? l.baseline
   }
 
   const plan = planFolderSync(l.baseline, mine, theirs)
+  // Shared, the folder follows the room, one way. A change made to the folder meanwhile is not loaded, because a load
+  // replaces the project under the room rather than editing it: the sync waits, moving nothing, and when the project
+  // stops being shared it takes the change, or asks about it, as it always does.
+  if (s.getState().collab && (plan.take.length > 0 || plan.conflicts.length > 0)) {
+    s.setFolderLink(l.name, 'The project folder changed while the project is shared. Those changes are not loaded while it is shared; the folder sync waits, and picks them up when you stop sharing.', null)
+    return
+  }
   if (plan.conflicts.length > 0) {
     s.setFolderConflict(plan.conflicts)
     return
@@ -272,8 +296,10 @@ async function round(reason: 'poll' | 'write'): Promise<void> {
   if (loaded !== null) {
     const state = s.getState()
     const keep = !state.demoSession && sceneUntouched(plan.take, l.agreedManifest, fileText(after, PROJECT_MANIFEST))
+    const wasRunning = state.running
     if (!keep && !state.demoSession) controller?.leaveForSceneSwap()
     s.refreshProject(loaded, { keepLiveScene: keep })
+    lastLoad = { loaded: [...plan.take], stoppedRun: wasRunning && !s.getState().running }
   }
 
   // A parts/ folder that just appeared (the first authored part, from either side) has to become the
@@ -414,9 +440,12 @@ async function begin(api: FolderApi, docId: string, root: string, baseline: Fold
   const stopPersist = s.onProjectPersisted(onPersist)
   // a round that ran before a built-in's model bytes arrived wrote its url form; when they arrive, write the files
   const stopWarmed = onShippedAssetsWarmed(onPersist)
+  // shared, the project is saved by its write-back from the room, not by the autosave (project/sharedProject.ts)
+  const stopShared = onSharedWriteBack(onPersist)
   stopListening = () => {
     stopPersist()
     stopWarmed()
+    stopShared()
   }
   ensurePolling()
   if (!unloadHooked && typeof addEventListener === 'function') {
@@ -479,9 +508,10 @@ export async function restoreFolderSync(s: EditorStore, ctrl: SceneSwapGuard = n
   if (api === null) return
   store = s
   controller = ctrl
-  if (s.getState().collab) return
   const docId = currentDocumentId()
   if (docId === null) return
+  // in a room only a shared project of the user's own keeps its folder: someone else's room is not theirs to write
+  if (s.getState().collab && ownSharedProject()?.docId !== docId) return
   const row = await api.recall(docId)
   // another document took the screen while the shell answered (the demo forking into a project of its own): its
   // own call decides its folder, and this one must not attach the old document's to it
@@ -509,7 +539,7 @@ export async function saveIntoFolder(
   api: FolderApi | null = getOipProjectApi(),
 ): Promise<string | null> {
   if (api === null) return 'Saving a project as a folder needs the desktop app.'
-  if (s.getState().collab) return 'A live collab room owns its document. Leave the room to save it to a folder.'
+  if (s.getState().collab) return 'A shared project keeps the folder it was shared from. Stop sharing it to use another folder, or make a copy.'
   // '' when this browser keeps no document library: the folder is followed, it just cannot be remembered
   const docId = currentDocumentId() ?? ''
   store = s
@@ -620,6 +650,40 @@ export async function syncFolderNow(): Promise<void> {
 }
 
 /**
+ * A library part's build source in the followed folder, `parts/<slug>/part.js`, as the sync last read it, or null.
+ * The app never reads a part.js (core/project/projectFolder.ts isPartSourceFile); the agent tools name it, so an
+ * agent editing such a part knows its manifest.json and behavior.js are build output.
+ */
+export function partSourceInFolder(packageId: string): { root: string; path: string; text: string } | null {
+  const l = link
+  const s = store
+  if (!l || !s || !l.theirs) return null
+  const dir = partFolderPaths(s.snapshotProject().packages ?? []).get(packageId)
+  const text = dir === undefined ? undefined : fileText(l.theirs, `${dir}/part.js`)
+  return text === undefined ? null : { root: l.root, path: `${dir}/part.js`, text }
+}
+
+/** What one {@link syncFolderAndReport} round did. */
+export interface FolderSyncReport {
+  /** the folder's files the round loaded into the app (empty: nothing had changed there) */
+  loaded: string[]
+  /** loading them stopped the run: a change to the scene, the program or a part rebuilds the scene */
+  stoppedRun: boolean
+}
+
+/**
+ * Run a round now and say what it loaded: an agent that wrote files in the folder learns when they are in the
+ * app, rather than guessing at the once-a-second poll. Null when no folder is followed.
+ */
+export async function syncFolderAndReport(): Promise<FolderSyncReport | null> {
+  if (running) await running
+  if (!link) return null
+  lastLoad = null
+  await syncFolderNow()
+  return lastLoad ?? { loaded: [], stoppedRun: false }
+}
+
+/**
  * Settle a conflict: 'disk' keeps the folder's version of every conflicted file (the app loads it),
  * 'mine' keeps the app's (it is written, guarded against the folder version the user was shown). The
  * folder is read again first, so "keep mine" replaces what is there at that moment and nothing newer.
@@ -667,4 +731,5 @@ export function resetFolderSyncForTests(): void {
   running = null
   rerun = null
   unloadHooked = false
+  lastLoad = null
 }

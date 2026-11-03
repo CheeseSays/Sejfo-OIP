@@ -1,21 +1,20 @@
+import { sceneSettings } from '../../core/scene/scenePlcs'
 import { partDisplayName } from '../../core/parts/partDisplayName'
 import { dockOpeningBlocker } from '../../core/building/buildingDocks'
-import { builtInPackage, getPackage, registerPackage, registerScenePackages, unregisterPackage } from '../../core/parts/partRegistry'
+import { builtInPackage, getPackage, registerPackage, registerScenePackages } from '../../core/parts/partRegistry'
+import { definitionsUsedBy } from '../../core/parts/partPackage'
 import type { PartPackage } from '../../core/parts/partPackage'
-import { upgradeStoredPackage, validatePartPackage } from '../../core/parts/partPackage'
 import type { PackageStatus } from '../parts/packageSource'
 import { DEMO_SCENE_NAME } from '../demo/demoScenes'
-import { createSdkPart, emptyScene, nextId, serializeScene } from '../../core/scene/scene'
+import { createSdkPart, emptyScene, nextId } from '../../core/scene/scene'
 import { floorRestPose, withFlexPose } from '../../core/parts/partGeometry'
 import type { FlexPose } from '../../core/parts/partGeometry'
-import { assembleProject, saveStoredProject } from '../project/projectFile'
+import { assembleProject, legacySceneText, loadStoredProject, noteLegacyWrite, saveStoredProject } from '../project/projectFile'
+import { keepsSharedTests } from '../project/sharedProject'
 import { SCENE_SLOT } from '../project/documentStore'
 import type { SaveResult, UnopenedProject } from '../project/projectFile'
 import type { ProjectJSON } from '../../core/project/project'
 import { missingLibraryCopies } from '../../core/project/project'
-import { partFingerprint, withOrigin } from '../../core/parts/partOrigin'
-import { newPartIdProblem, partsNaming, renamePartInScene } from '../../core/parts/partRename'
-import { referenceShippedAssets } from '../../core/shippedAssets'
 import { warmShippedAssets } from '../parts/shippedAssetCache'
 import type { TestSpec } from '../../core/project/projectTest'
 import { clampScanMs, DEFAULT_SCAN_MS, readStProgram, readStScanMs, saveStProgram, saveStScanMs } from '../program/stProgram'
@@ -25,7 +24,7 @@ import { isKnownDialect, storedDialect } from '../../core/dialect'
 import type { StFileReportData } from '../components/plc/StFileReport'
 import type { DockPanelId } from '../dockLayout'
 import { DEFAULT_SIM_HZ, SCENE_VERSION, toSimRate } from '../../core/types'
-import type { SdkPart, PartInstance, PartType, SceneJSON, SimRate } from '../../core/types'
+import type { PartInstance, PartType, SceneJSON, SimRate } from '../../core/types'
 import type { ProjectionMode } from '../../render/api'
 import {
   EXTERNAL_PLC_KEY,
@@ -42,14 +41,16 @@ import {
   VSNAP_COLLISION_KEY,
   VSNAP_ORIGIN_KEY,
   persistPref,
-  sanitizeExternalPlc,
 } from './storePrefs'
-import type { ExternalPlcSettings } from './storePrefs'
-import { persistUserPackages, restoreUserPackages as restoreUserPackagesFromStorage, syncUserCatalog } from './storePackages'
+import type { ExternalPlcSettings, PlcLinkSettings, UaServerSettings } from './storePrefs'
+import { addPlc, plcSetupOf, removePlc, renamePlc, setPlcLink, setRunsOn } from './storePlcs'
+import { restoreUserPackages as restoreUserPackagesFromStorage, syncUserCatalog } from './storePackages'
+import * as library from './storePackages'
+import type { LibraryAreas } from './storePackages'
 import { openingSpecsToRows, removeFromWall, rowsToOpeningSpecs } from '../../core/guards/guardOpeningEdit'
 import { deepFreeze, guardOpeningsTarget, initialEditorState, rigNodeKey } from './storeState'
 import type { EditorState, FollowState, GridSnap, ListSelectMenu, Notice, ToolMode, TransformSpace } from './storeState'
-import { UndoHistory } from './storeHistory'
+import { COALESCE_MS, UndoHistory } from './storeHistory'
 import type { CommitOptions, EditEvent, EditEventInput, EditHistory, HistoryEntry, ProgramDoc, ProgramEntry, UndoDelegate } from './storeHistory'
 import { documentSceneOf, livePackagesFor, RunOwnership } from './storeDocument'
 import type { LiveCargoHost } from './storeDocument'
@@ -70,7 +71,6 @@ export const AUTOSAVE_KEY = 'oip-web/autosave'
 export { FACESNAP_KEY, FLOWARROWS_KEY, GRIDSNAP_KEY, LIVESNAP_KEY, SHOWGRID_KEY, SHOWNOTES_KEY, SHOWSTATS_KEY, SPACE_KEY, TRACKBALL_KEY, TREETYPES_KEY, VSNAP_COLLISION_KEY, VSNAP_ORIGIN_KEY } from './storePrefs'
 export { CLIPBOARD_KEY } from './storeClipboard'
 export { USERPKG_KEY } from './storePackages'
-const COALESCE_MS = 800
 
 // The state shape and its pure reads (storeState), the undo history's shapes (storeHistory) and the document /
 // run-ownership helpers (storeDocument) live in their own modules; re-exported here so existing './store'
@@ -88,6 +88,9 @@ export { editStack, editTarget, editTargetFocusId, guardOpeningsTarget, rigNodeK
 export type { CommitOptions, EditEvent, EditEventInput, EditHistory } from './storeHistory'
 export type { LiveCargoHost, LiveCargoPose } from './storeDocument'
 export { documentSceneOf } from './storeDocument'
+
+/** projectTests() with no project: one shared array, so a memo on it holds while no tests are kept */
+const NO_TESTS: readonly TestSpec[] = Object.freeze([])
 
 export class EditorStore {
   private state: EditorState
@@ -112,6 +115,8 @@ export class EditorStore {
   // what the current run owns: the controller's live-cargo seam and, while running, every placed box's designed
   // pose. The one definition of "run-owned" the edit gate, the undo history and the autosave read (RunOwnership).
   private readonly run = new RunOwnership()
+  /** what the part-library operations (storePackages.ts) reach of this store's own areas */
+  private readonly libraryAreas: LibraryAreas = { history: this.history, room: this.room, readOnly: () => this.readOnly }
   // when the solo autosave writes: the trailing write, what it still owes, the legacy key's age (AutosaveSchedule)
   private readonly autosave = new AutosaveSchedule()
   // the program's sink, transaction and the mounted ST editor's channels (ProgramChannels)
@@ -466,6 +471,7 @@ export class EditorStore {
     if (this.program.keep({ source: stProgram, scanMs: stScanMs, controller, ...(stDialect !== undefined ? { dialect: stDialect } : {}) })) return
     saveStProgram(stProgram)
     saveStScanMs(stScanMs)
+    noteLegacyWrite('program')
     // fold it into the unified project autosave too: a program-only change has no scene commit to
     // ride along with (see projectFile.ts)
     this.persistProject()
@@ -485,6 +491,14 @@ export class EditorStore {
   /** ask the ST editor to put the cursor at `offset` and scroll it into view */
   revealStOffset(offset: number): void {
     this.reveals.revealStOffset(offset)
+  }
+
+  /** subscribe to "type into the code" requests (the mounted ST editor serves them while it shows text) */
+  onFocusStCode = (cb: () => void): (() => void) => this.reveals.onFocusStCode(cb)
+
+  /** ask the ST editor to take the keyboard (a click on the PLC panel's dock tab) */
+  focusStCode(): void {
+    this.reveals.focusStCode()
   }
 
   /** subscribe to "show the tasks" requests (the mounted PLC panel's organizer serves them) */
@@ -568,7 +582,9 @@ export class EditorStore {
    * prevented by the bridge's origin/re-entrancy guards.
    */
   applyRemote(scene: SceneJSON): void {
-    this.setState({ scene })
+    // with the Part Editor open the line is parked (packageEdit.document), so a peer's edit lands there, not in the session
+    const pe = this.state.packageEdit
+    this.setState(pe ? { packageEdit: { ...pe, document: scene } } : { scene })
   }
 
   /** force-write the current scene to the solo autosave key (no-op in collab mode) */
@@ -714,76 +730,9 @@ export class EditorStore {
     this.setState({ scene: after }, true)
   }
 
-  /**
-   * Author mode: commit a custom-part package edit (geometry/joints/assets) to the same undo stack as scene
-   * edits, and register it live. `before` defaults to the currently-registered package. Bumps packageRev so
-   * React re-reads the registry (Inspector reflects the edit/undo). Coalesces rapid same-key edits (e.g.
-   * dragging one inspector field). In a room this registers + broadcasts via the package sink (no local
-   * snapshot undo - the shared doc is the source of truth, like a scene commit).
-   */
+  /** Commit a part package edit to the undo history and the registry (storePackages.ts). */
   commitPackage(label: string, pkg: PartPackage, opts?: { coalesceKey?: string; before?: PartPackage }): void {
-    if (this.readOnly) {
-      const cur = getPackage(pkg.id)
-      if (cur) registerPackage(cur) // revert any transient preview
-      return
-    }
-    // Author-mode guard: a structurally invalid edit must never register (render + sim would build from it).
-    // Block the commit, roll the registry back to the last-good version (the caller's `before` baseline when
-    // given - e.g. a drag's pre-edit package - else whatever is currently registered), and surface the
-    // diagnostics on the same ⚠ badge + toast the desktop build failures use (the Inspector echoes it inline).
-    const problems = validatePartPackage(pkg)
-    if (problems.length > 0) {
-      const lastGood = opts?.before ?? getPackage(pkg.id)
-      if (lastGood) registerPackage(lastGood)
-      this.applyPackageStatuses([
-        { id: pkg.id, name: pkg.name, dir: '', ok: false, error: problems.map((p) => `${p.field}: ${p.message}`).join('\n') },
-      ])
-      return
-    }
-    const before = opts?.before ?? getPackage(pkg.id)
-    registerPackage(pkg)
-    // a good commit clears any lingering failed-edit badge (mirrors a successful desktop rebuild)
-    if (this.state.packageBuildErrors[pkg.id]) {
-      this.applyPackageStatuses([{ id: pkg.id, name: pkg.name, dir: '', ok: true }])
-    }
-    this.setState({ packageRev: this.state.packageRev + 1 })
-    // an authored part edited in-app: keep its catalog card + localStorage copy current (no-op otherwise)
-    syncUserCatalog(this, pkg)
-    // In a room, push the committed package to the shared doc instead of the local snapshot stack - this is
-    // what makes an authored part / behavior-script edit reach peers. (The sink is only set in room mode.)
-    if (this.collab) {
-      this.room.feed(() => ({ label, time: Date.now(), kind: 'package', coalesceKey: opts?.coalesceKey }))
-      this.room.sendPackage(pkg)
-      return
-    }
-    if (!before) return // without a baseline there's nothing to diff into an undo entry
-    // Skip a no-op edit: a number field fires onCommit twice (change + blur), so the same value is recorded as a
-    // real entry {a→b} then a dead {b→b}. Without this the dead entry sits on top and the first Ctrl+Z does
-    // nothing. Compare both geometry and the behavior script: a behavior-script edit leaves geometry
-    // untouched, so a geometry-only check would wrongly treat it as a no-op and drop it from undo entirely -
-    // the live package was already swapped, leaving a behavior change that Ctrl+Z couldn't reach. (Both are
-    // cheap: geometry is small and behavior is a string; large assets ride along with a geometry change.) The name
-    // and category are compared too, so renaming a part is an undo step (controller setPartInfo).
-    if (
-      JSON.stringify(before.geometry) === JSON.stringify(pkg.geometry) &&
-      before.behavior === pkg.behavior &&
-      before.name === pkg.name &&
-      before.category === pkg.category
-    )
-      return
-    const now = Date.now()
-    const top = this.history.coalescibleTop()
-    if (
-      opts?.coalesceKey !== undefined &&
-      top?.kind === 'package' &&
-      top.id === pkg.id &&
-      top.coalesceKey === opts.coalesceKey &&
-      now - top.time < COALESCE_MS
-    ) {
-      this.history.replaceTop({ ...top, after: pkg, time: now })
-    } else {
-      this.history.record({ kind: 'package', label, coalesceKey: opts?.coalesceKey, id: pkg.id, before, after: pkg, time: now })
-    }
+    library.commitPackage(this, this.libraryAreas, label, pkg, opts)
   }
 
   setTransient(scene: SceneJSON, selectedIds?: readonly string[]): void {
@@ -1077,17 +1026,37 @@ export class EditorStore {
     this.setState({ selectedGuardOpening: sel })
   }
 
-  /** Change the external-PLC link settings (any subset); an invalid value keeps the last valid one. Applies on the next Play,
-   *  except the simulated PLC's OPC UA server, which the controller starts and stops as it is switched (editor/links/opcUaServer.ts). */
+  /** Change the default controller's link (any subset): what runs it and its protocol are edits, the rest this computer's
+   *  address (storePlcs.ts). Applies on the next Play, except the OPC UA server, which starts and stops as it is switched. */
   setExternalPlc(patch: Partial<ExternalPlcSettings>): void {
-    const cur = this.state.externalPlc
-    const next = sanitizeExternalPlc({ ...cur, ...patch })
-    for (const key of ['port', 'plcHost', 'plcPort', 'inputBase', 'outputBase', 'opcUaEndpoint', 'eipGateway', 'eipPath', 'uaServerPort'] as const) {
-      if (patch[key] !== undefined && next[key] !== patch[key]) (next as Record<typeof key, unknown>)[key] = cur[key]
-    }
-    if ((Object.keys(next) as (keyof ExternalPlcSettings)[]).every((k) => next[k] === cur[k])) return
-    this.setState({ externalPlc: next })
-    persistPref(EXTERNAL_PLC_KEY, JSON.stringify(next))
+    setPlcLink(this, null, patch)
+  }
+
+  /** This computer's PLC preferences (storePlcs.ts), kept in localStorage. */
+  setPlcPrefs(plcPrefs: ExternalPlcSettings): void {
+    this.setState({ plcPrefs })
+    persistPref(EXTERNAL_PLC_KEY, JSON.stringify(plcPrefs))
+  }
+
+  /** Add a PLC controller to the scene, as an edit; false when the name is refused or the list is full. */
+  addNamedPlc(name: string): boolean {
+    return addPlc(this, name)
+  }
+
+  /** Rename a controller and every tag on it, as one edit (storePlcs.ts renamePlc); false when refused. */
+  renameNamedPlc(from: string, to: string): boolean {
+    return renamePlc(this, from, to)
+  }
+
+  /** Run a controller (null: the default one) in the simulator or on a PLC outside it, as an edit (storePlcs.ts). */
+  setPlcRunsOn(name: string | null, runsOn: 'app' | 'plc'): void {
+    setRunsOn(this, name, runsOn)
+  }
+
+  /** Change a named controller's link (any subset), or remove it from the scene (null). */
+  setNamedPlc(name: string, patch: Partial<PlcLinkSettings & UaServerSettings> | null): void {
+    if (patch === null) removePlc(this, name)
+    else setPlcLink(this, name, patch)
   }
 
   setShowGrid(showGrid: boolean): void {
@@ -1177,147 +1146,29 @@ export class EditorStore {
     this.setState({ partBuildNotices: this.state.partBuildNotices.filter((n) => n.key !== key) })
   }
 
-  /** Add (or replace by id) an in-app authored package so it shows in the catalog (the "New part" flow). */
+  /** Add (or replace by id) an in-app authored part in the library (storePackages.ts). */
   addUserPackage(pkg: PartPackage): void {
-    void warmShippedAssets([pkg])
-    const rest = this.state.userPackages.filter((p) => p.id !== pkg.id)
-    this.setState({ userPackages: [...rest, pkg] })
-    // a freshly-authored part is an authoritative package change too: broadcast it so peers can see/place it
-    if (this.collab) {
-      this.room.feed(() => ({ label: `New part “${pkg.name}”`, time: Date.now(), kind: 'package' }))
-      this.room.sendPackage(pkg)
-    }
-    persistUserPackages(this)
+    library.addUserPackage(this, this.libraryAreas, pkg)
   }
 
-  /**
-   * Everything that still references a custom part, as human-readable holders ("the scene"). Placed instances resolve their geometry/behavior through the registry, so a
-   * non-empty result blocks {@link removeUserPackage} unless the id shadows a bundled/folder copy
-   * (deleting a shadow reverts - the fallback keeps resolving). Scans the live scene for the active
-   * slot (its project copy is stale until capture).
-   */
+  /** Everything that still places a part, as holders a person reads (storePackages.ts). */
   packageUsage(packageId: string): string[] {
-    const uses = (parts: readonly PartInstance[]): boolean =>
-      parts.some((p) => p.type === 'part' && (p as SdkPart).packageId === packageId)
-    const used: string[] = []
-    if (uses(documentSceneOf(this.state).parts)) used.push('the scene')
-    return used
+    return library.packageUsage(this, packageId)
   }
 
-  /**
-   * Delete an authored part from the user library (the catalog ✕ - a library edit like removePrefab, not
-   * a scene edit, and not undoable). The project's copy of a built-in goes back to the app's current version
-   * instead: still the project's own copy while anything places it (the library stays complete,
-   * docs/part-sources.md), gone when nothing does, and placed instances rebuild against it through the ordinary
-   * package-reload seam. Anything else unregisters entirely, so the delete is
-   * refused while the scene still references it ({@link packageUsage} - surface those to the
-   * user first), while the part is open for editing, and in a room (the package sink has no removal
-   * channel, so peers would keep the part). Returns whether the package was removed.
-   */
+  /** Delete a part from the library, or revert a built-in's copy (storePackages.ts). Whether it did. */
   removeUserPackage(packageId: string): boolean {
-    if (this.readOnly || this.collab) return false
-    if (!this.state.userPackages.some((p) => p.id === packageId)) return false
-    if (this.state.packageEdit?.packageId === packageId) return false // its throwaway is live in the scene
-    const fallback = this.state.bundledPackages.find((p) => p.id === packageId)
-    if (!fallback && this.packageUsage(packageId).length > 0) return false
-    if (this.state.placingPackageId === packageId) this.cancelPlacing()
-    // a deleted part's edit history must not resurrect it (or re-fork a reverted bundle) via Ctrl+Z
-    this.history.dropPackages((id) => id === packageId)
-    const errors = { ...this.state.packageBuildErrors }
-    delete errors[packageId] // a stale ⚠ badge must not carry over to a reverted card
-    // still placed: the app's version, as this project's own copy
-    const reset = fallback && this.packageUsage(packageId).length > 0 ? withOrigin(fallback, 'app', partFingerprint(fallback)) : undefined
-    this.setState({
-      userPackages: reset
-        ? this.state.userPackages.map((p) => (p.id === packageId ? reset : p))
-        : this.state.userPackages.filter((p) => p.id !== packageId),
-      packageRev: this.state.packageRev + 1,
-      packageBuildErrors: errors,
-      // close the behavior editor if it's on the deleted part - a later save would just re-fork it
-      behaviorEditTarget: this.state.behaviorEditTarget === packageId ? null : this.state.behaviorEditTarget,
-    })
-    if (fallback) registerPackage(fallback, true) // revert: rev-bump + notify reloads any placed instance
-    else unregisterPackage(packageId)
-    persistUserPackages(this)
-    return true
+    return library.removeUserPackage(this, this.libraryAreas, packageId)
   }
 
-  /**
-   * Give a project's own part a new id, and move every placed copy to it (docs/parts-shelf.md, "Identity": the way out
-   * when a different part on the shelf has the same id). A library change like Import part, not an undo step, and the
-   * undo history is rewritten so no earlier step brings the old id back. Refused in a room (the package sink has no
-   * removal channel), while running or editing the part, for a built-in's copy (Save as a New Part makes a variant),
-   * and while another part's definition names it, since that part's script would have to change. Returns '' or why not.
-   */
+  /** Give a project's own part a new id, moving every placed copy (storePackages.ts). '' or why not. */
   renameUserPackage(from: string, to: string): string {
-    if (this.readOnly) return 'This project is view only.'
-    if (this.collab) return 'A part cannot be renamed in a live room.'
-    if (this.state.running) return 'Stop the simulation first.'
-    if (this.state.packageEdit) return 'Close the part you are editing first.'
-    const pkg = this.state.userPackages.find((p) => p.id === from)
-    if (!pkg) return `This project has no part “${from}”.`
-    if (this.state.bundledPackages.some((p) => p.id === from)) return `“${pkg.name}” is this project's copy of a built-in part. Save it as a new part instead.`
-    const problem = newPartIdProblem(to, (id) => getPackage(id) !== undefined || this.state.userPackages.some((p) => p.id === id))
-    if (problem !== '') return problem
-    const naming = partsNaming(this.state.userPackages, from)
-    if (naming.length > 0) return `${naming.map((p) => `“${p.name}”`).join(', ')} names “${pkg.name}” in its definition, so it cannot be renamed.`
-    const renamed: PartPackage = { ...pkg, id: to }
-    const bad = validatePartPackage(renamed)
-    if (bad.length > 0) return bad.map((p) => `${p.field}: ${p.message}`).join('; ')
-
-    if (this.state.placingPackageId === from) this.cancelPlacing()
-    this.history.renamePart(from, to)
-    const errors = { ...this.state.packageBuildErrors }
-    if (errors[from] !== undefined) {
-      errors[to] = errors[from]
-      delete errors[from]
-    }
-    registerPackage(renamed, true)
-    this.setState({
-      userPackages: this.state.userPackages.map((p) => (p.id === from ? renamed : p)),
-      scene: renamePartInScene(this.state.scene, from, to),
-      packageRev: this.state.packageRev + 1,
-      packageBuildErrors: errors,
-      behaviorEditTarget: this.state.behaviorEditTarget === from ? to : this.state.behaviorEditTarget,
-    })
-    // nothing resolves the old id any more, so the shelf's part of that id can come in
-    unregisterPackage(from)
-    // the project doc carries the scene and the library together, so this one write keeps them in step
-    persistUserPackages(this)
-    return ''
+    return library.renameUserPackage(this, this.libraryAreas, from, to)
   }
 
-  /**
-   * Take the app's current version of these built-ins as this project's copies (the update prompt's Update all, and
-   * "Use the app's new version"): each library copy is replaced by a fresh copy of the app's built-in, stamped with its
-   * fingerprint, and placed instances rebuild through the ordinary package-reload seam. Only ever explicit: nothing
-   * calls this on its own (docs/part-sources.md). A library change like Import part, so not an undo step, and the
-   * part's edit history goes (Ctrl+Z must not bring back the version just replaced). In a room it is a library change
-   * for everyone there: each new copy goes out over the room like any part edit, with a line in the room's feed saying
-   * why the part changed. Refused read-only. Returns the ids it updated.
-   */
+  /** Take the app's current version of these built-ins as the project's copies (storePackages.ts). */
   updateFromApp(packageIds: readonly string[]): string[] {
-    if (this.readOnly) return []
-    const want = new Set(packageIds.filter((id) => id !== this.state.packageEdit?.packageId))
-    const fresh = new Map<string, PartPackage>()
-    for (const p of this.state.userPackages) {
-      const builtIn = want.has(p.id) ? this.state.bundledPackages.find((b) => b.id === p.id) : undefined
-      if (builtIn) fresh.set(p.id, withOrigin(builtIn, 'app', partFingerprint(builtIn)))
-    }
-    if (fresh.size === 0) return []
-    this.history.dropPackages((id) => fresh.has(id))
-    const errors = { ...this.state.packageBuildErrors }
-    for (const id of fresh.keys()) delete errors[id]
-    this.setState({
-      userPackages: this.state.userPackages.map((p) => fresh.get(p.id) ?? p),
-      packageRev: this.state.packageRev + 1,
-      packageBuildErrors: errors,
-    })
-    for (const pkg of fresh.values()) registerPackage(pkg, true)
-    void warmShippedAssets([...fresh.values()])
-    for (const pkg of fresh.values()) this.sharePackageChange(pkg, `Updated “${pkg.name}” to the app's version`)
-    persistUserPackages(this)
-    return [...fresh.keys()]
+    return library.updateFromApp(this, this.libraryAreas, packageIds)
   }
 
   /**
@@ -1342,40 +1193,14 @@ export class EditorStore {
     restoreUserPackagesFromStorage(this)
   }
 
-  /**
-   * Register an authored-part library (a project's shared `packages`) into the registry + catalog, merging by
-   * id over the current userPackages (the in-memory equivalent of {@link restoreUserPackages}, used by the
-   * project-doc boot path). Solo only - a room's packages arrive over the doc.
-   */
+  /** Register a project's library as the registry and catalog's parts, replacing the last (storePackages.ts). */
   adoptProjectLibrary(pkgs: readonly PartPackage[]): void {
-    if (this.collab) return
-    // an asset whose bytes this app ships is held by reference (core/shippedAssets.ts): a folder's assets/ file reads
-    // back as bytes, and the same part as a reference keeps memory and the browser autosave light
-    const valid = pkgs
-      .map((p) => upgradeStoredPackage(p).pkg)
-      .filter((p) => validatePartPackage(p).length === 0)
-      .map(referenceShippedAssets)
-    void warmShippedAssets(valid)
-    // Replace, not merge: this is the project's library (a folder-sync read of an outside edit, a reload, a project
-    // swap in place). Merging would keep a part the folder no longer has, and keep the last project's parts registered.
-    const kept = new Set(valid.map((p) => p.id))
-    for (const old of this.state.userPackages) {
-      if (kept.has(old.id)) continue
-      // gone from the library: back to what the app has without it - the built-in, else this scene's own snapshot
-      const without = this.state.bundledPackages.find((p) => p.id === old.id) ?? this.state.scene.packages?.find((p) => p.id === old.id)
-      if (without) registerPackage(without, this.state.bundledPackages.some((p) => p.id === old.id))
-      else unregisterPackage(old.id)
-    }
-    // authoritative: the user's own library is the live copy of these ids - a scene's embedded snapshot must
-    // not overwrite an edited part on load (you see your edits without clearing storage).
-    for (const pkg of valid) registerPackage(pkg, true)
-    if (valid.length === 0 && this.state.userPackages.length === 0) return
-    this.setState({ userPackages: valid, packageRev: this.state.packageRev + 1 })
+    library.adoptProjectLibrary(this, pkgs)
   }
 
-  /** Wire the collab bridge's package writer (room mode); null in solo mode. See RoomSinks. */
-  setPackageSink(sink: ((pkg: PartPackage) => void) | null): void {
-    this.room.setPackageSink(sink)
+  /** Wire the collab bridge's package writer and remover (room mode); null in solo mode. See RoomSinks. */
+  setPackageSink(sink: ((pkg: PartPackage) => void) | null, remove?: (id: string, revertTo: PartPackage | null) => void): void {
+    this.room.setPackageSink(sink, remove)
   }
 
   /** Wire the collab bridge's edit-feed writer (room mode); null in solo mode. See RoomSinks. */
@@ -1398,29 +1223,9 @@ export class EditorStore {
     this.setState({}) // no field changes; the fresh state identity re-renders the History panel
   }
 
-  /**
-   * Apply custom-part packages received from a peer (the collab bridge): register each so render + the
-   * Inspector resolve it, surface non-bundled ones in the catalog, and bump packageRev so React re-reads.
-   * Does not touch the sink (no echo) and is allowed in view-only mode (a viewer must still render peers'
-   * custom parts). The bridge only calls this for packages whose content actually changed.
-   *
-   * A room holds a copy of every placed part's package, built-in ones included, and for a built-in part that copy is
-   * only a snapshot of whatever build placed it. It is ignored, so this client's own bundled part stands, exactly as
-   * a solo scene's embedded snapshot loses to it (registerScenePackages). Only an entry the room marks as an edit
-   * (`edited`, schema.editedPackageIds) of a built-in id is a fork, and wins, and joins the catalog as one (so the
-   * bundled loader treats it as shadowing, as it does a solo fork). Without this, a room made before a built-in part
-   * changed would show the old part to every client for good: the snapshot would register before the bundle loaded
-   * and then be filed as a fork. The bundle must therefore be registered before this runs (main.tsx bootRoom).
-   */
-  applyRemotePackages(pkgs: PartPackage[], edited: ReadonlySet<string> = new Set()): void {
-    const bundled = new Set(this.state.bundledPackages.map((p) => p.id))
-    const incoming = pkgs.filter((p) => !bundled.has(p.id) || edited.has(p.id))
-    if (incoming.length === 0) return
-    for (const pkg of incoming) registerPackage(pkg)
-    // show authored/edited parts in every peer's catalog too (a built-in id reaches here only as a fork)
-    const byId = new Map(this.state.userPackages.map((p) => [p.id, p]))
-    for (const p of incoming) byId.set(p.id, p)
-    this.setState({ userPackages: [...byId.values()], packageRev: this.state.packageRev + 1 })
+  /** Register the parts a peer sent, and drop the ones a peer deleted (storePackages.ts). */
+  applyRemotePackages(pkgs: PartPackage[], edited: ReadonlySet<string> = new Set(), removed: readonly string[] = []): void {
+    library.applyRemotePackages(this, pkgs, edited, removed, this.room)
   }
 
 
@@ -1444,12 +1249,12 @@ export class EditorStore {
    * (`packageEdit.document`) until Back: the throwaway is never in the document, so no undo step, autosave or
    * folder write can hold it, while everything that reads `scene` (tree, Inspector, picking, drags, Play) sees
    * the part it is editing with no special case. Only the session's package edits reach the history. Blocked
-   * while running a sim is the caller's job (openPartScene pattern). No-op in read-only, in a room (the
-   * throwaway would pollute peers), or when a session is already open / the package is unknown. Returns false
-   * when nothing was opened.
+   * while running a sim is the caller's job (openPartScene pattern). In a room the bridge keeps the room's scene in the
+   * parked document while it is open (collab/bridge.ts). No-op in read-only, or when a session is already open / the
+   * package is unknown. Returns false when nothing was opened.
    */
   enterPackageEdit(packageId: string): boolean {
-    if (this.readOnly || this.collab || this.state.packageEdit) return false
+    if (this.readOnly || this.state.packageEdit) return false
     const pkg = getPackage(packageId)
     if (!pkg) return false
     const scene = this.state.scene
@@ -1814,6 +1619,8 @@ export class EditorStore {
       if (next.sideGuardMode && touched && !guardOpeningsTarget(next)) partial = { ...partial, sideGuardMode: false, selectedGuardOpening: null }
     }
     this.state = { ...this.state, ...partial }
+    // the controllers as Play uses them follow the document's list and this computer's addresses (storePlcs.ts)
+    if (partial.scene || partial.plcPrefs || partial.packageEdit !== undefined) this.state.externalPlc = plcSetupOf(documentSceneOf(this.state), this.state.plcPrefs)
     // the view always tracks the live scene (smooth gizmo drag); React skips the
     // transient stream and re-renders only on structural changes / commits (StoreSubscribers.notify)
     this.subscribers.notify(transient)
@@ -1840,8 +1647,9 @@ export class EditorStore {
     // that is itself always current (AutosaveSchedule.legacyBackupDue).
     if (!this.autosave.legacyBackupDue(result.ok, Date.now())) return
     try {
-      // compact: nothing reads this by eye, and the indentation doubles it (see serializeScene)
-      localStorage.setItem(AUTOSAVE_KEY, serializeScene(this.sceneSansDraft(), undefined, undefined, { pretty: false }))
+      // compact, with models by hash (projectFile.legacySceneText)
+      localStorage.setItem(AUTOSAVE_KEY, legacySceneText(this.sceneSansDraft()))
+      noteLegacyWrite('scene')
     } catch {
       // best-effort: quota or serializer failures must not break editing. Not reported here - this is the
       // transitional fallback key and it is strictly smaller than the project doc, so anything that breaks
@@ -1889,6 +1697,7 @@ export class EditorStore {
     if (this.autosave.takeProgramPending()) {
       saveStProgram(this.state.stProgram)
       saveStScanMs(this.state.stScanMs)
+      noteLegacyWrite('program')
     }
     this.autosave.settleScene()
     // nothing to write is not a failure - persist()'s fallback must not fire for these
@@ -1906,7 +1715,7 @@ export class EditorStore {
         // legacy / pre-loadProject path: assemble + persist a one-scene project
         result = saveStoredProject(
           assembleProject(
-            this.sceneSansDraft(),
+            this.sceneWithBroughtDefinitions(),
             this.state.stProgram,
             this.state.userPackages,
             undefined,
@@ -2255,7 +2064,7 @@ export class EditorStore {
   /**
    * Another tab now holds the working copy (main.tsx, on projectFile.onWorkingCopySuperseded). This tab goes
    * view-only rather than keep taking edits it can no longer save: read-only is the state every authoring
-   * surface already honours, and it also stops the library tracker. Running the sim is still allowed.
+   * surface already honours, and it also stops the projects it files. Running the sim is still allowed.
    */
   yieldToOtherTab(): void {
     if (this.state.supersededByOtherTab) return
@@ -2270,7 +2079,7 @@ export class EditorStore {
    * files that project, untouched (captureLiveScene no-ops while the demo is up).
    */
   outgoingProject(): ProjectJSON | null {
-    if (this.collab) return null
+    if (this.collab) return loadStoredProject()?.project ?? null // in a room this browser's own is its working copy (sharedProject.ts)
     if (this.state.demoSession && !this.project) return null
     return this.snapshotProject()
   }
@@ -2320,7 +2129,7 @@ export class EditorStore {
   private ensureProject(): ProjectJSON {
     if (!this.project) {
       this.project = assembleProject(
-        this.sceneSansDraft(),
+        this.sceneWithBroughtDefinitions(),
         this.state.stProgram,
         this.state.userPackages,
         this.state.projectName,
@@ -2349,7 +2158,7 @@ export class EditorStore {
       version: SCENE_VERSION,
       parts: project.scene.parts,
       ...(own.length > 0 ? { packages: own } : {}),
-      ...(project.scene.units !== undefined ? { units: project.scene.units } : {}),
+      ...sceneSettings(project.scene),
     }
     // The step rate goes in first: loading the program below persists, and that persist captures the live state into
     // this project. With the outgoing rate still live it would write that over this project's own (and a 120 Hz
@@ -2375,12 +2184,8 @@ export class EditorStore {
     if (this.state.demoSession) return
     const prog = this.state.stProgram
     const sans = this.sceneSansDraft()
-    // The project keeps each definition once (core/project/project.ts): the library holds the project's parts and a built-in
-    // is the app's, so the scene keeps no copy of either. Only a copy that is neither is kept here (a part a scene
-    // file brought in that nothing else holds), and saving moves it into the library (keepDefinitionsOnce).
-    const libraryIds = new Set(this.state.userPackages.map((p) => p.id))
-    const pkgs = (sans.packages ?? []).filter((p) => !libraryIds.has(p.id) && !builtInPackage(p.id)).map((p) => getPackage(p.id) ?? p)
-    project.scene = { version: SCENE_VERSION, parts: sans.parts, ...(pkgs.length > 0 ? { packages: pkgs } : {}), ...(sans.units !== undefined ? { units: sans.units } : {}) }
+    const pkgs = this.broughtDefinitions(sans)
+    project.scene = { version: SCENE_VERSION, parts: sans.parts, ...(pkgs.length > 0 ? { packages: pkgs } : {}), ...sceneSettings(sans) }
     if (prog !== '') {
       project.stProgram = prog
       project.stScanMs = this.state.stScanMs
@@ -2401,6 +2206,18 @@ export class EditorStore {
     const library = this.libraryPackages()
     if (library.length > 0) project.packages = library
     else delete project.packages
+  }
+
+  /**
+   * The definitions `scene`'s parts use that are neither the project's library nor the app's built-ins: a part a scene
+   * file or a paste from another project brought in. The project keeps each definition once (core/project/project.ts),
+   * so these are the only copies a saved scene keeps, and saving moves them into the library (keepDefinitionsOnce).
+   * Worked out from the parts, not read from the scene's stored copies, so a part added without its copy is not lost.
+   */
+  private broughtDefinitions(scene: SceneJSON): PartPackage[] {
+    const libraryIds = new Set(this.state.userPackages.map((p) => p.id))
+    const stored = new Map((scene.packages ?? []).map((p) => [p.id, p]))
+    return definitionsUsedBy(scene.parts, (id) => getPackage(id) ?? stored.get(id)).filter((p) => !libraryIds.has(p.id) && !builtInPackage(p.id))
   }
 
   /** The shared library = the authored parts only (userPackages). A placed part's snapshot stays in the scene's
@@ -2435,10 +2252,11 @@ export class EditorStore {
   /**
    * Keep a test in the project (core/project/project.ts `tests`), replacing the one of the same name. It changes the
    * project's structure, so it is kept at once and is not an undo step. The spec is taken as validated
-   * (validateTestSpec). False when it was not kept: a view-only editor, or a room, whose document has no tests.
+   * (validateTestSpec). False when it was not kept: a view-only editor, or a room this browser does not own (a room
+   * carries no tests; the owner's are its project's, written back with the room: sharedProject.ts).
    */
   saveProjectTest(spec: TestSpec): boolean {
-    if (this.readOnly || this.collab) return false
+    if (this.readOnly || (this.collab && !keepsSharedTests())) return false
     const project = this.ensureProject()
     const kept = (project.tests ?? []).filter((t) => spec.name === undefined || t.name !== spec.name)
     project.tests = [...kept, spec]
@@ -2447,9 +2265,15 @@ export class EditorStore {
     return true
   }
 
+  /** The tests the project keeps, read without building or capturing a project (snapshotProject does both). A new
+   *  array after every save or delete, so a memo can depend on it. */
+  projectTests(): readonly TestSpec[] {
+    return this.project?.tests ?? NO_TESTS
+  }
+
   /** Drop the kept test named `name`, as {@link saveProjectTest} keeps one: not an undo step. False when not kept. */
   deleteProjectTest(name: string): boolean {
-    if (this.readOnly || this.collab) return false
+    if (this.readOnly || (this.collab && !keepsSharedTests())) return false
     const project = this.ensureProject()
     const kept = (project.tests ?? []).filter((t) => t.name !== name)
     if (kept.length === (project.tests ?? []).length) return false
@@ -2469,6 +2293,14 @@ export class EditorStore {
    *  mid-session returns to the scene as it was), else the live scene minus the run's cargo (documentOf). */
   private sceneSansDraft(): SceneJSON {
     return this.state.packageEdit?.document ?? this.run.documentOf(this.state.scene)
+  }
+
+  /** the document's scene carrying {@link broughtDefinitions} as its copies: what a project is assembled from */
+  private sceneWithBroughtDefinitions(): SceneJSON {
+    const scene = this.sceneSansDraft()
+    const brought = this.broughtDefinitions(scene)
+    const { packages: _stored, ...sans } = scene
+    return brought.length > 0 ? { ...sans, packages: brought } : sans
   }
 }
 

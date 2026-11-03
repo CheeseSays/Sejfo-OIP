@@ -90,8 +90,25 @@ export interface PlcPanelCtx {
 
   // ---- the running program
   watch: () => Readonly<Record<string, TagValue>> | null | undefined
+  /** the instance shown for a PROGRAM that runs as several, by type upper-cased, and picking one */
+  monitored: Readonly<Record<string, string>>
+  pickInstance: (type: string, instance: string) => void
+  /** the running program's forced variables, by watch key (EditorController.plcForces) */
+  forces: () => Readonly<Record<string, number | boolean>>
+  /** the attached program's bare-name aliases (EditorController.plcAliases) */
+  aliases: () => ReadonlyMap<string, string>
+  /** hold a variable of the running program at its value (EditorController.forcePlcValue): null when held, else why not */
+  force: (key: string) => string | null
+  /** release one forced variable */
+  releaseForce: (key: string) => void
+  /** told when a force is set or released; returns an unsubscribe */
+  onForces: (cb: () => void) => () => void
+  /** told when a program attaches or detaches; returns an unsubscribe */
+  onProgramStatus: (cb: () => void) => () => void
   toggleBit: (key: string) => boolean
   writeLive: (key: string, text: string) => string | null
+  /** Add to Watch: a variable onto the watch list, with the Watch dock brought forward */
+  addToWatch: (name: string) => void
   /** every PLC tag the scene's parts speak */
   tags: () => string[]
   undo: () => void
@@ -157,6 +174,11 @@ function organizerActions(ctx: PlcPanelCtx): OrganizerActions {
     },
     deleteBlock: (i) => ctx.applyBlockEdit(deleteBlock(ctx.currentSource(), i)),
     editController: (next, renames, label) => ctx.applyController(next, renames, label),
+    // lazy, as the File menu's export is (commands.ts): the PLCopen writer loads only when a file moves
+    exportController: (plc, target) =>
+      void import('../../program/stFileTransfer')
+        .then((m) => m.exportStProgram(ctx.store, target, plc))
+        .catch((e: unknown) => console.warn('[oip] exporting the controller failed', e)),
     adoptConfiguration: () => {
       const split = extractController(ctx.store.getState().stProgram)
       if (!split) {
@@ -191,10 +213,15 @@ export function PanelOrganizer({ ctx }: { ctx: PlcPanelCtx }): ReactElement {
         readOnly={ctx.readOnly}
         readOnlyNote={ctx.readOnlyNote}
         revealTasks={ctx.revealTasks}
-        runsOn={ctx.state.externalPlc.enabled && (ctx.controller?.externalPlcAvailable ?? false) ? 'external PLC' : 'simulated'}
+        plcs={{
+          defaultName: ctx.state.externalPlc.mainName,
+          defaultSimulated: !(ctx.state.externalPlc.enabled && (ctx.controller?.externalPlcAvailable ?? false)),
+          named: ctx.state.externalPlc.controllers.map((c) => ({ name: c.name, simulated: c.runsOn === 'app' })),
+        }}
         onPicked={ctx.onPicked}
         devices={devices}
         actions={organizerActions(ctx)}
+        monitoring={{ picked: ctx.monitored, pick: ctx.pickInstance }}
       />
     </Suspense>
   )
@@ -240,10 +267,12 @@ export function PanelLadder({ ctx }: { ctx: PlcPanelCtx }): ReactElement {
         onEdit={ctx.applyLadderEdit}
         onUndo={ctx.undo}
         onRedo={ctx.redo}
-        getDiagnostics={(src) => controllerDiagnostics(src, ctx.store.getState().controller).source}
+        getDiagnostics={(src) => controllerDiagnostics(src, ctx.store.getState().controller, { defaultName: ctx.store.getState().externalPlc.mainName }).source}
         faults={ctx.faults.marks}
         revealProblem={ctx.faults.reveal}
         getWatch={ctx.watch}
+        getForces={ctx.forces}
+        onForcesChange={ctx.onForces}
         live={ctx.live}
         readOnly={ctx.readOnly}
         getTags={ctx.tags}
@@ -255,6 +284,9 @@ export function PanelLadder({ ctx }: { ctx: PlcPanelCtx }): ReactElement {
         onRenameTag={ctx.readOnly ? undefined : (scope, from, to) => renameDeclaration(ctx, scope, from, to)}
         toggleBit={ctx.toggleBit}
         writeLive={ctx.writeLive}
+        onWatch={ctx.addToWatch}
+        onForce={ctx.force}
+        onRelease={ctx.releaseForce}
       />
     </Suspense>
   )

@@ -3,6 +3,7 @@
 // the scene container. The `Record<PartType, PartDef>` annotation on PART_DEFS is
 // the exhaustiveness gate - a family that forgets to register a type fails the build here.
 import type { PartPackage } from '../parts/partPackage'
+import type { ScenePlc } from '../scene/scenePlcs'
 import { SCENE_VERSION, num, tagRef, text, type EnumParamSpec, type PartBase, type PartDef, type PartType } from './base'
 import { STRUCTURE_DEFS, type BuildingPart } from './structure'
 
@@ -90,9 +91,25 @@ export interface SceneJSON {
    * a new scene, and what a scene saved before it existed already is (its conveyors predate the switch).
    */
   units?: SceneUnits
+  /**
+   * The scene's Length (core/scene/sceneUnits.ts): the one unit every length is shown and typed in, display only.
+   * Absent = each length field shows in the Units' own (metres or inches). A scene saved with `units: 'metric-mm'`
+   * reads as metric with `lengthUnit: 'mm'`.
+   */
+  lengthUnit?: SceneLengthUnit
+  /**
+   * The scene's controllers (core/scene/scenePlcs.ts): the first is the default one, which tags with no controller name
+   * belong to, and the rest are PLCs a tag reaches by name (`Cell2::%IX0.0`). Absent: the scene has not set them, and
+   * the app derives them as it did before scenes carried them (editor/store/storePlcs.ts).
+   */
+  plcs?: ScenePlc[]
 }
 
 export type SceneUnits = 'imperial' | 'metric'
+
+/** The units a scene's Length can show every length in. */
+export const SCENE_LENGTH_UNITS = ['m', 'mm', 'in'] as const
+export type SceneLengthUnit = (typeof SCENE_LENGTH_UNITS)[number]
 
 export const PART_DEFS: Record<PartType, PartDef> = {
   ...STRUCTURE_DEFS,

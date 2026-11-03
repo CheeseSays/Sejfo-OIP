@@ -2,7 +2,7 @@
 // process. Runs in an isolated context with contextIsolation on, so the renderer never gets raw Node.
 // It sees only the small, explicit `window.oip*` surfaces below.
 
-const { contextBridge, ipcRenderer } = require('electron')
+const { contextBridge, ipcRenderer, webUtils } = require('electron')
 
 contextBridge.exposeInMainWorld('oipParts', {
   /**
@@ -12,17 +12,6 @@ contextBridge.exposeInMainWorld('oipParts', {
    *   null if the user cancelled the dialog.
    */
   pickWorkspace: () => ipcRenderer.invoke('parts:pickFolder'),
-
-  /**
-   * Subscribe to folder scans from the native File menu (Import Parts from Folder…), so a menu-driven pick reaches
-   * the renderer the same as pickWorkspace(). Returns an unsubscribe fn.
-   * @param {(scan: { root: string, parts: Array<object>, problems: Array<object> }) => void} cb
-   */
-  onWorkspace: (cb) => {
-    const listener = (_event, scan) => cb(scan)
-    ipcRenderer.on('parts:workspace', listener)
-    return () => ipcRenderer.removeListener('parts:workspace', listener)
-  },
 
   /**
    * Open a part's behavior.js for editing - in $OIP_EDITOR/$VISUAL/$EDITOR if set, else the OS default app
@@ -47,11 +36,22 @@ contextBridge.exposeInMainWorld('oipParts', {
 
 // The parts shelf (apps/desktop/partsShelf.cjs; src/editor/parts/partShelf.ts is the typed twin): parts kept outside
 // any project, for projects to copy from. No paths cross: the page lists the shelf, and hands a part over by id.
+// Model import (editor/usdImport.ts): a USD model file is often one layer of several in its folder, which a page can
+// only read when handed them all. Here the picked file's own path leads main to the layers and images beside it.
+contextBridge.exposeInMainWorld('oipModel', {
+  /** the file's path on disk ('' for a file that has none, such as one built in the page) */
+  pathOf: (file) => webUtils.getPathForFile(file),
+  /** a .usd / .usda / .usdc root layer with the USD layers and images under its folder (mcpServer.cjs readModel) */
+  readUsd: (path) => ipcRenderer.invoke('model:readUsd', path),
+})
+
 contextBridge.exposeInMainWorld('oipShelf', {
-  /** @returns {Promise<{ root: string, parts: Array<{dir,id,name,manifestJson,behaviorSource}>, problems: Array<{dir,message}> }>} */
+  /** @returns {Promise<{ root: string, parts: Array<{dir,id,name,manifestJson,behaviorSource,thumbnail?}>, problems: Array<{dir,message}> }>} */
   list: () => ipcRenderer.invoke('shelf:list'),
-  /** Put a part on the shelf (replacing that id's folder). @returns {Promise<string>} '' or the error to show */
-  write: (id, manifestJson, behaviorSource) => ipcRenderer.invoke('shelf:write', id, manifestJson, behaviorSource),
+  /** The shelf's files by name, size and change time, to tell cheaply whether it changed. @returns {Promise<string>} */
+  signature: () => ipcRenderer.invoke('shelf:signature'),
+  /** Put a part on the shelf (replacing that id's folder), with its card image as a PNG data URL. @returns {Promise<string>} '' or the error to show */
+  write: (id, manifestJson, behaviorSource, thumbnail) => ipcRenderer.invoke('shelf:write', id, manifestJson, behaviorSource, thumbnail),
   /** Choose another shelf folder. @returns {Promise<null | { root, parts, problems }>} null when cancelled */
   pickFolder: () => ipcRenderer.invoke('shelf:pickFolder'),
   /** Show the shelf folder in the OS file manager. @returns {Promise<string>} '' or the OS's reason */
@@ -132,36 +132,63 @@ contextBridge.exposeInMainWorld('oipProject', {
     return () => ipcRenderer.removeListener('project:openPath', listener)
   },
 
-  /** A project or part file the app was launched to open, once, as `{ name, kind, bytes }` or `{ error }`; null after. */
+  /** Hear a folder to open in a window of its own (a second launch naming one). Returns an unsubscribe fn. */
+  onOpenPathInNewWindow: (cb) => {
+    const listener = (_event, root) => cb(root)
+    ipcRenderer.on('project:openPathInNewWindow', listener)
+    return () => ipcRenderer.removeListener('project:openPathInNewWindow', listener)
+  },
+
+  /** Tell the shell which document this window has open (null for none), so it is never opened in two windows. */
+  showingDocument: (docId) => ipcRenderer.send('window:document', docId),
+
+  /** Bring forward the window with this document open, else open one on it. @returns {Promise<'focused' | 'opened'>} */
+  openWindow: (docId) => ipcRenderer.invoke('window:openDocument', docId),
+
+  /** Bring forward the window working in this folder. @returns {Promise<boolean>} false when no window is. */
+  focusFolder: (root) => ipcRenderer.invoke('window:focusFolder', root),
+
+  /** The next project or part file waiting to be opened, as `{ name, kind, bytes }` or `{ error }`; null when none waits. */
   takePendingFile: () => ipcRenderer.invoke('file:takePendingOpen'),
 
   /**
-   * Hear a project or part file opened while the app runs (a double-click on a .oip / .oippart).
+   * Hear a project or part file opened while the app runs (a double-click on a .oip / .oippart). The main process
+   * keeps each file until it is taken, so one that arrived before this listener (the editor still starting) is
+   * taken here as it connects.
    * @param {(file: { name: string, kind: 'project' | 'part', bytes: Uint8Array } | { error: string }) => void} cb
    */
   onOpenFile: (cb) => {
-    const listener = (_event, file) => cb(file)
-    ipcRenderer.on('file:open', listener)
-    return () => ipcRenderer.removeListener('file:open', listener)
+    const take = () =>
+      void ipcRenderer.invoke('file:takePendingOpen').then((file) => {
+        if (!file) return
+        cb(file)
+        take()
+      })
+    const listener = () => take()
+    ipcRenderer.on('file:pending', listener)
+    take()
+    return () => ipcRenderer.removeListener('file:pending', listener)
   },
 })
 
 // An external PLC reaches the app over TCP, which the sandboxed renderer cannot open: main listens or
 // connects (plcIo.cjs) and carries raw bytes. src/editor/links/externalPlc.ts is the typed twin; the protocol is the app's.
+// Every call and push names the window's link it is for (`link`, one per controller: linkKeys.cjs), 0 when absent;
+// src/editor/links/linkHosts.ts fills it in.
 contextBridge.exposeInMainWorld('oipPlcIo', {
-  /** @param {{host: string, port: number}} opts @returns {Promise<{error: string}>} '' once listening */
+  /** @param {{link?: number, host: string, port: number}} opts @returns {Promise<{error: string}>} '' once listening */
   listen: (opts) => ipcRenderer.invoke('plcio:listen', opts),
-  /** @param {{host: string, port: number}} opts @returns {Promise<{error: string, id: number}>} connect to a PLC's server */
+  /** @param {{link?: number, host: string, port: number}} opts @returns {Promise<{error: string, id: number}>} connect to a PLC's server */
   connect: (opts) => ipcRenderer.invoke('plcio:connect', opts),
-  /** stop listening and drop every connection */
-  close: () => ipcRenderer.invoke('plcio:close'),
-  /** @param {(e: {id: number, remote: string, open: boolean}) => void} cb @returns {() => void} unsubscribe */
+  /** stop listening and drop every connection @param {{link?: number}} [opts] */
+  close: (opts) => ipcRenderer.invoke('plcio:close', opts),
+  /** @param {(e: {link: number, id: number, remote: string, open: boolean}) => void} cb @returns {() => void} unsubscribe */
   onConnection: (cb) => {
     const listener = (_event, e) => cb(e)
     ipcRenderer.on('plcio:connection', listener)
     return () => ipcRenderer.removeListener('plcio:connection', listener)
   },
-  /** @param {(e: {id: number, bytes: Uint8Array}) => void} cb @returns {() => void} unsubscribe */
+  /** @param {(e: {link: number, id: number, bytes: Uint8Array}) => void} cb @returns {() => void} unsubscribe */
   onData: (cb) => {
     const listener = (_event, e) => cb(e)
     ipcRenderer.on('plcio:data', listener)
@@ -178,18 +205,25 @@ contextBridge.exposeInMainWorld('oipPlcIo', {
 contextBridge.exposeInMainWorld('oipOpcUa', {
   /** @param {{endpoint: string}} opts @returns {Promise<{error: string, discovery?: {name: string, urls: string[]}[]}>} discovery: a discovery server, not a PLC */
   connect: (opts) => ipcRenderer.invoke('opcua:connect', opts),
-  /** @returns {Promise<{error: string, variables?: {path: string[], nodeId: string}[], truncated?: boolean}>} */
-  browse: () => ipcRenderer.invoke('opcua:browse'),
+  /** @param {{link?: number, roots?: ({path: string[]} | {nodeId: string})[]}} [opts] @returns {Promise<{error: string, variables?: {path: string[], nodeId: string}[], truncated?: boolean, skipped?: string[]}>} */
+  browse: (opts) => ipcRenderer.invoke('opcua:browse', opts),
   /** @param {{nodeIds: string[]}} opts @returns {Promise<{error: string, nodes?: {dataType: string, access: number}[]}>} */
   describe: (opts) => ipcRenderer.invoke('opcua:describe', opts),
   /** @param {{writes: {nodeId: string, builtin: number, value: boolean|number}[], reads: string[]}} opts */
   exchange: (opts) => ipcRenderer.invoke('opcua:exchange', opts),
-  close: () => ipcRenderer.invoke('opcua:close'),
-  /** @param {(e: {why: string}) => void} cb @returns {() => void} unsubscribe */
+  /** @param {{link?: number}} [opts] */
+  close: (opts) => ipcRenderer.invoke('opcua:close', opts),
+  /** @param {(e: {link: number, why: string}) => void} cb @returns {() => void} unsubscribe */
   onClosed: (cb) => {
     const listener = (_event, e) => cb(e)
     ipcRenderer.on('opcua:closed', listener)
     return () => ipcRenderer.removeListener('opcua:closed', listener)
+  },
+  /** @param {(e: {link: number, found: number}) => void} cb @returns {() => void} unsubscribe; a browse under way, and how many variables it has found */
+  onProgress: (cb) => {
+    const listener = (_event, e) => cb(e)
+    ipcRenderer.on('opcua:progress', listener)
+    return () => ipcRenderer.removeListener('opcua:progress', listener)
   },
 })
 
@@ -202,7 +236,10 @@ contextBridge.exposeInMainWorld('oipEip', {
   bind: (opts) => ipcRenderer.invoke('eip:bind', opts),
   /** @param {{writes: {name: string, value: boolean|number}[], reads: string[]}} opts */
   exchange: (opts) => ipcRenderer.invoke('eip:exchange', opts),
-  close: () => ipcRenderer.invoke('eip:close'),
+  /** @param {{link?: number}} [opts] @returns {Promise<{error: string, status?: string, tags?: {name: string, type: number}[]}>} */
+  tags: (opts) => ipcRenderer.invoke('eip:tags', opts),
+  /** @param {{link?: number}} [opts] */
+  close: (opts) => ipcRenderer.invoke('eip:close', opts),
 })
 
 // ...and over ADS to a TwinCAT runtime, through TwinCAT's own router by Beckhoff's TcAdsDll in main (adsIo.cjs). The app
@@ -214,7 +251,10 @@ contextBridge.exposeInMainWorld('oipAds', {
   bind: (opts) => ipcRenderer.invoke('ads:bind', opts),
   /** @param {{writes: {name: string, value: boolean|number}[], reads: string[]}} opts */
   exchange: (opts) => ipcRenderer.invoke('ads:exchange', opts),
-  close: () => ipcRenderer.invoke('ads:close'),
+  /** @param {{link?: number}} [opts] @returns {Promise<{error: string, code?: number, symbols?: {name: string, adsType: number, size: number, typeName: string}[]}>} */
+  symbols: (opts) => ipcRenderer.invoke('ads:symbols', opts),
+  /** @param {{link?: number}} [opts] */
+  close: (opts) => ipcRenderer.invoke('ads:close', opts),
 })
 
 // The simulated PLC's own OPC UA server, for a SCADA or HMI (opcUaServer.cjs). The app decides what is
@@ -226,7 +266,7 @@ contextBridge.exposeInMainWorld('oipOpcUaServer', {
   define: (opts) => ipcRenderer.invoke('opcuaserver:define', opts),
   /** @param {{values: Record<string, unknown>, running: boolean}} opts */
   update: (opts) => ipcRenderer.send('opcuaserver:update', opts),
-  stop: () => ipcRenderer.invoke('opcuaserver:stop'),
+  stop: (opts) => ipcRenderer.invoke('opcuaserver:stop', opts),
   /** @param {(e: {name: string, value: unknown}) => void} cb @returns {() => void} unsubscribe */
   onWrite: (cb) => {
     const listener = (_event, e) => cb(e)
@@ -252,8 +292,18 @@ contextBridge.exposeInMainWorld('oipAgent', {
     ipcRenderer.on('agent:call', listener)
     return () => ipcRenderer.removeListener('agent:call', listener)
   },
+  /** main's own project tools (agentProjects.cjs) asking the editor to open or start a project; answered with reply
+   *  @param {(req: {id: number, op: string, args: unknown}) => void} cb @returns {() => void} unsubscribe */
+  onShell: (cb) => {
+    const listener = (_event, req) => cb(req)
+    ipcRenderer.on('agent:shell', listener)
+    return () => ipcRenderer.removeListener('agent:shell', listener)
+  },
   /** @param {number} id @param {{ok: true, text: string, images?: Array<{data: string, mimeType: string}>} | {ok: false, error: string}} reply */
   reply: (id, reply) => ipcRenderer.send('agent:result', { id, reply }),
+  /** the page is about to reload for a reason main cannot see (the dev server); said to an agent whose call it cuts off
+   *  @param {string} why */
+  leaving: (why) => ipcRenderer.send('agent:leaving', String(why)),
   /** capture_view: this window's pixels inside `rect` (CSS px). @returns {Promise<{data: string, mimeType: string} | null>} */
   capture: (rect) => ipcRenderer.invoke('agent:capture', rect),
   /** import_model: a .glb / .step / .stp file's bytes by absolute path. @returns {Promise<{name: string, bytes: Uint8Array} | {error: string}>} */
@@ -322,6 +372,11 @@ contextBridge.exposeInMainWorld('oipMenu', {
 
   /** 'win32' | 'darwin' | 'linux' - the renderer insets its toolbar differently per platform's chrome. */
   platform: process.platform,
+})
+
+// Fullscreen drops the caption buttons (main.cjs sendFullScreen); toolbar.css stops reserving their room.
+ipcRenderer.on('shell:fullscreen', (_event, on) => {
+  document.documentElement.toggleAttribute('data-shell-fullscreen', on === true)
 })
 
 // The frame the app's toolbar first paints on. Until then this window is empty, or holds a bare

@@ -42,8 +42,9 @@ export class CargoFlow {
   private unitsPending = true
   /** unit loads rebuilt mid-run (an edit while running), to be seeded again at the next step */
   private readonly unitsRebuilt = new Set<string>()
-  /** where each wrapping behavior's film roll stood last tick (world x/z), which says which way it is travelling */
-  private readonly webRollPrev = new Map<BehaviorRecord, [number, number]>()
+  /** where each wrapping behavior's film roll stood last tick (world x/z), which says which way it is travelling.
+   *  Weak, so a record a rebuild replaced is not kept for the rest of the run. */
+  private readonly webRollPrev = new WeakMap<BehaviorRecord, [number, number]>()
   /** line completions (items removed by a despawner) and their summed cycle time, for measurements() */
   private completedCount = 0
   private totalCycleSeconds = 0
@@ -95,7 +96,7 @@ export class CargoFlow {
       // fetch per zone pass: a removal below bumps boxesRev, so the next zone re-snapshots rather than
       // reading shifted rows. Within one pass the downward iteration keeps row i aligned with boxes[i]
       // across removals (splice leaves lower indices untouched - same pattern as the cull loop).
-      const snap = this.cargo.beamSnapshot()
+      const snap = this.cargo.stepSnapshot()
       for (let i = this.boxes.length - 1; i >= 0; i--) {
         const box = this.boxes[i]
         if (!box || this.holds.personHeld(box)) continue

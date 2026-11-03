@@ -4,7 +4,7 @@ import type { SdkPart, PartInstance, SceneJSON } from '../../core/types'
 import { partFootprint } from '../../core/parts/partGeometry'
 import { partDisplayName } from '../../core/parts/partDisplayName'
 import { EditorStore, documentSceneOf, GRIDSNAP_KEY, SPACE_KEY, USERPKG_KEY, VSNAP_COLLISION_KEY, VSNAP_ORIGIN_KEY, editStack, editTarget, editTargetFocusId, rigNodeKey } from './store'
-import { loadStoredProject, PROJECT_KEY } from '../project/projectFile'
+import { assembleProject, loadStoredProject, PROJECT_KEY } from '../project/projectFile'
 
 /**
  * The scene a reload would restore: the project document's active scene. Not the legacy
@@ -16,7 +16,7 @@ function reloadedScene(): SceneJSON {
   const doc = JSON.parse(localStorage.getItem(PROJECT_KEY) ?? '{}') as { scene?: SceneJSON }
   return doc.scene ?? ({ version: SCENE_VERSION, parts: [] } as SceneJSON)
 }
-import { getPackage, registerPackage, unregisterPackage } from '../../core/parts/partRegistry'
+import { getPackage, registerPackage, setBuiltInPackages, unregisterPackage } from '../../core/parts/partRegistry'
 import type { PartPackage } from '../../core/parts/partPackage'
 import { PACKAGE_FORMAT } from '../../core/parts/partPackage'
 
@@ -352,11 +352,17 @@ describe('EditorStore package-edit session (edit a part package rig with no plac
     expect(store.getState().packageEdit).toBeNull()
   })
 
-  it('refuses to open a package-edit session in a collaborative room', () => {
+  it("opens in a collaborative room, where a peer's scene lands in the parked document", () => {
     const store = withPackage()
     store.setCollabMode(true)
-    expect(store.enterPackageEdit('pe.part')).toBe(false)
-    expect(store.getState().packageEdit).toBeNull()
+    expect(store.enterPackageEdit('pe.part')).toBe(true)
+    const session = store.getState().scene
+    const peer = { ...store.getState().packageEdit!.document, parts: [] }
+    store.applyRemote(peer)
+    expect(store.getState().scene).toBe(session) // the session is undisturbed
+    expect(store.getState().packageEdit?.document).toBe(peer)
+    store.exitPartFocus()
+    expect(store.getState().scene).toBe(peer)
   })
 })
 
@@ -435,14 +441,17 @@ describe('EditorStore removeUserPackage (delete a custom part from the library)'
     expect(getPackage('oip.revert')?.behavior).not.toContain('// edited')
   })
 
-  it('refuses in a room (the package sink has no removal channel)', () => {
+  it('in a room, takes it out and tells the room', () => {
     const store = new EditorStore()
     const p = pkg('user.room', 'definePart({ step() {} })')
     registerPackage(p, true)
     store.addUserPackage(p)
     store.setCollabMode(true)
-    expect(store.removeUserPackage('user.room')).toBe(false)
-    expect(store.getState().userPackages).toHaveLength(1)
+    const removed: [string, unknown][] = []
+    store.setPackageSink(() => {}, (id, revertTo) => void removed.push([id, revertTo]))
+    expect(store.removeUserPackage('user.room')).toBe(true)
+    expect(store.getState().userPackages).toHaveLength(0)
+    expect(removed).toEqual([['user.room', null]])
   })
 
   it('refuses while the part is open for editing (its throwaway lives in the scene)', () => {
@@ -530,7 +539,7 @@ describe('EditorStore renameUserPackage (a project part moves to a new id, docs/
   it('refuses in a room (the package sink has no removal channel)', () => {
     const store = withPlaced()
     store.setCollabMode(true)
-    expect(store.renameUserPackage('acme.transfer', 'acme.transfer-2')).toMatch(/room/)
+    expect(store.renameUserPackage('acme.transfer', 'acme.transfer-2')).toMatch(/shared project/)
     expect(store.getState().userPackages.map((p) => p.id)).toEqual(['acme.transfer'])
   })
 })
@@ -1207,6 +1216,108 @@ describe('EditorStore', () => {
     expect(store.getState().scene.parts).toHaveLength(1)
   })
 
+  it('embeds the package of a pasted part the scene does not carry yet', () => {
+    // the clipboard outlives the project it was copied from: the destination scene has never held this part
+    registerPackage(pkg('paste.belt', 'definePart({ step() {} })'))
+    try {
+      const from = new EditorStore(scene({ ...part('pt_1'), packageId: 'paste.belt' } as PartInstance))
+      from.select('pt_1')
+      from.copySelection()
+      const to = new EditorStore(scene())
+      to.paste()
+      expect(to.getState().scene.packages?.map((p) => p.id)).toEqual(['paste.belt'])
+      to.paste() // a second paste embeds nothing twice
+      expect(to.getState().scene.packages?.map((p) => p.id)).toEqual(['paste.belt'])
+    } finally {
+      unregisterPackage('paste.belt')
+    }
+  })
+
+  describe('paste into another project', () => {
+    // A part from project A's own library, naming a product of A's: copied in A, pasted after B is open. B's registry
+    // never held either (adoptProjectLibrary replaces the library on a project switch).
+    const spawner = (): PartPackage => ({
+      ...pkg('a.spawner', 'definePart({ step() {} })'),
+      params: { product: { type: 'string', default: 'a.crate', product: true } },
+    } as unknown as PartPackage)
+    const copyInA = (): void => {
+      registerPackage(spawner())
+      registerPackage(pkg('a.crate', 'definePart({ step() {} })'))
+      const a = new EditorStore(scene({ ...part('sp_1'), packageId: 'a.spawner', params: {} } as PartInstance))
+      a.select('sp_1')
+      a.copySelection()
+      unregisterPackage('a.spawner')
+      unregisterPackage('a.crate')
+    }
+    afterEach(() => {
+      unregisterPackage('a.spawner')
+      unregisterPackage('a.crate')
+      setBuiltInPackages([])
+    })
+
+    it('brings the part and what it names along, and saving keeps them in the library', () => {
+      copyInA()
+      const b = new EditorStore(scene())
+      b.paste()
+      expect(getPackage('a.spawner')).toBeDefined()
+      expect(getPackage('a.crate')).toBeDefined()
+      expect(b.getState().scene.packages?.map((p) => p.id).sort()).toEqual(['a.crate', 'a.spawner'])
+      // a save moves a scene copy nothing else holds into the project's library (keepDefinitionsOnce needs a host
+      // that has declared its built-ins)
+      setBuiltInPackages([pkg('oip.stand-in', 'definePart({ step() {} })')])
+      const project = assembleProject(b.getState().scene, '', [])
+      expect(project.packages?.map((p) => p.id).sort()).toEqual(['a.crate', 'a.spawner'])
+      expect(project.scene.packages).toBeUndefined()
+    })
+
+    it('survives the stored clipboard (checked as a scene file is)', () => {
+      vi.stubGlobal('localStorage', fakeStorage())
+      copyInA()
+      const b = new EditorStore(scene())
+      b.paste()
+      expect(b.getState().scene.packages?.map((p) => p.id).sort()).toEqual(['a.crate', 'a.spawner'])
+    })
+
+    it('keeps the version of a part this project already has', () => {
+      copyInA()
+      const own = pkg('a.spawner', 'definePart({ step() { /* B */ } })')
+      registerPackage(own)
+      const b = new EditorStore(scene())
+      b.paste()
+      expect(getPackage('a.spawner')?.behavior).toBe(own.behavior)
+    })
+
+    it('a copy too big to store leaves no older stored copy to paste', () => {
+      const storage = fakeStorage()
+      vi.stubGlobal('localStorage', storage)
+      const a = new EditorStore(scene(part('pt_1'), part('pt_9', 4)))
+      a.select('pt_1')
+      a.copySelection()
+      storage.setItem = () => {
+        throw new Error('QuotaExceededError')
+      }
+      a.select('pt_9')
+      a.copySelection()
+      const b = new EditorStore(scene())
+      b.paste()
+      expect(b.getState().scene.parts.map((p) => p.position[0])).toEqual([4])
+    })
+  })
+
+  it('a save keeps the definitions the parts use, not the copies the scene happens to hold', () => {
+    // a part whose definition is neither the library nor a built-in, added without its copy (a path that forgot to
+    // embed it), keeps it; a copy no part uses any more is not carried
+    registerPackage(pkg('save.widget', 'definePart({ step() {} })'))
+    try {
+      const store = new EditorStore()
+      store.loadScene({ ...scene({ ...part('w_1'), packageId: 'save.widget' } as PartInstance), packages: [pkg('save.stale', 'definePart({ step() {} })')] })
+      expect(store.snapshotProject().scene.packages?.map((p) => p.id)).toEqual(['save.widget'])
+    } finally {
+      unregisterPackage('save.widget')
+      unregisterPackage('save.stale')
+    }
+  })
+
   it('pastes without a nudge when the source position is free', () => {
     const store = new EditorStore(scene(part('rc_1', 3)))
     store.select('rc_1')
@@ -1816,6 +1927,22 @@ describe('autosave failure reporting', () => {
     vi.stubGlobal('localStorage', fakeStorage()) // space freed / smaller doc
     store.commit('Move part', scene(part('rc_1', 6)))
     expect(store.getState().autosaveError).toBeNull()
+  })
+})
+
+// The store exists before App mounts and subscribes, so a panel reveal in that gap is held for App.
+describe('revealPanel', () => {
+  it('a request made before App subscribes reaches it once, without repeats', () => {
+    const store = new EditorStore()
+    store.revealPanel('st')
+    store.revealPanel('st')
+    const got: string[] = []
+    const off = store.onRevealPanel((p) => got.push(p))
+    expect(got).toEqual(['st'])
+    off()
+    store.onRevealPanel((p) => got.push(p))
+    store.revealPanel('problems')
+    expect(got).toEqual(['st', 'problems'])
   })
 })
 

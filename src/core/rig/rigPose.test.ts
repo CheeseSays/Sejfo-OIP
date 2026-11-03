@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import { arrayInstanceDeltas, jointLimits, legFrameDepth, linkHalfExtents, qApply, qFromAxisAngle, resolvedBoxSize, resolvedGrabReach, resolvedGrabZone, resolvedMeshScale, resolvedOffset, rigLinkLocalPoseInto, rigLocalPose, rigWorldPoses } from './rigPose'
-import type { SeamContext } from './rigPose'
+import { arrayInstanceDeltas, copySubPose, jointLimits, qMul, MAX_PITCH_INSTANCES, pitchCapMessage, posedInstanceInto, legFrameDepth, linkHalfExtents, qApply, qFromAxisAngle, resolvedBoxSize, resolvedGrabReach, resolvedGrabZone, resolvedMeshScale, resolvedOffset, rigLinkLocalPoseInto, rigLocalPose, rigWorldPoses } from './rigPose'
+import type { SeamContext, SubPose } from './rigPose'
+import { subPoseEq } from './rigPose'
 import type { PartPackage, RigJoint, RigLink } from '../parts/partPackage'
 
 type RigGeometry = Extract<PartPackage['geometry'], { kind: 'rig' }>
@@ -90,6 +91,29 @@ describe('param-driven box size resolution', () => {
     const deckZ = [{ axis: 2 as const, param: 'chains', mulParam: 'distance' }]
     expect(resolvedBoxSize([2, 0.06, 1.65], deckZ, { chains: 5 })).toEqual([2, 0.06, 1.65])
     expect(resolvedBoxSize([2, 0.06, 1.65], deckZ, { chains: 5, distance: 'wide' })).toEqual([2, 0.06, 1.65])
+  })
+
+  it('a plus entry adds to the axis instead of replacing it, in order', () => {
+    const refs = [
+      { axis: 0 as const, param: 'length', scale: 0.5 },
+      { axis: 0 as const, param: 'gap', plus: true },
+    ]
+    expect(resolvedOffset([9, 0, 0], refs, { length: 2, gap: 0.3 })[0]).toBeCloseTo(1.3, 9)
+    // a lone plus entry shifts the static value; an entry that does not resolve leaves the axis as it is
+    expect(resolvedOffset([1, 0, 0], [refs[1]!], { gap: 0.3 })[0]).toBeCloseTo(1.3, 9)
+    expect(resolvedOffset([9, 0, 0], refs, { length: 2 })[0]).toBe(1)
+    expect(resolvedBoxSize([1, 1, 1], [{ axis: 1, param: 'h' }, { axis: 1, param: 'lip', scale: 2, plus: true }], { h: 0.5, lip: 0.1 })[1]).toBeCloseTo(0.7, 9)
+  })
+
+  it('rotationParams turn a link by a param, through the flat composition and rigLocalPose alike', () => {
+    const arm: RigLink = { name: 'arm', shape: { kind: 'box', size: [1, 0.1, 0.1] }, offset: [0, 0, 0], rotation: [0, 0, 0], rotationParams: [{ axis: 1, param: 'splay', scale: Math.PI / 180 }] }
+    const geo: RigGeometry = { kind: 'rig', links: [arm], joints: [] }
+    const q = rigWorldPoses(geo, {}, undefined, 1, { splay: 90 }).get('arm')!.quat
+    expect(q[1]).toBeCloseTo(Math.SQRT1_2, 9)
+    expect(q[3]).toBeCloseTo(Math.SQRT1_2, 9)
+    expect(rigLocalPose(arm, undefined, 0, { splay: 90 }).quat[1]).toBeCloseTo(Math.SQRT1_2, 9)
+    // without the param the authored rotation stands
+    expect(rigWorldPoses(geo, {}, undefined, 1, {}).get('arm')!.quat).toEqual([0, 0, 0, 1])
   })
 
   it('rigWorldPoses resolves a param-driven hinge offset through a revolute joint', () => {
@@ -551,5 +575,87 @@ describe('rigLinkLocalPoseInto (one link, by the composition\'s own rule)', () =
     expect([...at('side', incline, out)]).not.toEqual([...at('side', 0, flat)])
     expect([...at('legs', incline, out)]).toEqual([...at('legs', 0, flat)])
     expect([...at('arm', incline, out)]).toEqual([...at('arm', 0, flat)])
+  })
+})
+
+describe('arrayInstanceDeltas pitch (carriers at a fixed pitch, count from the span)', () => {
+  const slats = (extra: Partial<NonNullable<NonNullable<RigLink['array']>['pitch']>> = {}): NonNullable<RigLink['array']> => ({
+    pitch: { axis: 0, spanParam: 'length', pitch: 0.5, ...extra },
+  })
+  const xs = (a: NonNullable<RigLink['array']>, params: Record<string, number | boolean>) => arrayInstanceDeltas(a, params).map((d) => d[0])
+
+  it('fits round(span / pitch) copies exactly a pitch apart, centred', () => {
+    expect(xs(slats(), { length: 2 })).toEqual([-0.75, -0.25, 0.25, 0.75])
+    expect(xs(slats(), { length: 2.2 })).toHaveLength(4) // 4.4 rounds down
+    expect(xs(slats(), { length: 2.3 })).toHaveLength(5) // 4.6 rounds up
+  })
+
+  it('rounds a span of exactly n and a half pitches up, as written in decimal', () => {
+    // 0.35 / 0.1 is 3.4999999999999996 in binary floating point; 0.45 / 0.1 is exactly 4.5
+    expect(xs(slats({ pitch: 0.1 }), { length: 0.35 })).toHaveLength(4)
+    expect(xs(slats({ pitch: 0.1 }), { length: 0.45 })).toHaveLength(5)
+  })
+
+  it('scales and offsets the span: a chain loop is twice the run plus the turns', () => {
+    expect(xs(slats({ spanScale: 2, spanAdd: 1 }), { length: 2 })).toHaveLength(10) // (2 * 2 + 1) / 0.5
+  })
+
+  it('holds at most MAX_PITCH_INSTANCES copies, and says so on the part when a span asks for more', () => {
+    // a 100 m loop sorter at a 0.25 m pitch: 400 copies fit; at 0.06 m it would need 1667
+    const loop = (pitch: number): RigLink => ({ name: 'carrier', shape: { kind: 'frame' }, offset: [0, 0, 0], array: { pitch: { axis: 0, spanParam: 'length', pitch } } })
+    expect(xs(loop(0.25).array!, { length: 100 })).toHaveLength(400)
+    expect(pitchCapMessage(loop(0.25), { length: 100 })).toBeNull()
+    expect(xs(loop(0.06).array!, { length: 100 })).toHaveLength(MAX_PITCH_INSTANCES)
+    expect(pitchCapMessage(loop(0.06), { length: 100 })).toMatch(/needs 1667 copies/)
+  })
+
+  it('adds span terms: a loop of two straights and two half turns counts as one row', () => {
+    const loop: NonNullable<RigLink['array']> = { pitch: { axis: 0, spanParam: 'length', spanScale: 2, spanTerms: [{ param: 'radius', scale: 2 * Math.PI }], pitch: 0.6 } }
+    expect(xs(loop, { length: 20, radius: 3 })).toHaveLength(Math.round((40 + 6 * Math.PI) / 0.6)) // 98
+    expect(xs(loop, { length: 20, radius: 1 })).toHaveLength(Math.round((40 + 2 * Math.PI) / 0.6)) // 77
+  })
+
+  it('keeps at least one copy, and switches off with its showParam', () => {
+    expect(xs(slats(), { length: 0 })).toHaveLength(1)
+    expect(arrayInstanceDeltas(slats(), { length: 2, on: false }, undefined, 'on')).toEqual([])
+  })
+})
+
+describe('posable array instance poses', () => {
+  // a row standing 1 m up and turned a quarter about Y: where its copies rest says nothing about where a pose puts them
+  const geo = { kind: 'rig' as const, links: [{ name: 'row', shape: { kind: 'frame' as const }, offset: [0, 1, 0] as [number, number, number], rotation: [0, Math.PI / 2, 0] as [number, number, number] }], joints: [] }
+
+  it('an unposed instance stands at its rest place in the link frame', () => {
+    const out = new Float64Array(7)
+    posedInstanceInto(out, geo, 0, {}, undefined, {}, 0, null, [1, 2, 3])
+    expect([...out]).toEqual([1, 2, 3, 0, 0, 0, 1])
+  })
+
+  it("a pose is in the link's parent frame, as setSubPose places a link: the result is it seen from the link", () => {
+    const out = new Float64Array(7)
+    posedInstanceInto(out, geo, 0, {}, undefined, {}, 0, { position: [2, 3, 4] }, [0, 0, 0])
+    // (2, 3, 4) less the link's (0, 1, 0), turned back a quarter about Y: (x, y, z) -> (-z, y, x)
+    expect([...out.slice(0, 3)].map((v) => Math.round(v * 1e9) / 1e9)).toEqual([-4, 2, 2])
+    // no rotation given keeps the rest rotation, so the instance is not turned against its link
+    expect([...out.slice(3)].map((v) => Math.round(v * 1e9) / 1e9)).toEqual([0, 0, 0, 1])
+  })
+
+  it('a quat pose wins over an Euler rotation, and composes turns about moving axes', () => {
+    const out = new Float64Array(7)
+    // heading a quarter about Y, then a tilt about the new local X: a tray on a curve tipping toward its chute
+    const h = Math.PI / 2, a = 0.5
+    const quat = qMul([0, Math.sin(h / 2), 0, Math.cos(h / 2)], [Math.sin(a / 2), 0, 0, Math.cos(a / 2)])
+    posedInstanceInto(out, { kind: 'rig', links: [{ name: 'row', shape: { kind: 'frame' }, offset: [0, 0, 0] }], joints: [] }, 0, {}, undefined, {}, 0, { quat, rotation: [9, 9, 9] }, [0, 0, 0])
+    expect([...out.slice(3)].map((v) => Math.round(v * 1e9) / 1e9)).toEqual(quat.map((v) => Math.round(v * 1e9) / 1e9))
+  })
+
+  it('subPoseEq compares instance poses, and copySubPose shares nothing with its source', () => {
+    const a: SubPose = { instances: [null, { position: [1, 0, 0] }] }
+    const b = copySubPose(a)
+    expect(subPoseEq(a, b)).toBe(true)
+    b.instances![1]!.position![0] = 2
+    expect(a.instances![1]!.position![0]).toBe(1)
+    expect(subPoseEq(a, b)).toBe(false)
+    expect(subPoseEq(a, { instances: [{}, { position: [1, 0, 0] }] })).toBe(false) // posed at rest is still posed
   })
 })

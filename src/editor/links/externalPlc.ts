@@ -10,6 +10,8 @@
 //   ExternalPlcEipSession     a Logix controller's tags over EtherNet/IP, by name (core/io/eip.ts; libplctag)
 //   ExternalPlcS7Session      an S7-1200/1500 CPU's memory over PUT/GET, at the scene's addresses
 //                             (core/io/s7Io.ts, plc/link/s7Client.ts; editor/links/s7Link.ts, loaded on Play as a DeferredLink)
+//   ExternalPlcSlmpSession    a MELSEC CPU's devices over SLMP, at the scene's addresses
+//                             (core/io/slmpIo.ts, plc/link/slmpClient.ts; editor/links/slmpLink.ts, loaded on Play as a DeferredLink)
 //
 // Each sim frame, the parts' tag writes become the PLC's inputs and what the PLC wrote goes to
 // SimClient.setTags for the parts' next step.
@@ -21,28 +23,31 @@
 // The socket is the desktop shell's (apps/desktop/plcIo.cjs); in a browser tab the host is null and the
 // mode is not offered. Tests pass their own host.
 
+import { canWatch } from '../../core/scene/scenePlcs'
 import { clientDrivenTags, externalDrivenTags, modbusClientFromTags, modbusServerFromTags, registerImagePointWhere, registerWords } from '../../core/io/externalIo'
 import type { ClientIoPoint, ExternalIo, ExternalIoPoint, ModbusClientIo, TagSignal } from '../../core/io/externalIo'
-import { bindEipPoint, cipTypeName, eipNothingAnswered, eipPointsFromTags, eipStatusMessage, eipUnreachable, fromEipValue, toEipValue } from '../../core/io/eip'
+import { bindEipPoint, cipTypeName, eipListingFailure, eipNothingAnswered, eipPointsFromTags, eipStatusMessage, eipTagNames, eipUnreachable, eipVariableGroups, fromEipValue, toEipValue } from '../../core/io/eip'
 import type { EipBinding, EipPoint } from '../../core/io/eip'
-import { bindOpcUaPoints, builtinName, discoveryServerMessage, fromOpcUaValue, matchOpcUaTag, opcUaPointsFromTags, opcUaTagNames, toOpcUaValue } from '../../core/io/opcUa'
-import type { OpcUaBinding, OpcUaPoint, OpcUaVariable } from '../../core/io/opcUa'
-import { adsPointsFromTags } from '../../core/io/ads'
+import { bindOpcUaPoints, builtinName, discoveryServerMessage, fromOpcUaValue, isOpcUaNodeId, matchOpcUaTag, opcUaBrowseRoot, opcUaPointsFromTags, opcUaTagNames, opcUaVariableGroups, toOpcUaValue } from '../../core/io/opcUa'
+import type { OpcUaBinding, OpcUaBrowseRoot, OpcUaPoint, OpcUaVariable } from '../../core/io/opcUa'
+import { adsPointsFromTags, adsRouteText, adsSymbolGroups, adsTagNames } from '../../core/io/ads'
 import type { AdsBinding, AdsPoint } from '../../core/io/ads'
 import { describeS7Point, s7ClientFromTags, s7DrivenTags, s7Endpoint } from '../../core/io/s7Io'
 import type { S7ClientIo } from '../../core/io/s7Io'
+import { describeSlmpPoint, slmpClientFromTags, slmpDrivenTags, slmpEndpoint } from '../../core/io/slmpIo'
+import type { SlmpClientIo } from '../../core/io/slmpIo'
 import type { PartInstance } from '../../core/types'
 import { ModbusClientStream, ModbusPoller } from '../../plc/link/modbusClient'
 import { describeStats, ModbusServerIo } from '../../plc/link/modbusServer'
 import type { ModbusStream } from '../../plc/link/modbusServer'
 import type { TagValue } from '../../plc/types'
 import { checkWiring } from '../../plc/wiring'
-import type { ExternalPlcSettings } from '../store/storePrefs'
+import type { ExternalPlcSettings, PlcLinkSettings } from '../store/storePrefs'
 import { CLIENT_ANSWER_MS, CLIENT_POLL_MS, CLIENT_RETRY_MS, NamedLink, NOT_CONNECTED, POLL_TIMEOUT_MS, SocketLink } from './clientLink'
 
 export { CLIENT_ANSWER_MS, CLIENT_POLL_MS, CLIENT_RETRY_MS, POLL_TIMEOUT_MS }
 export * from './externalPlcStatus'
-import { adsEndpoint, EXTERNAL_PLC_OFF } from './externalPlcStatus'
+import { adsEndpoint, eipEndpoint, EXTERNAL_PLC_OFF } from './externalPlcStatus'
 import type { AdsHost, EipHost, ExternalPlcLink, ExternalPlcStatus, OpcUaHost, PlcIoHost, PlcTagList } from './externalPlcStatus'
 
 export type { ExternalPlcSettings } from '../store/storePrefs'
@@ -87,6 +92,18 @@ export function deriveS7Io(parts: readonly PartInstance[], settings: Pick<Extern
   return { io: derived.io, problems: [...problems, ...derived.problems.map((p) => `${p.tag}: ${p.message}`)] }
 }
 
+/**
+ * The table a scene makes for a MELSEC CPU over SLMP: every X, Y, M and D tag at its device (core/io/slmpIo.ts).
+ * Each tag carries how many parts write it, which is what decides a Y, M or D tag's direction.
+ */
+export function deriveSlmpIo(parts: readonly PartInstance[], settings: Pick<ExternalPlcSettings, 'slmpHost' | 'slmpPort'>): { io: SlmpClientIo; problems: string[] } {
+  const wiring = checkWiring(parts as Parameters<typeof checkWiring>[0])
+  const tags = wiring.tags.map((t) => ({ name: t.name, type: t.type, writers: t.writers.length }))
+  const derived = slmpClientFromTags({ host: settings.slmpHost, port: settings.slmpPort }, tags)
+  const problems = wiring.problems.filter((p) => p.kind === 'address').map((p) => p.message)
+  return { io: derived.io, problems: [...problems, ...derived.problems.map((p) => `${p.tag}: ${p.message}`)] }
+}
+
 /** The tags a scene carries over OPC UA: every tag a part is wired to by name, written or read by the PLC. */
 export function deriveOpcUaPoints(parts: readonly PartInstance[]): { points: OpcUaPoint[]; problems: string[] } {
   const wiring = checkWiring(parts as Parameters<typeof checkWiring>[0])
@@ -127,23 +144,44 @@ export function describeAdsPoint(p: AdsPoint | AdsBinding): string {
   return `${p.tag}  ${p.dir === 'toPlc' ? 'written to the PLC' : 'read from the PLC'}${type ? `  ${type}` : ''}`
 }
 
+/**
+ * Watch only (ScenePlc.watch): every point read from the PLC, the ones parts write included, and none written. A
+ * sensor's tag is then the PLC's, so a part that shows what drives its tag (ctx.tagDriven) shows the real one.
+ */
+export function watchedPoints<P extends { dir: 'toPlc' | 'fromPlc' }>(points: readonly P[]): P[] {
+  return points.map((p) => (p.dir === 'fromPlc' ? p : { ...p, dir: 'fromPlc' }))
+}
+
+/** Why a link cannot watch, or null when it can: over Modbus the simulator cannot read what it would write. */
+export function watchRefusal(settings: Pick<PlcLinkSettings, 'mode' | 'watch'>): string | null {
+  if (!settings.watch || canWatch(settings.mode)) return null
+  return "Watch only does not work over Modbus, where the simulator cannot read the PLC's inputs, so nothing is connected. Choose OPC UA, EtherNet/IP, S7, SLMP or ADS to watch this PLC."
+}
+
 /** What Play would carry with these settings, as the dock lists it before Play. */
-export function plannedLink(parts: readonly PartInstance[], settings: ExternalPlcSettings): { points: string[]; problems: string[] } {
+export function plannedLink(parts: readonly PartInstance[], settings: PlcLinkSettings): { points: string[]; problems: string[] } {
+  const refused = watchRefusal(settings)
+  if (refused) return { points: [], problems: [refused] }
+  const w = <P extends { dir: 'toPlc' | 'fromPlc' }>(points: P[]): P[] => (settings.watch ? watchedPoints(points) : points)
   if (settings.mode === 'ads') {
     const { points, problems } = deriveAdsPoints(parts)
-    return { points: points.map(describeAdsPoint), problems }
+    return { points: w(points).map(describeAdsPoint), problems }
   }
   if (settings.mode === 'eip') {
     const { points, problems } = deriveEipPoints(parts)
-    return { points: points.map(describeEipPoint), problems }
+    return { points: w(points).map(describeEipPoint), problems }
   }
   if (settings.mode === 'opcua') {
     const { points, problems } = deriveOpcUaPoints(parts)
-    return { points: points.map(describeOpcUaPoint), problems }
+    return { points: w(points).map(describeOpcUaPoint), problems }
   }
   if (settings.mode === 's7') {
     const { io, problems } = deriveS7Io(parts, settings)
-    return { points: io.points.map(describeS7Point), problems }
+    return { points: w(io.points).map(describeS7Point), problems }
+  }
+  if (settings.mode === 'slmp') {
+    const { io, problems } = deriveSlmpIo(parts, settings)
+    return { points: w(io.points).map(describeSlmpPoint), problems }
   }
   if (settings.mode === 'poll') {
     const { io, problems } = deriveClientIo(parts, settings)
@@ -358,8 +396,13 @@ export class ExternalPlcClientSession extends SocketLink<ModbusPoller> {
  * whose program is stopped looks alive over OPC UA; only a lost connection or a silent server trips it.
  */
 
-export function plcTagListOf(endpoint: string, browsed: { variables: OpcUaVariable[]; truncated: boolean }): PlcTagList {
-  return { endpoint, state: 'ready', names: opcUaTagNames(browsed.variables), variables: browsed.variables, truncated: browsed.truncated, error: null }
+export function plcTagListOf(endpoint: string, from: readonly string[], browsed: { variables: OpcUaVariable[]; truncated: boolean }): PlcTagList {
+  return { protocol: 'opcua', endpoint, from, state: 'ready', names: opcUaTagNames(browsed.variables), groups: opcUaVariableGroups(browsed.variables), variables: browsed.variables, truncated: browsed.truncated, error: null }
+}
+
+/** Start points as typed (PlcLinkSettings.opcUaBrowseFrom), as the shell takes them; one that reads as neither is left out. */
+export function browseRootsOf(from: readonly string[]): OpcUaBrowseRoot[] {
+  return from.flatMap((text) => opcUaBrowseRoot(text) ?? [])
 }
 
 /**
@@ -367,15 +410,54 @@ export function plcTagListOf(endpoint: string, browsed: { variables: OpcUaVariab
  * link per window, so a run that starts meanwhile takes it over (its connect supersedes this one); `mayClose` is
  * asked before closing, so this never closes the run's link.
  */
-export async function readOpcUaTagList(host: OpcUaHost, endpoint: string, mayClose: () => boolean): Promise<PlcTagList> {
-  const failed = (error: string): PlcTagList => ({ endpoint, state: 'failed', names: [], variables: [], truncated: false, error })
+export async function readOpcUaTagList(host: OpcUaHost, endpoint: string, from: readonly string[], mayClose: () => boolean): Promise<PlcTagList> {
+  const failed = (error: string): PlcTagList => ({ protocol: 'opcua', endpoint, from, state: 'failed', names: [], groups: [], variables: [], truncated: false, error })
   const { error, discovery } = await host.connect({ endpoint })
   if (discovery) return failed(discoveryServerMessage(endpoint, discovery))
   if (error) return failed(error)
   try {
-    const tree = await host.browse()
+    const tree = await host.browse({ roots: browseRootsOf(from) })
     if (tree.error || !tree.variables) return failed(`could not read the PLC's tags: ${tree.error || 'nothing came back'}`)
-    return plcTagListOf(endpoint, { variables: tree.variables, truncated: tree.truncated === true })
+    // a branch that never answered leaves the list incomplete, as a cut-off browse does
+    return plcTagListOf(endpoint, from, { variables: tree.variables, truncated: tree.truncated === true || (tree.skipped?.length ?? 0) > 0 })
+  } finally {
+    if (mayClose()) await host.close()
+  }
+}
+
+/**
+ * Open, list the runtime's symbol table once and let go: the tag picker's read of a TwinCAT PLC while no run holds the
+ * link. It uses the default controller's own link, so a run that starts meanwhile replaces it (the shell closes the
+ * old one on open); `mayClose` is asked before closing, so this never closes the run's link.
+ */
+export async function readAdsTagList(host: AdsHost, netId: string, port: number, mayClose: () => boolean): Promise<PlcTagList> {
+  const endpoint = adsEndpoint(netId, port)
+  const failed = (error: string): PlcTagList => ({ protocol: 'ads', endpoint, from: [], state: 'failed', names: [], groups: [], variables: [], truncated: false, error })
+  if (!host.symbols) return failed("this version of the desktop app cannot list a PLC's tags")
+  const opened = await host.open({ netId, port })
+  if (opened.error) return failed(opened.error)
+  try {
+    const r = await host.symbols()
+    if (r.error) return failed(r.error)
+    if (r.code) return failed(adsRouteText(r.code, opened.localNetId ?? ''))
+    return { protocol: 'ads', endpoint, from: [], state: 'ready', names: adsTagNames(r.symbols ?? []), groups: adsSymbolGroups(r.symbols ?? []), variables: [], truncated: false, error: null }
+  } finally {
+    if (mayClose()) await host.close()
+  }
+}
+
+/** The same for a Logix controller over EtherNet/IP: its tags and each program's, as libplctag lists them. */
+export async function readEipTagList(host: EipHost, gateway: string, path: string, mayClose: () => boolean): Promise<PlcTagList> {
+  const endpoint = eipEndpoint(gateway, path)
+  const failed = (error: string): PlcTagList => ({ protocol: 'eip', endpoint, from: [], state: 'failed', names: [], groups: [], variables: [], truncated: false, error })
+  if (!host.tags) return failed("this version of the desktop app cannot list a PLC's tags")
+  const opened = await host.open({ gateway, path })
+  if (opened.error) return failed(opened.error)
+  try {
+    const r = await host.tags()
+    if (r.error) return failed(r.error)
+    if (r.status !== 'ok') return failed(eipListingFailure(r.status ?? 'no status', path))
+    return { protocol: 'eip', endpoint, from: [], state: 'ready', names: eipTagNames(r.tags ?? []), groups: eipVariableGroups(r.tags ?? []), variables: [], truncated: false, error: null }
   } finally {
     if (mayClose()) await host.close()
   }
@@ -387,6 +469,8 @@ export class ExternalPlcOpcUaSession extends NamedLink<OpcUaPoint, OpcUaBinding>
   /** the PLC's tree as the last bind read it, for the tag picker (controller.plcTagList); null before */
   browsed: { variables: OpcUaVariable[]; truncated: boolean } | null = null
   private unsubscribe: (() => void) | null = null
+  /** while a bind reads the tree, how many variables it has found; null otherwise */
+  private reading: number | null = null
 
   constructor(
     private readonly host: OpcUaHost,
@@ -394,6 +478,8 @@ export class ExternalPlcOpcUaSession extends NamedLink<OpcUaPoint, OpcUaBinding>
     points: readonly OpcUaPoint[],
     problems: string[],
     onChange: () => void,
+    /** where the browse starts (PlcLinkSettings.opcUaBrowseFrom); empty: Objects */
+    readonly from: readonly string[] = [],
     now: () => number = () => Date.now(),
   ) {
     super(points, problems, onChange, now)
@@ -434,9 +520,15 @@ export class ExternalPlcOpcUaSession extends NamedLink<OpcUaPoint, OpcUaBinding>
     return 'up'
   }
 
-  /** Read the tree and bind each point to its node. Tags are found again after every reconnect: a PLC that was re-downloaded may have rebuilt its tree. */
+  /**
+   * Read the tree and bind each point to its node. Tags are found again after every reconnect: a PLC that was
+   * re-downloaded may have rebuilt its tree. When every tag is a NodeId there is nothing to find by name, so the
+   * tree is not read, and the tag picker gets no list from this run.
+   */
   protected async bind(): Promise<boolean> {
-    const tree = await this.host.browse()
+    // with no points the browse still runs: it is the tag picker's list while nothing is wired yet
+    const byNodeId = this.points.length > 0 && this.points.every((p) => isOpcUaNodeId(p.tag))
+    const tree = byNodeId ? { error: '', variables: [] } : await this.readTree()
     if (this.closed) return false
     if (tree.error || !tree.variables) {
       if (tree.error === NOT_CONNECTED) {
@@ -446,7 +538,9 @@ export class ExternalPlcOpcUaSession extends NamedLink<OpcUaPoint, OpcUaBinding>
       return this.bindFailed(`could not read the PLC's tags: ${tree.error}`)
     }
     const variables = tree.variables
-    this.browsed = { variables, truncated: tree.truncated === true }
+    const skipped = 'skipped' in tree ? (tree.skipped ?? []) : []
+    const truncated = 'truncated' in tree && tree.truncated === true
+    if (!byNodeId) this.browsed = { variables, truncated: truncated || skipped.length > 0 }
     const nodeIds = [...new Set(this.points.map((p) => matchOpcUaTag(p.tag, variables)).flatMap((m) => ('variable' in m ? [m.variable.nodeId] : [])))]
     const described = await this.host.describe({ nodeIds })
     if (this.closed) return false
@@ -459,8 +553,30 @@ export class ExternalPlcOpcUaSession extends NamedLink<OpcUaPoint, OpcUaBinding>
     }
     const info = new Map(nodeIds.map((id, i) => [id, described.nodes![i]!]))
     const found = bindOpcUaPoints(this.points, variables, (id) => info.get(id))
-    this.bound(found.bindings, tree.truncated ? [...found.problems, 'the PLC holds more tags than the link reads; a tag it did not reach reads as missing'] : found.problems)
+    const problems = [...found.problems]
+    if (truncated) problems.push('the PLC holds more tags than the link reads; a tag it did not reach reads as missing')
+    if (skipped.length > 0) {
+      const shown = skipped.slice(0, 3).join(', ') + (skipped.length > 3 ? ', ...' : '')
+      problems.push(`${skipped.length === 1 ? 'a branch' : `${skipped.length} branches`} of the PLC's tags did not answer in time (${shown}); a tag under ${skipped.length === 1 ? 'it' : 'them'} reads as missing`)
+    }
+    this.bound(found.bindings, problems)
     return true
+  }
+
+  /** The browse, with how far it has got in the status: a PLC with a large tree can take minutes to list. */
+  private async readTree(): ReturnType<OpcUaHost['browse']> {
+    this.reading = 0
+    this.onChange()
+    const off = this.host.onProgress?.((e) => {
+      this.reading = e.found
+      this.onChange()
+    })
+    try {
+      return await this.host.browse({ roots: browseRootsOf(this.from) })
+    } finally {
+      off?.()
+      this.reading = null
+    }
   }
 
   protected async cycle(writing: OpcUaBinding[], reading: OpcUaBinding[]): Promise<void> {
@@ -493,12 +609,13 @@ export class ExternalPlcOpcUaSession extends NamedLink<OpcUaPoint, OpcUaBinding>
 
   status(): ExternalPlcStatus {
     const bound = this.bindings
-    return this.namedStatus({
+    const status = this.namedStatus({
       mode: 'opcua',
       endpoint: this.endpoint,
       masters: this.connected && !this.closed ? [this.endpoint] : [],
       points: bound ? [...bound.map(describeOpcUaBinding), ...this.points.filter((p) => !bound.some((b) => b.tag === p.tag)).map(describeOpcUaPoint)] : this.points.map(describeOpcUaPoint),
     })
+    return this.reading === null || this.closed ? status : { ...status, reading: this.reading }
   }
 }
 
@@ -529,7 +646,7 @@ export class ExternalPlcEipSession extends NamedLink<EipPoint, EipBinding> {
   }
 
   private get endpoint(): string {
-    return this.path ? `${this.gateway} (path ${this.path})` : this.gateway
+    return eipEndpoint(this.gateway, this.path)
   }
 
   protected isOpen(): boolean {
@@ -692,6 +809,20 @@ export function s7Link(host: PlcIoHost, io: S7ClientIo, problems: string[], onCh
     endpoint: s7Endpoint(io),
     driven,
     points: io.points.map(describeS7Point),
+    problems,
+  })
+}
+
+/** One run's link to a MELSEC CPU: the SLMP session, loaded when the run starts (editor/links/slmpLink.ts). */
+export function slmpLink(host: PlcIoHost, io: SlmpClientIo, problems: string[], onChange: () => void): DeferredLink {
+  const driven = slmpDrivenTags(io)
+  return new DeferredLink(driven, async () => new (await import('./slmpLink')).ExternalPlcSlmpSession(host, io, problems, onChange), {
+    ...EXTERNAL_PLC_OFF,
+    mode: 'slmp',
+    state: 'starting',
+    endpoint: slmpEndpoint(io),
+    driven,
+    points: io.points.map(describeSlmpPoint),
     problems,
   })
 }

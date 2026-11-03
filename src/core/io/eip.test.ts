@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { bindEipPoint, cipTypeName, eipNothingAnswered, eipPointsFromTags, eipStatusMessage, eipUnreachable, fromEipValue, isBitTag, toEipValue } from './eip'
+import { bindEipPoint, cipTypeName, eipListingFailure, eipNothingAnswered, eipPointsFromTags, eipStatusMessage, eipTagNames, eipUnreachable, fromEipValue, isBitTag, toEipValue } from './eip'
 import type { EipPoint } from './eip'
 
 const BOOL = 0xc1
@@ -143,5 +143,46 @@ describe('what a status means', () => {
     expect(eipStatusMessage('Eye', 'PLCTAG_ERR_BAD_DEVICE')).toBe('Eye: the path does not lead to a controller (PLCTAG_ERR_BAD_DEVICE)')
     expect(eipStatusMessage('Eye', 'PLCTAG_ERR_REMOTE_ERR')).toMatch(/^Eye: the controller refused the request/)
     expect(eipStatusMessage('Eye', 'PLCTAG_ERR_BUSY')).toBe('Eye: PLCTAG_ERR_BUSY')
+  })
+})
+
+describe('the tag listing as the tag picker lists it', () => {
+  it('offers the BOOL and number tags, controller and program scoped, sorted', () => {
+    const names = eipTagNames([
+      { name: 'Speed', type: REAL },
+      { name: 'Eye', type: BOOL },
+      { name: 'Program:MainProgram.Run', type: BOOL },
+      { name: 'Program:MainProgram.Count', type: DINT },
+      { name: 'Level', type: INT },
+    ])
+    expect(names).toEqual(['Eye', 'Level', 'Program:MainProgram.Count', 'Program:MainProgram.Run', 'Speed'])
+  })
+
+  it('takes a BOOL whose type carries its bit position', () => {
+    expect(eipTagNames([{ name: 'Fault', type: 0x05c1 }])).toEqual(['Fault'])
+  })
+
+  it('leaves out structures, arrays, system and hidden tags, and types no part carries', () => {
+    const names = eipTagNames([
+      { name: 'Recipe', type: 0x8f21 },
+      { name: 'Lane', type: 0x2000 | DINT },
+      { name: 'Grid', type: 0x4000 | DINT },
+      { name: 'Sys', type: 0x1000 | DINT },
+      { name: '__hidden', type: DINT },
+      { name: 'Program:Main.__hidden', type: DINT },
+      { name: 'Big', type: 0xc5 },
+      { name: 'Odd', type: 0x0300 | DINT },
+      { name: 'Map:Local', type: DINT },
+    ])
+    expect(names).toEqual([])
+  })
+})
+
+describe('a tag listing that failed', () => {
+  it('says what the status means', () => {
+    expect(eipListingFailure('PLCTAG_ERR_UNSUPPORTED', '1,0')).toMatch(/does not list its tags/)
+    expect(eipListingFailure('PLCTAG_ERR_TIMEOUT', '1,0')).toMatch(/did not answer/)
+    expect(eipListingFailure('PLCTAG_ERR_BAD_DEVICE', '1,3')).toMatch(/Check the path \(1,3/)
+    expect(eipListingFailure('PLCTAG_ERR_NOT_ALLOWED', '1,0')).toMatch(/refused to list/)
   })
 })

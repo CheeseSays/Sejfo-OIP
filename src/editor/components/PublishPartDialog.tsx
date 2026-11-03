@@ -112,9 +112,11 @@ export function PublishPartDialog({ store, pkg, thumbnail, onClose, onRenamed }:
   // the checks that need no network
   useEffect(() => {
     let live = true
-    void partToOippartBytes(pkg).then((bytes) => {
-      if (live) setLocal(submissionProblems(pkg, { partFileBytes: bytes.length }).map((p) => p.message))
-    })
+    void partToOippartBytes(pkg)
+      .then((bytes) => {
+        if (live) setLocal(submissionProblems(pkg, { partFileBytes: bytes.length }).map((p) => p.message))
+      })
+      .catch((e: unknown) => live && setError(e instanceof Error ? e.message : String(e)))
     return () => {
       live = false
     }

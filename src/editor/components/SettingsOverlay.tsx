@@ -1,4 +1,5 @@
 import { Fragment, useCallback, useEffect, useState, useSyncExternalStore } from 'react'
+import { collabServerPref, defaultCollabUrl, isCollabServerUrl, setCollabServerPref } from '../../collab/collabServer'
 import type { ReactElement } from 'react'
 import {
   activeKeymap,
@@ -24,7 +25,7 @@ import {
   type RendererPref,
   type ShadowQuality,
 } from '../../render/quality'
-import { blockedRoomCount, forgetBlockedRooms, forgetTrustedRooms, trustedRoomCount } from '../../collab/codeTrust'
+import { forgetTrustedRooms, trustedRoomCount } from '../../collab/codeTrust'
 import { getDisplayName, setDisplayName } from '../../collab/session'
 import { appearancePref, setAppearancePref, type Appearance } from '../appearance'
 import { browserLanguage, languagePref, ownLanguageName, setLanguagePref, translatorSupported, type LanguagePref } from '../autoTranslate'
@@ -43,6 +44,8 @@ import {
 } from '../parts/partLibraryUrls'
 import type { EditorState, EditorStore } from '../store/store'
 import { CloseIcon } from './toolbarIcons'
+import { getShelfApi } from '../parts/partShelf'
+import { refreshShelf, useShelf } from '../parts/shelfListing'
 import { defineMessages, t, type MessageId } from '../../core/i18n'
 import { tNodes } from '../i18nNodes'
 
@@ -102,29 +105,33 @@ const M = defineMessages('settings', {
   reloadNow: 'Reload now',
   liveEditing: 'Live editing',
   yourName: 'Your name',
-  yourNameHint: 'shown to others in a live session; empty shows an animal',
+  yourNameHint: 'shown to others in a shared project; empty shows an animal',
+  collabServer: 'Collaboration server',
+  collabServerHint: "where the rooms you start are kept, as ws:// or wss://; empty uses the Open Industry Project's server. Links you share name it.",
+  collabServerBad: 'not a ws:// or wss:// address, so the default server stays',
   namePlaceholder: 'shown to collaborators',
-  trustedRooms: 'Rooms allowed to run part code',
+  trustedRooms: 'Shared projects allowed to run part code',
   trustedHint: {
-    one: '{count} room; forgotten rooms ask again when next opened',
-    other: '{count} rooms; forgotten rooms ask again when next opened',
+    one: '{count} shared project; a forgotten one asks again when next opened',
+    other: '{count} shared projects; a forgotten one asks again when next opened',
   },
   forgetAll: 'Forget all',
-  blockedRooms: 'Rooms with part code blocked',
-  blockedHint: {
-    one: '{count} room; unblocked rooms run their code sandboxed again',
-    other: '{count} rooms; unblocked rooms run their code sandboxed again',
-  },
-  unblockAll: 'Unblock all',
   partLibraries: 'Part libraries',
   officialLibraries: 'Official libraries',
   noneYet: 'none published yet',
   officialLibrary: 'official library',
   remove: 'Remove',
   addLibrary: 'Add a library',
-  addLibraryHint: "a team's library or a mirror: the address of its index.json",
+  addLibraryHint: "another publisher's library or a mirror: the address of its index.json",
+  addLibraryHintShelf: "another publisher's library or a mirror: the address of its index.json. A team shares its own parts on the parts shelf, below.",
   reading: 'Reading…',
   add: 'Add',
+  partsShelf: 'Parts shelf',
+  shelfFolder: 'Folder',
+  shelfFolderHint: 'parts kept outside any project, for every project to place and update from. A shared drive or a git repository lets a team work from one set.',
+  shelfNotRead: 'not read yet',
+  showFolder: 'Show folder',
+  changeFolder: 'Change folder…',
   keysIntro:
     "Tools, snapping and fly/walk movement follow each key's {position}, so the clusters stay put on an AZERTY or QWERTZ keyboard. {ctrl} shortcuts follow the printed letter, the way every other app does it. Click a shortcut to change it.",
   position: 'position',
@@ -369,6 +376,8 @@ function PreferencesSection({ store, state }: { store: EditorStore; state: Edito
 
       <PartLibrariesGroup />
 
+      <PartsShelfGroup />
+
       <section className="settings-group">
         <h3>{t(M.graphics)}</h3>
         {/* First, because this is the instrument you read while turning the two knobs below it, and
@@ -449,11 +458,14 @@ function PreferencesSection({ store, state }: { store: EditorStore; state: Edito
  * The name is also in the Share popover, but that popover is not offered on a view link, so this is where someone
  * watching a room sets a name instead of the default animal. The trust answers ("allow this room's code") are
  * remembered for good, and a security decision needs a way to take it back; this is it. They are shown as counts
- * because a room's stored name is a hash of its secret (codeTrust.ts).
+ * because a room's stored name is a hash of its secret (codeTrust.ts). Only a browser where the part sandbox could
+ * not start stores an answer, so the row shows only when there is one.
  */
 function LiveEditingGroup(): ReactElement {
   const [trusted, setTrusted] = useState(() => trustedRoomCount())
-  const [blocked, setBlocked] = useState(() => blockedRoomCount())
+  // decided once per open, so Forget all greys the button out instead of removing the row under the pointer
+  const [listTrusted] = useState(trusted > 0)
+  const [serverBad, setServerBad] = useState(false)
   return (
     <section className="settings-group">
       <h3>{t(M.liveEditing)}</h3>
@@ -472,34 +484,41 @@ function LiveEditingGroup(): ReactElement {
           }}
         />
       </Row>
-      <Row label={t(M.trustedRooms)} hint={t(M.trustedHint, { count: trusted })}>
-        <button
-          type="button"
-          className="setting-button"
-          data-testid="setting-forget-trusted"
-          disabled={trusted === 0}
-          onClick={() => {
-            forgetTrustedRooms()
-            setTrusted(trustedRoomCount())
+      <Row label={t(M.collabServer)} hint={serverBad ? t(M.collabServerBad) : t(M.collabServerHint)}>
+        <input
+          className="setting-input"
+          data-testid="setting-collab-server"
+          type="text"
+          maxLength={256}
+          placeholder={defaultCollabUrl()}
+          defaultValue={collabServerPref() ?? ''}
+          onChange={(e) => {
+            const v = e.target.value.trim()
+            const ok = v === '' || isCollabServerUrl(v)
+            setServerBad(!ok)
+            if (ok) setCollabServerPref(v === '' ? null : v)
           }}
-        >
-          {t(M.forgetAll)}
-        </button>
-      </Row>
-      <Row label={t(M.blockedRooms)} hint={t(M.blockedHint, { count: blocked })}>
-        <button
-          type="button"
-          className="setting-button"
-          data-testid="setting-forget-blocked"
-          disabled={blocked === 0}
-          onClick={() => {
-            forgetBlockedRooms()
-            setBlocked(blockedRoomCount())
+          onKeyDown={(e) => {
+            if (e.key !== 'Escape') e.stopPropagation()
           }}
-        >
-          {t(M.unblockAll)}
-        </button>
+        />
       </Row>
+      {listTrusted && (
+        <Row label={t(M.trustedRooms)} hint={t(M.trustedHint, { count: trusted })}>
+          <button
+            type="button"
+            className="setting-button"
+            data-testid="setting-forget-trusted"
+            disabled={trusted === 0}
+            onClick={() => {
+              forgetTrustedRooms()
+              setTrusted(trustedRoomCount())
+            }}
+          >
+            {t(M.forgetAll)}
+          </button>
+        </Row>
+      )}
     </section>
   )
 }
@@ -518,7 +537,7 @@ function libraryLabel(url: string): string {
 
 /**
  * The part libraries the Catalog's Libraries tab reads (docs/part-libraries.md): the project's official ones, each of
- * which can be switched off, and the viewer's own (a team's library, a self-hosted mirror). A library is read before
+ * which can be switched off, and the viewer's own (another publisher's library, a self-hosted mirror). A library is read before
  * it is added, so a wrong address or a host without CORS is said here rather than saved.
  */
 function PartLibrariesGroup(): ReactElement {
@@ -564,7 +583,7 @@ function PartLibrariesGroup(): ReactElement {
           </button>
         </Row>
       ))}
-      <Row label={t(M.addLibrary)} hint={status.error || t(M.addLibraryHint)}>
+      <Row label={t(M.addLibrary)} hint={status.error || t(getShelfApi() ? M.addLibraryHintShelf : M.addLibraryHint)}>
         <span className="setting-control-pair">
           <input
             className="setting-input"
@@ -582,6 +601,46 @@ function PartLibrariesGroup(): ReactElement {
           />
           <button type="button" className="setting-button" data-testid="setting-add-library" disabled={status.busy || draft.trim() === ''} onClick={() => void add()}>
             {t(status.busy ? M.reading : M.add)}
+          </button>
+        </span>
+      </Row>
+    </section>
+  )
+}
+
+/**
+ * Where the parts shelf is (docs/parts-shelf.md), and the way to change it. Desktop only: the browser has no shelf.
+ * A shelf folder that cannot be read is said above the Catalog's cards, where its parts would be missing.
+ */
+function PartsShelfGroup(): ReactElement | null {
+  const shelf = useShelf()
+  const api = getShelfApi()
+  if (!shelf || !api) return null
+  return (
+    <section className="settings-group" data-testid="settings-parts-shelf">
+      <h3>{t(M.partsShelf)}</h3>
+      <Row label={t(M.shelfFolder)} hint={t(M.shelfFolderHint)}>
+        <span className="setting-control-pair">
+          <span className="setting-path" data-testid="setting-shelf-path" title={shelf.listing?.root ?? ''}>
+            {shelf.listing?.root ?? t(M.shelfNotRead)}
+          </span>
+          <button type="button" className="setting-button" onClick={() => void api.reveal()}>
+            {t(M.showFolder)}
+          </button>
+          <button
+            type="button"
+            className="setting-button"
+            data-testid="setting-shelf-change"
+            onClick={() =>
+              void api
+                .pickFolder()
+                .then((scan) => {
+                  if (scan) void refreshShelf()
+                })
+                .catch((e: unknown) => console.warn('[oip] choosing the shelf folder failed', e))
+            }
+          >
+            {t(M.changeFolder)}
           </button>
         </span>
       </Row>

@@ -22,9 +22,12 @@ export function DesktopUpdateToast() {
     const api = getOipMenuApi()
     if (!api?.onUpdateReady) return
     let live = true
-    void api.updateState?.().then((v) => {
-      if (live && v) setVersion(v)
-    })
+    void api
+      .updateState?.()
+      .then((v) => {
+        if (live && v) setVersion(v)
+      })
+      .catch((e: unknown) => console.warn('[oip] reading the update state failed', e))
     const off = api.onUpdateReady((v) => setVersion(v))
     return () => {
       live = false

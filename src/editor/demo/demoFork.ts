@@ -24,9 +24,11 @@ export function installDemoForkHost(store: EditorStore, controller: SceneSwapGua
   let names: ReadonlySet<string> = new Set()
   let previewing = false
   const readNames = (): void =>
-    void listDocuments().then((docs) => {
-      names = new Set(docs.map((d) => d.name))
-    })
+    void listDocuments()
+      .then((docs) => {
+        names = new Set(docs.map((d) => d.name))
+      })
+      .catch((e: unknown) => console.warn('[oip] listing projects failed', e))
   const stopWatching = store.subscribe(() => {
     const now = store.getState().demoSession
     if (now && !previewing) readNames()

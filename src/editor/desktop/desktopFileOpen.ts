@@ -14,7 +14,6 @@ import type { EditorStore } from '../store/store'
 function blockedReason(store: EditorStore): string | null {
   const s = store.getState()
   if (s.running) return 'Stop the simulation first, then open the file again.'
-  if (s.collab) return 'A shared room is not a project a file can be added to. Leave the room, then open the file again.'
   if (s.readOnly) return 'This window is view-only.'
   return null
 }
@@ -47,8 +46,11 @@ export async function openDocumentFile(store: EditorStore, controller: EditorCon
 export function connectDesktopFileOpens(store: EditorStore, controller: EditorController | null): () => void {
   const api = getOipProjectApi()
   if (!api?.takePendingFile || !api.onOpenFile) return () => {}
-  void api.takePendingFile().then((file) => {
-    if (file) void openDocumentFile(store, controller, file)
-  })
+  void api
+    .takePendingFile()
+    .then((file) => {
+      if (file) void openDocumentFile(store, controller, file)
+    })
+    .catch((e: unknown) => console.warn('[oip] opening the file the app was started with failed', e))
   return api.onOpenFile((file) => void openDocumentFile(store, controller, file))
 }

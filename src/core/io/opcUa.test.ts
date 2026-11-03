@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { bindOpcUaPoints, builtinOf, closestOpcUaTagNames, discoveryServerMessage, fromOpcUaValue, matchOpcUaTag, opcUaPointsFromTags, opcUaTagNames, tagSegments, toOpcUaValue } from './opcUa'
+import { bindOpcUaPoints, builtinOf, closestOpcUaTagNames, discoveryServerMessage, fromOpcUaValue, matchOpcUaTag, MAX_BROWSE_ROOTS, opcUaBrowseRoot, opcUaPointsFromTags, opcUaTagNames, parseOpcUaBrowseRoots, tagSegments, toOpcUaValue } from './opcUa'
 import type { OpcUaNodeInfo, OpcUaVariable } from './opcUa'
 
 /**
@@ -156,6 +156,14 @@ describe('binding points to nodes', () => {
     const odd = bindOpcUaPoints([{ tag: 'Eye', dir: 'toPlc', type: null }], SHALLOW, () => ({ dataType: 'ns=0;i=12', access: 3 }))
     expect(odd.problems).toEqual([expect.stringMatching(/not a single bit or number \(its type is ns=0;i=12\)/)])
   })
+
+  it('binds a PLC\'s own type by the built-in it comes down to, and names a refused one', () => {
+    const r = bindOpcUaPoints([{ tag: 'Eye', dir: 'toPlc', type: 'INT' }], SHALLOW, () => ({ dataType: 'ns=4;i=3005', builtin: 6, access: 3 }))
+    expect(r.problems).toEqual([])
+    expect(r.bindings.map((b) => b.builtin)).toEqual([6])
+    const wide = bindOpcUaPoints([{ tag: 'Eye', dir: 'toPlc', type: 'DINT' }], SHALLOW, () => ({ dataType: 'ns=0;i=8', builtin: 8, access: 3 }))
+    expect(wide.problems).toEqual([expect.stringMatching(/not a single bit or number \(its type is Int64\)/)])
+  })
 })
 
 describe('a discovery server where a PLC was expected', () => {
@@ -191,5 +199,25 @@ describe('values on the wire', () => {
     expect(fromOpcUaValue(1, 1)).toBe(true)
     expect(fromOpcUaValue(10, 0.5)).toBe(0.5)
     expect(fromOpcUaValue(4, true)).toBe(1)
+  })
+})
+
+describe('browse start points', () => {
+  it('reads a path of browse names as a tag is written, or a NodeId as it is', () => {
+    expect(opcUaBrowseRoot('DeviceSet.PLC.Programs')).toEqual({ path: ['DeviceSet', 'PLC', 'Programs'] })
+    expect(opcUaBrowseRoot(' "Cell.A".Data ')).toEqual({ path: ['Cell.A', 'Data'] })
+    expect(opcUaBrowseRoot('ns=4;s=Programs')).toEqual({ nodeId: 'ns=4;s=Programs' })
+    expect(opcUaBrowseRoot('i=85')).toEqual({ nodeId: 'i=85' })
+    for (const bad of ['', '   ', 'DeviceSet..PLC', 'Programs.', 'Main.Arr[0]', 'x'.repeat(513)]) expect(opcUaBrowseRoot(bad)).toBeNull()
+  })
+
+  it('splits a field at commas outside quotes, and refuses it whole when one start point is wrong', () => {
+    expect(parseOpcUaBrowseRoots('')).toEqual([])
+    expect(parseOpcUaBrowseRoots(' , ')).toEqual([])
+    expect(parseOpcUaBrowseRoots('DeviceSet.PLC.Programs, ns=4;s=GVL')).toEqual(['DeviceSet.PLC.Programs', 'ns=4;s=GVL'])
+    expect(parseOpcUaBrowseRoots('"Line 1, Cell 2".Data')).toEqual(['"Line 1, Cell 2".Data'])
+    expect(parseOpcUaBrowseRoots('Programs, Main..Eye')).toBeNull()
+    expect(parseOpcUaBrowseRoots('"Programs')).toBeNull()
+    expect(parseOpcUaBrowseRoots(Array.from({ length: MAX_BROWSE_ROOTS + 1 }, (_, i) => `F${i}`).join(','))).toBeNull()
   })
 })

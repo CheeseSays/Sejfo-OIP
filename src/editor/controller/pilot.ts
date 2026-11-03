@@ -14,6 +14,7 @@ import { flexPathOf, flexPull, toWorldXZ, withFlexPose } from '../../core/parts/
 import type { FlexGrip } from '../../core/parts/partGeometry'
 import { getPackage } from '../../core/parts/partRegistry'
 import { servoJointsJson } from '../../core/parts/partPackage'
+import { posableArraysJson } from '../../core/rig/rigPose'
 import type { PartInstance, SdkPart } from '../../core/types'
 import type { BoxPick } from '../../render/api'
 import { IdleUseSession, idleKey } from '../../sim/idlePose'
@@ -177,7 +178,7 @@ function idleUsePart(ec: PilotDeps, partId: string): void {
   // starts from the pose on screen: a dispenser holding its authored stack, not parked under it
   const zones = pkg.holds && pkg.geometry.kind === 'rig' ? authoredZoneCounts(part as SdkPart, pkg, buildAuthoredCargoFrame(ec.editTargetViewScene(s).parts)) : undefined
   const params = ((part as SdkPart).params ?? {}) as Record<string, ParamValue>
-  ec.pressIdle(partId, idleKey(pkg.behavior, params, zones), () => IdleUseSession.open(pkg.behavior, params, zones, servoJointsJson(pkg.geometry)))
+  ec.pressIdle(partId, idleKey(pkg.behavior, params, zones), () => IdleUseSession.open(pkg.behavior, params, zones, servoJointsJson(pkg.geometry), posableArraysJson(pkg.geometry)))
 }
 
 /** how far from the hands a flex conveyor's control point can be and still be taken hold of, metres */
@@ -381,10 +382,10 @@ function refreshPilotPrompt(p: PilotState, ec: PilotDeps): boolean {
 
 /**
  * Is the part's Use in auto: a comms device whose command tag the attached program
- * drives (declares as an output)? Mirrors the interactive family's script gate (`enableComms &&
- * tagDriven(tag)`) from the host-visible side: only the package's `'tag'` params marked `autoWhenDriven`
+ * drives (declares as an output)? Mirrors the interactive family's script gate (`tagDriven(tag)`)
+ * from the host-visible side: only the package's `'tag'` params marked `autoWhenDriven`
  * count (the ones the script's auto gate actually reads - a driven indicator tag like a button's `lampTag`
- * never owns the press), the `enableComms` boolean gates them, and `ec.plcDrivenKeys` is the same output set
+ * never owns the press), a declared comms switch (`commsParam`) gates them, and `ec.plcDrivenKeys` is the same output set
  * the worker's ctx.tagDriven reads. A script that doesn't declare the convention just keeps plain hand
  * behavior. Serves both surfaces of the same rule: the pilot crosshair prompt (per-frame - hence the memo
  * on frame-stable keys: part id, attach rev, scene identity; resolving the scoped tag walks the parts

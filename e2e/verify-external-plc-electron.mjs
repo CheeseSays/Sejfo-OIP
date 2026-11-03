@@ -7,8 +7,8 @@
 // belt (coil 800) with the rung `Run := NOT Eye`, the way OpenPLC's master did in `npm run openplc-loop`.
 //
 // It checks what only the running app can show: Controller Properties lists the points before Play; Play opens the
-// port and reports the PLC connecting; the box rides to the eye and the PLC's coil stops it; the speed is
-// held at 1x; Stop closes the port. A browser tab cannot listen, and the last check is that it says so.
+// port and reports the PLC connecting; the box rides to the eye and the PLC's coil stops it; Play starts at 1x
+// and another speed warns on the speed button; Stop closes the port. A browser tab cannot listen, and the last check is that it says so.
 //
 //   node e2e/verify-external-plc-electron.mjs
 /* global process, console, window, document, URL, localStorage, setTimeout */
@@ -363,9 +363,9 @@ async function loadScene(page, tags = { eye: '%IX100.0', run: '%qx100.0' }) {
       version: st.getState().scene.version,
       parts: [
         { id: 'belt', type: 'part', packageId: 'oip.belt-conveyor', position: [0, 0.8, 0], rotationY: 0,
-          params: { shapePreset: 'custom', segments: [[5, 0]], width: 0.8, standHeight: 0.8, speed: 0.5, enableComms: true, runTag: tags.run } },
+          params: { shapePreset: 'custom', segments: [[5, 0]], width: 0.8, standHeight: 0.8, speed: 0.5, runTag: tags.run } },
         { id: 'box', type: 'part', packageId: 'oip.box', position: [0.6, 1.0, 0], rotationY: 0, params: { length: 0.4, width: 0.3, height: 0.3 } },
-        { id: 'eye', type: 'part', packageId: 'oip.diffuse-sensor', position: [3, 0.75, -0.6], rotationY: 0, params: { maxRange: 1.2, enableComms: true, tag: tags.eye } },
+        { id: 'eye', type: 'part', packageId: 'oip.diffuse-sensor', position: [3, 0.75, -0.6], rotationY: 0, params: { maxRange: 1.2, tag: tags.eye } },
       ],
       packages: need,
     }))
@@ -429,8 +429,13 @@ try {
   await page.evaluate(() => window.__oip.controller.run())
   await page.waitForFunction(() => window.__oip.controller.externalPlcStatus.state === 'listening', null, { timeout: 15000, polling: 100 })
   expect((await page.evaluate(() => window.__oip.store.getState().timeScale)) === 1, 'Play with an external PLC runs at 1x, whatever speed was chosen')
-  await page.evaluate(() => window.__oip.controller.setTimeScale(3))
-  expect((await page.evaluate(() => window.__oip.store.getState().timeScale)) === 1, 'and a speed change is refused while the PLC is connected')
+  await page.evaluate(() => window.__oip.controller.setTimeScale(2))
+  expect((await page.evaluate(() => window.__oip.store.getState().timeScale)) === 2, 'a speed can still be chosen while the PLC is connected')
+  const speed = page.locator('[data-testid="sim-speed"]')
+  await page.waitForFunction(() => document.querySelector('[data-testid="sim-speed"]')?.classList.contains('plc-clock'), null, { timeout: 5000, polling: 100 })
+  expect(/runs in real time/.test((await speed.getAttribute('title')) ?? ''), 'and the speed button warns that the PLC keeps real time')
+  // the box checks below time the PLC's stop against the sim, so they run at 1x
+  await page.evaluate(() => window.__oip.controller.setTimeScale(1))
   const note = await page.evaluate(() => window.__oip.controller.programStatus.warnings.join(' '))
   expect(/external PLC runs this project/.test(note), `the PLC panel says the program here is not attached (${note})`)
 
@@ -667,6 +672,34 @@ try {
   const sessionsUntil = Date.now() + 5000
   while (ua.sessions() > 0 && Date.now() < sessionsUntil) await sleep(100)
   expect(ua.sessions() === 0, 'Stop ends the OPC UA session')
+
+  // Browse from: the browse starts where the field says, through the preload and the shell. A start point the server
+  // does not hold is said; one it holds binds the tags under their whole paths, matched ignoring case; a field that is
+  // not a path or a NodeId snaps back
+  const browseFrom = page.locator('[data-testid="external-plc-opcua-browse-from"]')
+  const setBrowseFrom = async (text) => {
+    await browseFrom.fill(text)
+    await browseFrom.press('Enter')
+  }
+  await setBrowseFrom('Nope')
+  expect(JSON.stringify(await page.evaluate(() => window.__oip.store.getState().externalPlc.opcUaBrowseFrom)) === '["Nope"]', 'Browse from saves a start point')
+  await page.evaluate(() => window.__oip.controller.run())
+  await page.waitForFunction(() => /the PLC has no Nope to browse from/.test(window.__oip.controller.externalPlcStatus.error ?? ''), null, { timeout: 20000, polling: 100 })
+  const noStart = await page.locator('[data-testid="external-plc-status"]').innerText()
+  expect(/the PLC has no Nope to browse from/.test(noStart), `a start point the server does not hold is said (${noStart})`)
+  await page.evaluate(() => window.__oip.controller.stop())
+  await page.waitForFunction(() => window.__oip.controller.externalPlcStatus.state === 'off', null, { timeout: 5000, polling: 100 })
+  await setBrowseFrom('main')
+  await page.evaluate(() => window.__oip.controller.run())
+  await page.waitForFunction(() => window.__oip.controller.externalPlcStatus.state === 'polling', null, { timeout: 20000, polling: 100 })
+  const fromMain = await page.locator('[data-testid="external-plc-points"]').innerText()
+  expect(/Eye\s+Main\.Eye\s+Boolean/.test(fromMain) && /Main\.Run\s+Main\.Run\s+Boolean/.test(fromMain), `browsing from main finds the tags under their whole paths (${fromMain.replace(/\s+/g, ' ')})`)
+  await page.evaluate(() => window.__oip.controller.stop())
+  await page.waitForFunction(() => window.__oip.controller.externalPlcStatus.state === 'off', null, { timeout: 5000, polling: 100 })
+  await setBrowseFrom('Main..Eye')
+  expect((await browseFrom.inputValue()) === 'main', `a field that is not a path snaps back (${await browseFrom.inputValue()})`)
+  await setBrowseFrom('')
+  expect(JSON.stringify(await page.evaluate(() => window.__oip.store.getState().externalPlc.opcUaBrowseFrom)) === '[]', 'and an empty field browses Objects again')
 
   // EtherNet/IP: the same belt and eye on a Logix controller, by its tag names, through libplctag in the shell. The
   // controller is libplctag's own simulator (ab_server) holding Eye and Run, and this script runs its scan.

@@ -18,7 +18,7 @@
 // compiled and exported like any statements. A rung condition stays an expression until something on the rung is
 // about to write a variable it reads, then is captured in a temporary (`beforeWrite`), so `|A| (A) (B)` gives B the A
 // that was examined. Operands are copied into the ST as written and the parser maps positions back onto the rung
-// (parser.ts `ladderSection`), so errors underline the rung operand. Temporaries are `hidden` variables of the
+// (parserLadder.ts `ladderSection`), so errors underline the rung operand. Temporaries are `hidden` variables of the
 // enclosing POU; an edge's memory must survive between scans, so a FUNCTION cannot hold one.
 
 import { isBuiltinFunc, standardInputs } from '../builtins'
@@ -38,7 +38,7 @@ export type LdRole = 'contact' | 'coil'
  *
  * The checker owns what IEC permits; it does not own what a contact is. It asks for the role of the place it is
  * about to reject and words the diagnostic from this table, so the ladder's vocabulary stays here rather than in
- * branches in checker.ts.
+ * branches in the checker.
  */
 export const LD_ROLES: Record<LdRole, { side: 'read' | 'write'; says: (place: string, is: string) => string }> = {
   contact: { side: 'read', says: (place, is) => `a contact examines a BOOL, and '${place}' is ${is}` },
@@ -65,7 +65,7 @@ export function ladderRole(node: object): LdRole | undefined {
 }
 
 // ---------------------------------------------------------------------------
-// The model. Built by the parser (parser.ts `ladderSection`), which owns expressions.
+// The model. Built by the parser (parserLadder.ts `ladderSection`), which owns expressions.
 // ---------------------------------------------------------------------------
 
 export type LdContactMode = 'open' | 'closed' | 'rising' | 'falling'

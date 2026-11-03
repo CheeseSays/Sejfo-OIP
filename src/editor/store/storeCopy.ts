@@ -4,6 +4,9 @@
 import { isCargoPart } from '../../core/frame'
 import { subtreeIds } from '../../core/scene/hierarchy'
 import { uniqueName } from '../../core/parts/partDisplayName'
+import { definitionsUsedBy } from '../../core/parts/partPackage'
+import type { PartPackage } from '../../core/parts/partPackage'
+import { builtInPackage, getPackage, hasPackage, registerPackage } from '../../core/parts/partRegistry'
 import { idAllocator } from '../../core/scene/scene'
 import type { PartInstance, SceneJSON } from '../../core/types'
 import type { EditorStore } from './store'
@@ -32,7 +35,17 @@ export function copySelection(store: EditorStore, host: LiveCargoHost | null): v
   const { scene, selectedIds } = store.getState()
   const ids = subtreeIds(scene.parts, selectedIds)
   if (ids.length === 0) return
-  writeClipboard(copySourceParts(store, host, ids).map(clonePart))
+  const parts = copySourceParts(store, host, ids).map(clonePart)
+  writeClipboard({ parts, packages: definitionsOf(parts) })
+}
+
+/**
+ * The definitions `parts` use, and what those name (products, a unit load's pieces, held cargo), leaving out the
+ * app's built-ins, which every project has. The clipboard outlives the project it was copied from, so a part from
+ * this project's own library would otherwise paste into another project as a part nothing defines.
+ */
+function definitionsOf(parts: readonly PartInstance[]): PartPackage[] {
+  return definitionsUsedBy(parts, getPackage).filter((pkg) => !builtInPackage(pkg.id))
 }
 
 /**
@@ -54,8 +67,13 @@ export function copySourceParts(store: EditorStore, host: LiveCargoHost | null, 
 }
 
 export function paste(store: EditorStore, host: LiveCargoHost | null): void {
-  const source = readClipboard()
-  if (!source || source.length === 0) return
+  const content = readClipboard()
+  if (!content || content.parts.length === 0 || store.getState().readOnly) return
+  const source = content.parts
+  // A definition this project lacks comes along with the part. One it has, by id, it keeps: a paste never replaces a
+  // part the project already uses. In a room, the bridge hands what is registered here to the room (syncReferencedPackages).
+  const brought = content.packages.filter((pkg) => !hasPackage(pkg.id))
+  for (const pkg of brought) registerPackage(pkg)
   const scene = store.getState().scene
   // walk the nudge forward until the destination is free, so repeated
   // pastes stack diagonally instead of coinciding
@@ -76,9 +94,19 @@ export function paste(store: EditorStore, host: LiveCargoHost | null): void {
     return clone
   })
   const clones = cloneWithFreshIds(store, host, moved)
+  // the clipboard outlives the project it was copied from, so a pasted part can name a package this scene doesn't
+  // carry yet: embed it, as placement does (a scene is self-contained for the sim worker, a room and a scene file).
+  // What came along is embedded too, products included: saving moves a scene copy into the library (keepDefinitionsOnce).
+  let packages = scene.packages
+  const embed = (pkg: PartPackage | undefined): void => {
+    if (pkg && !(packages ?? []).some((p) => p.id === pkg.id)) packages = [...(packages ?? []), pkg]
+  }
+  for (const c of clones) if (c.type === 'part') embed(getPackage(c.packageId))
+  for (const pkg of brought) embed(pkg)
   store.commit(clones.length > 1 ? 'Paste parts' : 'Paste part', {
     ...scene,
     parts: [...scene.parts, ...clones],
+    ...(packages ? { packages } : {}),
   })
   store.setState({ selectedIds: clones.map((p) => p.id) })
 }

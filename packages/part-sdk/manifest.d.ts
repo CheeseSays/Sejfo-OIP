@@ -41,6 +41,10 @@ export interface SizeParamRef {
     min?: number;
     /** clamp the resolved value from above (after scale+add) - the mirror floor for a negative-side offset */
     max?: number;
+    /** add this entry's value to the axis instead of replacing it: entries for one axis apply in order, so a
+     *  replacing entry then a `plus` one makes a sum of two params (an offset at `length/2 + gap`), and a lone `plus`
+     *  entry shifts the static value. Default false (the entry replaces the axis). */
+    plus?: boolean;
 }
 
 /** One indicator lamp a rig link carries ({@link RigLink.lamps}): a light the behavior switches with
@@ -155,8 +159,10 @@ export interface RigFrameShape {
  *   link this way; you transcribe each node's transform into the rig.
  * - **Whole scene** (no `node`): the GLB as authored, optionally normalised by `fitHeight`, then carved by
  *   `hideNodes` / `keepNode`. Carved pieces keep identical scale and placement, so links cut from the same GLB
- *   line up without transcribing anything. This is the simplest route for an imported device: `hideNodes` the moving nodes
- *   on the base link, and put them on a second mesh link under a `frame` that carries the joint.
+ *   line up without transcribing anything. This is the simplest route for an imported device: put each moving
+ *   node on a second mesh link (`keepNode`) under a `frame` that carries the joint. Each node is drawn by one link,
+ *   the nearest that keeps it, so the base link leaves a kept node out on its own, and a piece kept from inside
+ *   another piece is left out of that one too.
  */
 export interface RigMeshShape {
     kind: 'mesh';
@@ -189,11 +195,13 @@ export interface RigMeshShape {
     /** remap per GLB material name → a PartPackage.materials[].id, so a model that ships several named materials
      *  can recolour each one individually */
     materials?: Record<string, string>;
-    /** whole-scene refs: remove these nodes and their subtrees (applied after `fitHeight`) */
+    /** whole-scene refs: never draw these nodes and their subtrees (applied after `fitHeight`). A node another link
+     *  keeps needs no entry here: it is left out on its own. */
     hideNodes?: string[];
     /** whole-scene refs: keep only this one node's subtree, re-based into the fitted frame (works even when the
-     *  node is nested under a housing node). A moving piece made of several sibling nodes can't be named here -
-     *  use `hideNodes` listing everything else instead. */
+     *  node is nested under a housing node). Every other whole-scene link of the same asset then leaves the node out,
+     *  and this link leaves out any node inside it that a further link keeps. A moving piece made of several sibling
+     *  nodes can't be named here - use `hideNodes` listing everything else instead. */
     keepNode?: string;
 }
 
@@ -372,10 +380,8 @@ export interface RigLink {
     /** per-axis overrides that make this link's `offset` track an instance param (e.g. a hinge at
      *  `-length/2`), so a length/width param repositions the sub-part per instance */
     offsetParams?: SizeParamRef[];
-    /** per-axis overrides that make this link's rest `rotation` track an instance param: `axis` is the Euler axis
-     *  (0 = x, 1 = y, 2 = z) and the resolved value `params[param] * scale + add` (clamped like any ref) is in DEGREES.
-     *  A hinge: a frame link at a panel's edge whose children follow its angle, so a flap that folds with a param
-     *  folds about its edge. Needs no joint, so a part with a rigid body (cargo) can use it. */
+    /** per-axis overrides that make this link's `rotation` (Euler XYZ, radians) track an instance param, the same
+     *  rule as `offsetParams` (a spur's splay angle in degrees is `scale: π/180`). Not with `quat`. */
     rotationParams?: SizeParamRef[];
     /** The base material colour [r, g, b] (0..1, linear) of this primitive link - gives it its own tinted
      *  material instead of the shared neutral fallback (so a belt reads as steel, a rack's shelves as wood,
@@ -442,6 +448,10 @@ export interface RigLink {
      *  does not snag on its edges. It joins the conveyor contact gates with no surface velocity. A guard must stop
      *  cargo, so a {@link sideGuard} never needs it. */
     bed?: boolean;
+    /** The friction of this link's surface, on the scale a conveyor's `frictionParam` uses (0 to 2; cargo's own friction
+     *  combines with it): a slide's low-friction plate, a rubber stop pad. Omitted keeps the host's default of 0.6. A
+     *  {@link sideGuard} always has none, and a `conveys` deck takes the conveyor's `frictionParam` instead. */
+    friction?: number;
     /** This box is the part's walking deck: its resolved size is the deck's extent, and where a neighbour's edge
      *  mount `notch`es the deck, the host carves the box into the strips around the stairwell. */
     notchable?: boolean;
@@ -513,17 +523,23 @@ export interface RigLink {
      *  and a `mesh` (a model), `cone`, `frame`, `label` or `leg` does not.
      *  - `'none'`: render it but build no body. For cosmetic geometry that must not touch cargo: a roller
      *    conveyor's rollers (the separate `conveys` deck is the real surface), a railing's decorative rails.
-     *  - `{ box: [x, y, z] }` (a `mesh` link only): collide as a box of that full size, **centred on the link
+     *  - `{ box: [x, y, z] }` (a `mesh` or `frame` link): collide as a box of that full size, **centred on the link
      *    origin** (not on the model's bounds). For an off-centre model, use a hidden `box` link at the right offset.
+     *    On a `frame` it is a solid that draws nothing of its own, so the meshes `geometry()` attaches to the link
+     *    (`MeshPart.link`) are its look. A `hidden` box link can't do that: hiding a link hides what is attached to it.
      *  A drawn submesh says the same thing with `collision: 'box' | 'hull'` (partApi `MeshPart`). */
     collision?: 'none' | {
         box: Vec3Tuple;
     };
-    /** This (box) link is a conveyor surface: its top face carries cargo at the velocity the behavior
+    /** This box link (or `frame` with a `collision` box: a deck that draws nothing, dressed from `geometry()`) is a
+     *  conveyor surface: its top face carries cargo at the velocity the behavior
      *  sets via `ctx.setSurfaceVelocity` (a powered belt/roller deck). The host builds it as a static conveyor
      *  body, so cargo rides it; other links (frame, guards) stay normal. A `conveys` link under a joint (a lift's
      *  carriage, a pop-up transfer) is built kinematic instead and follows the joint each tick, carrying its cargo
-     *  with it: a vertical lift is a `conveys` deck on a prismatic joint. A `conveys` link turned in the part is built
+     *  with it: a vertical lift is a `conveys` deck on a prismatic joint. So is one the behavior poses with
+     *  `ctx.setSubPose` (a shuttle's roller top), or one under such a link. A posable array that conveys is a deck per
+     *  copy (a cross-belt sorter's carriers), each run by `ctx.setSurfaceSpeed(speed, link, i)` and never by the
+     *  part-wide surface commands. A `conveys` link turned in the part is built
      *  at that turn, and its running face is its local +Y wherever that points: a side belt is a `conveys` box stood
      *  on its edge. A running face meeting cargo from the side needs a firm squeeze to grip it: a contact up to
      *  2 mm deep on a sideways face reads as a seam snag between butted conveyors and is ignored. */
@@ -570,9 +586,26 @@ export interface RigLink {
      *     count = floor(usable/params[pitchParam]) + 1 (clamped 1..64), instances
      *     spread edge-to-edge across ±usable/2 (actual spacing = usable/(count−1) ≈ pitch). Uniquely usable on a
      *     `mesh` link (the cup GLB node cloned per cell).
+     *   - `pitch`: as many instances as fit a span at a fixed pitch, count = round(span / pitch) (at least 1, at most
+     *     1024), laid `pitch` apart along `axis` and centred on the link offset. span = `params[spanParam] × spanScale +
+     *     spanAdd`, plus `params[param] × scale` for each of `spanTerms`: a loop of two straights and two half turns
+     *     is `spanParam: 'length', spanScale: 2, spanTerms: [{ param: 'radius', scale: 2π }]`. A span param whose range
+     *     reaches past 1024 copies is an authoring problem, and a part that hits the limit says so on the part.
+     *     The form for carriers on a loop: a sorter's slats at a 76 mm pitch, round a chain whose length follows the
+     *     section's length (`spanScale: 2` for the top and return runs, `spanAdd` for the turns).
      *  To switch the whole array off with a param, give the link a {@link showParam}: false ⇒ zero instances, mesh
      *  and collision (format 3's `enabledParam` inside the array).
-     *  Each instance is a copy of the shape (sizeParams applied uniformly). Render + sim build N meshes/bodies. */
+     *  Each instance is a copy of the shape (sizeParams applied uniformly). Render + sim build N meshes/bodies.
+     *
+     *  `posable: true` lets the behavior move each instance on its own: `ctx.setSubPose(link, pose, i)` places
+     *  instance `i` where `ctx.setSubPose(link, pose)` would place the link, in its parent's frame, and
+     *  `ctx.arrayCount(link)` says how many there are. Each instance gets a kinematic body (a static one otherwise),
+     *  and a `geometry()` submesh attached to the link (`MeshPart.link`) is drawn once per instance and moves with it.
+     *  An instance not posed this tick stands at its rest place in the row, so the link's offset and the array form
+     *  say only how the row stands at rest. For a carrier's look, make the link a `frame` with a `collision` box and
+     *  attach the look from `geometry()`. With `conveys`, each copy is also a deck of its own, run by
+     *  `ctx.setSurfaceSpeed(speed, link, i)`; with `grip`, a gripper of its own, closed by `ctx.setGrip(link, on, i)`. Not with `worldPhase` (the count would depend on where the part stands)
+     *  or on a `mesh` link. */
     array?: {
         distribute?: {
             axis: 0 | 1 | 2;
@@ -581,6 +614,18 @@ export interface RigLink {
             maxSpacing: number;
             worldPhase?: boolean;
         };
+        pitch?: {
+            axis: 0 | 1 | 2;
+            spanParam: string;
+            spanScale?: number;
+            spanAdd?: number;
+            spanTerms?: {
+                param: string;
+                scale?: number;
+            }[];
+            pitch: number;
+        };
+        posable?: boolean;
         count?: string;
         step?: Vec3Tuple;
         stepParams?: SizeParamRef[];
@@ -702,6 +747,9 @@ export interface BoundsParamRef {
     min?: number;
     /** clamp the resolved value from above (after scale+add) */
     max?: number;
+    /** add this entry's value to the field instead of replacing it, as a link's {@link SizeParamRef.plus}: a bounds
+     *  length of `length + 2 × overhang` is a replacing entry then a `plus` one */
+    plus?: boolean;
 }
 
 /** A cargo box's size (m), centred on its origin: `length` along X, `height` along Y, `width` along Z. */
@@ -810,6 +858,10 @@ export type CargoMarkValue = number | boolean | string;
  * - `reverseParam`: a hidden `boolean` param the snap flips to turn a curve's flow around when it mates two ends
  *   that both discharge into the junction (rotating a curve 180 degrees would swap its radii). The effective speed
  *   is `speed x (reverse ? -1 : 1)`; the behavior folds it the same way.
+ * - `frictionParam`: the `number` param that is the running surface's friction against a standard carton, the
+ *   figure a belt datasheet quotes (a smooth PVC belt about 0.4, a rough-top about 0.9, a low-friction modular
+ *   belt about 0.2). Other cargo grips by its own friction against the same surface. Without it the surface grips
+ *   as its `surface` kind does: about 0.59 against a carton for a belt, 0.42 for rollers.
  *
  * The handles are only the viewport's drag affordances; they don't decide what a part is.
  */
@@ -818,6 +870,7 @@ export interface ConveyorDecl {
     surface: 'belt' | 'roller';
     speedParam?: string;
     reverseParam?: string;
+    frictionParam?: string;
 }
 
 export interface PartPackage {
@@ -857,8 +910,9 @@ export interface PartPackage {
     /** what kind of conveyor this part is, if any ({@link ConveyorDecl}) */
     conveyor?: ConveyorDecl;
     /** the `boolean` param that switches this part's PLC link: while it is false the part's tags are disconnected
-     *  (it runs on its authored params), and the PLC panel's comms toggle writes it. Omit it and the part's tags are
-     *  always connected. Package format 3 read a param named `enableComms` for this. */
+     *  (it runs on its authored params), and the PLC panel's comms toggle writes it. Usually omitted: a part without
+     *  one is connected by each tag field that names a tag, and an empty field is a signal left unconnected, which is
+     *  how the built-in parts work. Package format 3 read a param named `enableComms` for this. */
     commsParam?: string;
     /** the cargo this part stores, held on its grippers ({@link HoldsDecl}) */
     holds?: HoldsDecl;
@@ -968,7 +1022,9 @@ export interface PartOrigin {
  *
  * - `part`: the package id of the cargo part a position holds (`'oip.pallet'`).
  * - `positions`: gripper link names, bottom first (the order they fill in). Each must be a rig link with a
- *   `grip.zone`; the item stands at the zone's centre, at the part's rest pose.
+ *   `grip.zone`; the item stands at the zone's centre, at the part's rest pose. A copy of a posable gripper array is
+ *   named `link#i` (`'pos#0'`, `'pos#1'`, ...) and stands at its rest place in the row; a copy the array's count
+ *   leaves out is not a position.
  * - `limitParam`: a `number` param capping how many positions are in use (a magazine's capacity). Absent = all.
  * - `params`: params Fill gives each item it places, from the holder's own: `{ size: 'palletSize' }` places pallets
  *   of the size the magazine is set to. Item param name -> holder param name.

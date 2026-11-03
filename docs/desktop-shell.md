@@ -87,7 +87,7 @@ File/Edit/Simulation/View/Help structure that arranges them. The renderer sends 
 on `menu:command`, which the renderer dispatches through the same registry the toolbar and the
 command palette use.
 
-Main still owns what never touches the document: Electron roles, Import Parts from Folder…, quit, and
+Main still owns what never touches the document: Electron roles, quit, and
 the Help links. Before the model arrives (a second or two against a cold dev server) those are the
 whole menu, rather than a stand-in copy of the app menu whose commands would dispatch
 into a renderer that isn't listening yet.
@@ -101,6 +101,32 @@ Two rules worth knowing before you add an item:
   [e2e/verify-desktop-menu.mjs](../e2e/verify-desktop-menu.mjs) checks that Ctrl+Z still undoes once.
 - **Enablement belongs to the command.** Main cannot see the selection, so a menu item main enabled on its
   own (such as a hand-written Edit → Cut) would always be clickable and would silently do nothing.
+
+## Several windows
+
+Each window has one project open, and a project is open in one window at most. The app stays one process per
+profile (`requestSingleInstanceLock`), and that process keeps which document and which folder each window has
+(`windowDocs` / `windowRoots` in main.cjs; the page reports them on `window:document` and `project:attach`).
+
+- **Opening a project that a window has open brings that window forward.** That covers a second launch naming the
+  folder, Open Recent, File > Open Project Folder, a row in the projects list and the agent's `open_project`.
+- **A second launch naming another folder opens a new window** (`openFolderWindow`). Main asks the focused window's
+  page to do it (`project:openPathInNewWindow`), because the page owns the project format: it reads the folder, files
+  it in the library under the folder's document, then asks main for a window on that document (`window:openDocument`,
+  `desktopProjectBridge.openFolderInNewWindow`). The new window loads the app at `?doc=<id>` and boots straight into
+  that document ([libraryDb.ts](../src/editor/project/libraryDb.ts) `pinTabDocument`). It never boots another
+  window's project first, which would file that project's row from a stale copy.
+- **The projects list** marks a project open in another window and brings that window forward when it is clicked.
+  Each row has an "Open in a new window" button.
+- **The menu shows the focused window's state.** `menu:enabled` is kept per window and applied when a window takes the
+  focus (`browser-window-focus`). The menu bar itself is one, and a click goes to the focused window, as before.
+- **The agent door drives the focused window** ([agent-tools.md](agent-tools.md)).
+- **Ports are the user's to settle.** The PLC link settings, and with them the OPC UA server's and the Modbus
+  listener's ports, are per machine, so two windows ask for the same port. The second one is told the port is in use
+  by another window (`linkKeys.cjs` `heldByAnotherWindow`), and the user gives it a different port. Moving it on its own
+  would leave a SCADA or a PLC set up for that port talking to the other project.
+
+Gated by [e2e/verify-desktop-windows-electron.mjs](../e2e/verify-desktop-windows-electron.mjs).
 
 ## Which server the window loads
 
@@ -261,7 +287,7 @@ download, and clears its upload.
 
 [deepLink.cjs](../apps/desktop/deepLink.cjs) reads the link. It is web input, so it can say only "open" and
 "join this room", and the room must have the shape Share creates. A launch link becomes the first window's URL. A
-second launch moves the running window into the room (the page saves on `pagehide`, as when Share moves it). A
+second launch moves the focused window into the room (the page saves on `pagehide`, as when Share moves it). A
 link is never read as a folder (`projectFolderArg` skips it). The development shell does not register the scheme
 unless `OIP_DEEP_LINK=1` is set, because registering rewrites the OS's per-user handler. Gated by
 [e2e/verify-desktop-deep-link-electron.mjs](../e2e/verify-desktop-deep-link-electron.mjs) and
@@ -276,7 +302,7 @@ The installer also registers `.oip` (a project) and `.oippart` (one part) with t
 `OpenIndustryProject.Project` and `OpenIndustryProject.Part`. Unlike `protocols`, its NSIS template reads
 `fileAssociations` (checked against app-builder-lib 26.15), so no `installer.nsh` entry is needed. A
 double-click hands the path to the app on its command line (`open-file` on macOS). A second launch hands it to
-the running window and quits. [fileOpen.cjs](../apps/desktop/fileOpen.cjs) reads the file and gives the
+the focused window and quits. [fileOpen.cjs](../apps/desktop/fileOpen.cjs) reads the file and gives the
 renderer its bytes, never the path. [desktopFileOpen.ts](../src/editor/desktop/desktopFileOpen.ts) imports them
 through the app's own import paths: a `.oip` as File > Import Project does (it asks, and the open project is
 kept under Projects), and a `.oippart` into the open project's parts as Import part does. Neither file is ever

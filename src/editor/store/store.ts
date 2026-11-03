@@ -9,7 +9,7 @@ import { DEMO_SCENE_NAME } from '../demo/demoScenes'
 import { createSdkPart, emptyScene, nextId } from '../../core/scene/scene'
 import { floorRestPose, withFlexPose } from '../../core/parts/partGeometry'
 import type { FlexPose } from '../../core/parts/partGeometry'
-import { assembleProject, legacySceneText, loadStoredProject, saveStoredProject } from '../project/projectFile'
+import { assembleProject, legacySceneText, loadStoredProject, noteLegacyWrite, saveStoredProject } from '../project/projectFile'
 import { keepsSharedTests } from '../project/sharedProject'
 import { SCENE_SLOT } from '../project/documentStore'
 import type { SaveResult, UnopenedProject } from '../project/projectFile'
@@ -468,6 +468,7 @@ export class EditorStore {
     if (this.program.keep({ source: stProgram, scanMs: stScanMs, controller, ...(stDialect !== undefined ? { dialect: stDialect } : {}) })) return
     saveStProgram(stProgram)
     saveStScanMs(stScanMs)
+    noteLegacyWrite('program')
     // fold it into the unified project autosave too: a program-only change has no scene commit to
     // ride along with (see projectFile.ts)
     this.persistProject()
@@ -1645,6 +1646,7 @@ export class EditorStore {
     try {
       // compact, with models by hash (projectFile.legacySceneText)
       localStorage.setItem(AUTOSAVE_KEY, legacySceneText(this.sceneSansDraft()))
+      noteLegacyWrite('scene')
     } catch {
       // best-effort: quota or serializer failures must not break editing. Not reported here - this is the
       // transitional fallback key and it is strictly smaller than the project doc, so anything that breaks
@@ -1692,6 +1694,7 @@ export class EditorStore {
     if (this.autosave.takeProgramPending()) {
       saveStProgram(this.state.stProgram)
       saveStScanMs(this.state.stScanMs)
+      noteLegacyWrite('program')
     }
     this.autosave.settleScene()
     // nothing to write is not a failure - persist()'s fallback must not fire for these

@@ -42,7 +42,8 @@ import { defineMessages, t } from '../../../core/i18n'
 import { ContextMenu, type MenuItem } from '../inspector/menu'
 import { primaryKey } from '../../keyHint'
 import { activeClipboard } from '../../dialogHost'
-import { addToWatchList, resolveWatch } from '../../program/plcWatchList'
+import { addToWatchList, resolveWatch, watchListKey } from '../../program/plcWatchList'
+import { currentDocumentId } from '../../project/documentStore'
 
 const M = defineMessages('stEditor', {
   viewOnlyLink: 'Disabled on a view-only link',
@@ -806,7 +807,8 @@ export function StEditor({ store, state, controller, docked = false, viewOnly = 
 
   /** Add to Watch, from the text's menu or the rungs': onto the project's list, with the Watch dock brought forward. */
   const addToWatch = (name: string): void => {
-    addToWatchList(stateRef.current.projectName, [name])
+    const s = stateRef.current
+    addToWatchList(watchListKey(currentDocumentId(), s.projectName, s.collab), [name], s.projectName)
     store.revealPanel('watch')
   }
 

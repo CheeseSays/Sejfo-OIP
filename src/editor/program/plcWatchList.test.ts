@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { addToWatchList, addWatchNames, MAX_MEMBERS, onWatchListChange, parseWatchNames, readWatchList, resolveWatch, watchNameAt, watchNameOfSelection } from './plcWatchList'
+import { addToWatchList, addWatchNames, MAX_MEMBERS, onWatchListChange, parseWatchNames, readWatchList, resolveWatch, watchListKey, watchNameAt, watchNameOfSelection } from './plcWatchList'
 
 const IMAGE = {
   Run: true,
@@ -96,5 +96,20 @@ describe('Add to Watch', () => {
     off()
     expect(readWatchList('watch-test')).toEqual(['Run', 'Count'])
     expect(heard).toEqual(['watch-test', 'watch-test'])
+  })
+
+  it('keeps a list per document, so two projects of one name keep apart', () => {
+    const a = watchListKey('doc-a', 'Line', false)
+    const b = watchListKey('doc-b', 'Line', false)
+    expect(a).not.toBe(b)
+    addToWatchList(a, ['Motor'], 'Line')
+    expect(readWatchList(b, 'Line')).toEqual([])
+    expect(watchListKey('doc-a', 'Line', true)).toBe('Line') // a room's project has no document of its own here
+    expect(watchListKey(null, 'Line', false)).toBe('Line')
+  })
+
+  it("takes over the list a project kept under its name, once it has none of its own", () => {
+    addToWatchList('Old Line', ['Eye'])
+    expect(readWatchList(watchListKey('doc-old', 'Old Line', false), 'Old Line')).toEqual(['Eye'])
   })
 })

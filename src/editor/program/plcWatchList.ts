@@ -139,8 +139,8 @@ export function onWatchListChange(fn: (project: string) => void): () => void {
 }
 
 /** Add names to `project`'s list (Add to Watch from the text or the rungs), telling every open pane. */
-export function addToWatchList(project: string, names: readonly string[]): void {
-  saveWatchList(project, addWatchNames(readWatchList(project), names))
+export function addToWatchList(project: string, names: readonly string[], byName?: string): void {
+  saveWatchList(project, addWatchNames(readWatchList(project, byName), names))
 }
 
 const WATCH_KEY = 'oip-web/plc-watch'
@@ -158,11 +158,24 @@ function readAll(): Stored {
   }
 }
 
-/** The list remembered for `project` (its name; '' for an unnamed one). Empty when there is none, or no storage. */
-export function readWatchList(project: string): string[] {
+/**
+ * The key a project's list is kept under: its document id, so two projects of one name keep apart and a rename keeps
+ * the list. In a room, or with no document (a browser that keeps one project), the project's name.
+ */
+export function watchListKey(docId: string | null, name: string, inRoom: boolean): string {
+  return docId !== null && !inRoom ? `doc:${docId}` : name
+}
+
+/**
+ * The list remembered under `project` (a {@link watchListKey}). Empty when there is none, or no storage. `byName`: the
+ * project's name, whose list (kept by name before lists were kept by document) it takes over when it has none yet.
+ */
+export function readWatchList(project: string, byName?: string): string[] {
   const held = memory.get(project)
   if (held) return [...held]
-  const v = readAll()[project]
+  const all = readAll()
+  const old = byName !== undefined && byName !== project ? byName : undefined
+  const v = all[project] ?? (old !== undefined ? (memory.get(old) ?? all[old]) : undefined)
   const list = Array.isArray(v) ? v.filter((n): n is string => typeof n === 'string') : []
   memory.set(project, list)
   return [...list]

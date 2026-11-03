@@ -9,7 +9,8 @@ import type { EditorController } from '../../controller'
 import type { EditorState, EditorStore } from '../../store/store'
 import { declaredTypeSets, formatPlcValue, typeOfKey, type DeclaredTypes } from '../../program/plcValueText'
 import { devicesWiredTo, usePlcForces } from '../../program/plcForces'
-import { addWatchNames, onWatchListChange, parseWatchNames, readWatchList, resolveWatch, saveWatchList, type WatchRow } from '../../program/plcWatchList'
+import { addWatchNames, onWatchListChange, parseWatchNames, readWatchList, resolveWatch, saveWatchList, watchListKey, type WatchRow } from '../../program/plcWatchList'
+import { currentDocumentId } from '../../project/documentStore'
 import { TrashIcon } from '../toolbarIcons'
 import { defineMessages, t } from '../../../core/i18n'
 
@@ -203,12 +204,12 @@ interface WatchPanelProps {
  * menus) or by name here; the list is remembered per project in this browser (plcWatchList.ts).
  */
 export function WatchPanel({ store, state, controller }: WatchPanelProps): ReactElement {
-  const project = state.projectName
-  const [names, setNames] = useState(() => readWatchList(project))
+  const project = watchListKey(currentDocumentId(), state.projectName, state.collab)
+  const [names, setNames] = useState(() => readWatchList(project, state.projectName))
   const [shownFor, setShownFor] = useState(project)
   if (shownFor !== project) {
     setShownFor(project)
-    setNames(readWatchList(project))
+    setNames(readWatchList(project, state.projectName))
   }
   const setList = (next: string[]): void => {
     setNames(next)

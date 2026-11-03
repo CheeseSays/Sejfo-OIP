@@ -535,11 +535,38 @@ export function loadStoredProject(): LoadedProject | null {
   // 2. migrate from the legacy single-scene keys. The legacy user-packages key was polluted the
   // same way a v1 library was (older builds seeded placement snapshots back into userPackages, and
   // any authoring action re-persisted them here), so it gets the same bundled-id filter.
-  const legacyScene = readLegacyScene()
+  // Only this document's: every tab and window writes these keys, so another one's would open here under this id.
+  const legacyScene = legacyKeyIsMine('scene') ? readLegacyScene() : null
   if (!legacyScene) return null // nothing persisted: first-ever visit
+  const program = legacyKeyIsMine('program')
   return split(
-    assembleProject(legacyScene, readStProgram(), dropBundledIds(readLegacyUserPackages()), undefined, readStScanMs()),
+    assembleProject(legacyScene, program ? readStProgram() : '', dropBundledIds(readLegacyUserPackages()), undefined, program ? readStScanMs() : undefined),
   )
+}
+
+// Which document last wrote each legacy key. Tabs and windows on different documents all write them, so the fallback
+// above reads one only when it is the open document's.
+const LEGACY_OWNER_KEYS = { scene: 'oip-web/autosave-doc', program: 'oip-web/st-program-doc' } as const
+
+/** Record that the open document just wrote the legacy `which` key (store.persist, store.persistStProgram). */
+export function noteLegacyWrite(which: keyof typeof LEGACY_OWNER_KEYS): void {
+  const doc = currentDocumentId()
+  try {
+    if (doc === null) localStorage.removeItem(LEGACY_OWNER_KEYS[which])
+    else localStorage.setItem(LEGACY_OWNER_KEYS[which], doc)
+  } catch {
+    /* blocked storage: the key was not written either */
+  }
+}
+
+/**
+ * May the open document read the legacy `which` key? Yes without a library (one document), and when no document
+ * wrote it (a build from before the owners were recorded, migrating). Otherwise only when this document wrote it last.
+ */
+function legacyKeyIsMine(which: keyof typeof LEGACY_OWNER_KEYS): boolean {
+  if (inLibrary === null) return true
+  const owner = safeGet(LEGACY_OWNER_KEYS[which])
+  return owner === null || owner === currentDocumentId()
 }
 
 /** Outcome of an autosave write. A failure is never thrown (editing must not break) but it must not be

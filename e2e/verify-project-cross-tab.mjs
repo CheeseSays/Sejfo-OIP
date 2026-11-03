@@ -210,6 +210,37 @@ async function main() {
     }, docId)
     expect(row?.when === 'open in another tab', `its row says it is open in another tab (${row?.when})`)
     expect(row?.disabled === 2, `and cannot be renamed or deleted from here (${row?.disabled} disabled)`)
+    await a.keyboard.press('Escape')
+
+    console.log("--- a tab whose record is gone does not open the other tab's backup ---")
+    // A's project is the last one in the legacy scene key (the fallback a boot reads when the record is missing).
+    // Planted as B's next page starts, after B's own unload has written its backup and before B's boot reads it.
+    const planted = await a.evaluate(() => {
+      return { text: window.__oip.sceneFileText(), owner: sessionStorage.getItem('oip-web/document-id') }
+    })
+    await b.addInitScript((p) => {
+      if (sessionStorage.getItem('xtab-planted')) return
+      sessionStorage.setItem('xtab-planted', '1')
+      localStorage.setItem('oip-web/autosave', p.text)
+      localStorage.setItem('oip-web/autosave-doc', p.owner)
+    }, planted)
+    await b.evaluate(
+      (id) =>
+        new Promise((resolve) => {
+          const req = indexedDB.open('oip-web')
+          req.onsuccess = () => {
+            const tx = req.result.transaction(['docIndex', 'docPayload'], 'readwrite')
+            tx.objectStore('docIndex').delete(id)
+            tx.objectStore('docPayload').delete(id)
+            tx.oncomplete = () => resolve(true)
+          }
+        }),
+      docId,
+    )
+    await b.reload({ waitUntil: 'domcontentloaded' })
+    await waitFor(b, () => !!(window.__oip && window.__oip.store), null, 60000)
+    const fallback = await liveParts(b)
+    expect(!fallback.includes('In Second'), `B did not open A's project under its own id (${fallback || 'empty'})`)
   } finally {
     await browser.close()
     vite.kill()

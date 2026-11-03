@@ -1,5 +1,7 @@
 import js from '@eslint/js'
 import tseslint from 'typescript-eslint'
+import reactHooks from 'eslint-plugin-react-hooks'
+import noUnhandledThen from './eslint-rules/no-unhandled-then.js'
 
 // The GPL boundary. OpenPLC's editor and STruC++ (scripts/lib/openplc-editor.mjs) are GPL-3.0; this tree
 // is MIT. They are used only as a dev-time oracle: fetched at a pinned SHA into a gitignored work dir, run
@@ -62,6 +64,11 @@ const stProgramSeamBan = {
     "the ST program lives in store state: read store.getState().stProgram / .stScanMs, and write via store.loadStProgram / setStProgram / setStScanMs. stProgram.ts's localStorage half is the store's own persistence seam (see EditorState.stProgram).",
 }
 
+const rotateXZRedefinition = {
+  selector: ":matches(FunctionDeclaration, VariableDeclarator)[id.name=/^(rotateXZ|rotXZ|yawAboutPivot)$/]",
+  message: 'Import rotateXZ / yawAboutPivot from core/transforms — do not redefine the planar rotation convention.',
+}
+
 export default tseslint.config(
   js.configs.recommended,
   ...tseslint.configs.recommended,
@@ -71,6 +78,19 @@ export default tseslint.config(
     // it `definePart` as its one global (core/parts/partScript.ts). Linted as a script, with that global declared.
     files: ['src/**/fixtures/**/behavior.js'],
     languageOptions: { sourceType: 'script', globals: { definePart: 'readonly' } },
+  },
+  {
+    // A discarded `.then(...)` / `void p.then(...)` with no rejection handler loses the error and blocks whatever
+    // waited on the chain (eslint-rules/no-unhandled-then.js).
+    files: ['src/**/*.{ts,tsx}'],
+    plugins: { oip: { rules: { 'no-unhandled-then': noUnhandledThen } } },
+    rules: { 'oip/no-unhandled-then': 'error' },
+  },
+  {
+    // The two classic hook rules only. The plugin's React Compiler rules are left off.
+    files: ['src/editor/**/*.{ts,tsx}'],
+    plugins: { 'react-hooks': reactHooks },
+    rules: { 'react-hooks/rules-of-hooks': 'error', 'react-hooks/exhaustive-deps': 'warn' },
   },
   {
     // Honor the `_`-prefix convention for intentionally-unused bindings (stub callbacks,
@@ -83,6 +103,30 @@ export default tseslint.config(
     },
   },
   {
+    // A source file past 1,500 lines is hard to find code in, for a person or an agent reading it in chunks, and
+    // parallel sessions editing different areas of it collide. Split it by area (checker.ts and partPackage.ts are
+    // the pattern) rather than raising the limit. A warning, so it never blocks a change.
+    files: ['src/**/*.{ts,tsx}'],
+    ignores: ['src/**/*.test.ts', 'src/**/*.test.tsx'],
+    rules: { 'max-lines': ['warn', { max: 1500 }] },
+  },
+  // Files already over the limit. Each may not grow past its own ceiling: its size when the limit came in, plus
+  // headroom. Shrink a ceiling when a split shrinks the file, and delete the entry once it is under 1,500.
+  ...Object.entries({
+    'src/editor/store/store.ts': 2300,
+    'src/render/viewport/view.ts': 2500,
+    'src/editor/components/plc/LadderView.tsx': 1800,
+    'src/editor/controller.ts': 2000,
+    'src/core/parts/partApi.ts': 1700,
+    'src/editor/App.tsx': 1700,
+    'src/sim/world.ts': 1700,
+  }).map(([file, max]) => ({ files: [file], rules: { 'max-lines': ['warn', { max }] } })),
+  {
+    // Data, not logic: conformance cases and demo scenes grow by adding entries, and nobody reads them end to end.
+    files: ['src/plc/conformanceCases.ts', 'src/editor/demo/demoScenes.ts'],
+    rules: { 'max-lines': 'off' },
+  },
+  {
     // The world-space planar rotation convention lives once, in core/transforms.ts
     // (rotateXZ / yawAboutPivot). Private copies would let the sign conventions silently diverge
     // (partGeometry, prefabInstance and snapFeatures each once held one, as `rotateXZ` or `rotXZ`).
@@ -90,15 +134,7 @@ export default tseslint.config(
     // import the canonical one instead. (Scoped out: the seam itself.)
     ignores: ['src/core/transforms.ts'],
     rules: {
-      'no-restricted-syntax': [
-        'error',
-        {
-          selector:
-            ":matches(FunctionDeclaration, VariableDeclarator)[id.name=/^(rotateXZ|rotXZ|yawAboutPivot)$/]",
-          message:
-            'Import rotateXZ / yawAboutPivot from core/transforms — do not redefine the planar rotation convention.',
-        },
-      ],
+      'no-restricted-syntax': ['error', rotateXZRedefinition],
     },
   },
   {
@@ -237,6 +273,24 @@ export default tseslint.config(
             { group: ['three', 'three/*', 'react', 'react-dom', 'react-dom/*', '**/render/**', '**/editor/**'], message: 'sim may only depend on core, jolt-physics, and plc (the in-worker scan host)' },
             gplOracleBan,
           ],
+        },
+      ],
+    },
+  },
+  {
+    // A cargo body's pose is set only through CargoRegistry.placeBody: a write there can make the frame's pose
+    // snapshot stale before the next step reads it, and a raw write elsewhere would leave that step reading old
+    // poses. The ban can't tell a cargo body from another; today only cargo bodies have their pose set (rig and pilot
+    // bodies move by MoveKinematic). Restates the rotateXZ ban, because a later no-restricted-syntax replaces it.
+    files: ['src/sim/**'],
+    ignores: ['src/sim/**/*.test.ts', 'src/sim/cargoRegistry.ts'],
+    rules: {
+      'no-restricted-syntax': [
+        'error',
+        rotateXZRedefinition,
+        {
+          selector: "CallExpression[callee.property.name=/^Set(Position|Rotation|PositionAndRotation)$/]",
+          message: "Set a cargo body's pose through CargoRegistry.placeBody, so the next step's pose snapshot sees the move.",
         },
       ],
     },

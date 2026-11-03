@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest'
-import { validatePartPackage } from '../../core/parts/partPackage'
+import { validatePartPackage } from '../../core/parts/partValidate'
 import { buildPackage, packageToWorkspaceFiles } from '../../sim/buildPackage'
 import type { PackageManifest } from '../../sim/buildPackage'
 import { parsePartBytes, parsePartText, serializePart } from './partFile'
@@ -82,7 +82,7 @@ describe('a part keeps its origin on every import route', () => {
     expect(res.pkg.origin).toEqual(ORIGIN)
   })
 
-  it('Import Parts from Folder, into the library', () => {
+  it('a folder import (Import part > A folder of parts…), into the library', () => {
     const store = new EditorStore()
     const { manifestJson, behaviorJs } = packageToWorkspaceFiles(stamped)
     importScannedParts(store, { root: 'C:/p', parts: [{ dir: 'C:/p/a', id: stamped.id, name: stamped.name, manifestJson, behaviorSource: behaviorJs }], problems: [] })

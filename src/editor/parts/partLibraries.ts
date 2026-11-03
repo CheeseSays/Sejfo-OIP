@@ -109,9 +109,12 @@ export function downloadVersion(indexUrl: string, partId: string, version: Libra
     }
   })()
   downloads.set(key, job)
-  void job.then((r) => {
-    if ('error' in r) downloads.delete(key)
-  })
+  // a failed download is not kept, so the next ask tries again
+  void job
+    .then((r) => {
+      if ('error' in r) downloads.delete(key)
+    })
+    .catch(() => downloads.delete(key))
   return job
 }
 

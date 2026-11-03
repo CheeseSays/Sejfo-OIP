@@ -23,6 +23,21 @@ function childrenByParent(parts: readonly PartInstance[]): Map<string, PartInsta
   return byParent
 }
 
+/** map of id -> part, for callers that walk many parent chains against one scene (later duplicates win) */
+export function partsById(parts: readonly PartInstance[]): Map<string, PartInstance> {
+  return new Map(parts.map((p) => [p.id, p]))
+}
+
+/** depth-first descendants of `id` (excluding `id`) appended to `out`, skipping ids already in `seen` */
+function collectDescendants(byParent: Map<string, PartInstance[]>, id: string, seen: Set<string>, out: string[]): void {
+  for (const child of byParent.get(id) ?? []) {
+    if (seen.has(child.id)) continue // cyclic data: don't loop
+    seen.add(child.id)
+    out.push(child.id)
+    collectDescendants(byParent, child.id, seen, out)
+  }
+}
+
 /** direct children of `id`, in array order */
 export function childIdsOf(parts: readonly PartInstance[], id: string): string[] {
   return parts.filter((p) => p.parent === id).map((p) => p.id)
@@ -30,18 +45,8 @@ export function childIdsOf(parts: readonly PartInstance[], id: string): string[]
 
 /** every descendant id of `id` (depth-first, excluding `id` itself), cycle-safe */
 export function descendantIds(parts: readonly PartInstance[], id: string): string[] {
-  const byParent = childrenByParent(parts)
   const out: string[] = []
-  const seen = new Set<string>([id])
-  const walk = (parentId: string): void => {
-    for (const child of byParent.get(parentId) ?? []) {
-      if (seen.has(child.id)) continue // cyclic data: don't loop
-      seen.add(child.id)
-      out.push(child.id)
-      walk(child.id)
-    }
-  }
-  walk(id)
+  collectDescendants(childrenByParent(parts), id, new Set<string>([id]), out)
   return out
 }
 
@@ -51,10 +56,15 @@ export function descendantIds(parts: readonly PartInstance[], id: string): strin
  * and the set a delete/duplicate acts on.
  */
 export function subtreeIds(parts: readonly PartInstance[], ids: Iterable<string>): string[] {
+  // one children index and one seen set for every id: a drag calls this per frame, and a node already
+  // seen has had its subtree collected, so skipping it loses nothing
+  const byParent = childrenByParent(parts)
   const set = new Set<string>()
+  const collected: string[] = []
   for (const id of ids) {
+    if (set.has(id)) continue
     set.add(id)
-    for (const d of descendantIds(parts, id)) set.add(d)
+    collectDescendants(byParent, id, set, collected)
   }
   return parts.filter((p) => set.has(p.id)).map((p) => p.id)
 }
@@ -93,9 +103,9 @@ export function containerAnchor(members: readonly PartInstance[]): [number, numb
 export function reseatContainers(parts: readonly PartInstance[], isContainer: (p: PartInstance) => boolean): PartInstance[] {
   const byParent = childrenByParent(parts)
   const moved = new Map<string, [number, number, number]>()
+  const byId = partsById(parts)
   // depth of a node from its root, so the walk below can go deepest-first (cycle-safe)
   const depthOf = (p: PartInstance): number => {
-    const byId = new Map(parts.map((q) => [q.id, q]))
     const seen = new Set<string>()
     let d = 0
     let cur = p.parent
@@ -140,9 +150,16 @@ export function ancestorIds(parts: readonly PartInstance[], nodeId: string): str
   return out
 }
 
-/** is `ancestorId` an ancestor of (or equal to) `nodeId`? walks up the parent chain */
-export function isAncestor(parts: readonly PartInstance[], ancestorId: string, nodeId: string): boolean {
-  const byId = new Map(parts.map((p) => [p.id, p]))
+/**
+ * is `ancestorId` an ancestor of (or equal to) `nodeId`? walks up the parent chain. A caller testing many
+ * nodes against one scene passes `byId` ({@link partsById}) so the map is built once.
+ */
+export function isAncestor(
+  parts: readonly PartInstance[],
+  ancestorId: string,
+  nodeId: string,
+  byId: ReadonlyMap<string, PartInstance> = partsById(parts),
+): boolean {
   const seen = new Set<string>()
   let cur: string | undefined = nodeId
   while (cur !== undefined) {
@@ -157,11 +174,17 @@ export function isAncestor(parts: readonly PartInstance[], ancestorId: string, n
 /**
  * Would re-parenting `childId` under `newParentId` create a cycle? True when the new
  * parent is the node itself or one of its own descendants (you can't drop a node into
- * its own subtree). A null/undefined target (move to root) never cycles.
+ * its own subtree). A null/undefined target (move to root) never cycles. Pass `byId` ({@link partsById})
+ * when checking many parts against one scene.
  */
-export function wouldCreateCycle(parts: readonly PartInstance[], childId: string, newParentId: string | null): boolean {
+export function wouldCreateCycle(
+  parts: readonly PartInstance[],
+  childId: string,
+  newParentId: string | null,
+  byId?: ReadonlyMap<string, PartInstance>,
+): boolean {
   if (newParentId === null) return false
-  return isAncestor(parts, childId, newParentId)
+  return isAncestor(parts, childId, newParentId, byId)
 }
 
 /**
@@ -184,9 +207,11 @@ export function sanitizeParents(parts: readonly PartInstance[]): PartInstance[] 
     }
     return p
   })
-  // second pass: break any remaining cycles (a part reachable from itself)
+  // second pass: break any remaining cycles (a part reachable from itself). Every check reads `cleaned`,
+  // not the parts this pass has already cut loose, so one map serves them all.
+  const cleanedById = partsById(cleaned)
   const final = cleaned.map((p) => {
-    if (p.parent !== undefined && isAncestor(cleaned, p.id, p.parent)) {
+    if (p.parent !== undefined && isAncestor(cleaned, p.id, p.parent, cleanedById)) {
       changed = true
       const rest = { ...p }
       delete rest.parent
@@ -201,10 +226,13 @@ export function sanitizeParents(parts: readonly PartInstance[]): PartInstance[] 
  * Grouped-subtree click redirect: walking from `id` up to the root, returns the topmost
  * ancestor (or `id` itself) that is flagged `grouped` or is a unit load. With none, `id` is returned
  * unchanged. So clicking a part inside a grouped subtree selects the group's root, and clicking a case of a unit
- * load selects the load.
+ * load selects the load. Pass `byId` ({@link partsById}) when redirecting many hits against one scene.
  */
-export function groupRoot(parts: readonly PartInstance[], id: string): string {
-  const byId = new Map(parts.map((p) => [p.id, p]))
+export function groupRoot(
+  parts: readonly PartInstance[],
+  id: string,
+  byId: ReadonlyMap<string, PartInstance> = partsById(parts),
+): string {
   const seen = new Set<string>()
   let selected = id
   let cur: string | undefined = id

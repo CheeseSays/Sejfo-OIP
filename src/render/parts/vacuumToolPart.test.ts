@@ -3,7 +3,8 @@ import { arrayInstanceDeltas, resolvedBoxSize } from '../../core/rig/rigPose'
 import { evalPartGeometry } from '../../core/geometry/geometryEval'
 import { resolvedBounds } from '../../core/parts/partGeometry'
 import type { MeshPart } from '../../core/parts/partApi'
-import { PACKAGE_FORMAT, validatePartPackage } from '../../core/parts/partPackage'
+import { PACKAGE_FORMAT } from '../../core/parts/partPackage'
+import { validatePartPackage } from '../../core/parts/partValidate'
 import { examplePart, type RigGeo } from './examplePart'
 const { geometry: TOOL_RIG, materials: TOOL_MATERIALS, behavior: TOOL_BEHAVIOR } = examplePart<RigGeo>('oip.vacuum-tool')
 

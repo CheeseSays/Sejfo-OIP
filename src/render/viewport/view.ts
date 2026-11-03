@@ -122,6 +122,7 @@ import * as viewCamera from './viewCamera'
 import { CameraNavState } from './viewCamera'
 import * as viewOverlays from './viewOverlays'
 import { ViewOverlayState } from './viewOverlays'
+import type { SubPose } from '../../core/rig/rigPose'
 export type { Entry, IRenderViewTestSurface, MergeCoherenceCheck, MergeCoherenceReport, RenderViewOptions, VRState } from './viewTypes'
 
 /** how close (CSS px) the pointer must come to a guard wall for guard-openings mode to treat it as ON the guard */
@@ -488,6 +489,7 @@ export class RenderView implements IRenderView, IRenderViewTestSurface {
     // without a reload. Don't also swap MIDDLE on Shift: that cancels three's swap, so Shift+middle orbits.
     window.addEventListener('keydown', this.onShiftChange)
     window.addEventListener('keyup', this.onShiftChange)
+    window.addEventListener('blur', this.onWindowBlur)
     this.renderer.domElement.addEventListener('pointerdown', this.onShiftChange)
 
     // cancel navigation: snapshot on an orbit/pan drag start so a right-click
@@ -1010,7 +1012,7 @@ export class RenderView implements IRenderView, IRenderViewTestSurface {
     this.routing.handPosed = new Set(partIds)
   }
 
-  applyIdlePose(partId: string, pose: { joints?: Record<string, number>; subPoses?: Record<string, { position?: [number, number, number]; rotation?: [number, number, number] }>; lamps?: Record<string, boolean> }): void {
+  applyIdlePose(partId: string, pose: { joints?: Record<string, number>; subPoses?: Record<string, SubPose>; lamps?: Record<string, boolean> }): void {
     // stopped-sim only: while running, applyBoxFrame drives this rig every frame and would fight this pose (unless
     // the rig is hand-posed, when the frames stand aside for it)
     if (this.running && !this.routing.handPosed.has(partId)) return
@@ -1018,7 +1020,7 @@ export class RenderView implements IRenderView, IRenderViewTestSurface {
     if (!obj) return
     // same appliers the running frame routes to (applyBoxFrame): joints first, then subPose overrides win.
     if (pose.joints) (obj.userData.applyJoints as ((j: Record<string, number>) => void) | undefined)?.(pose.joints)
-    if (pose.subPoses) (obj.userData.applySubPoses as ((p: Record<string, { position?: [number, number, number]; rotation?: [number, number, number] }>) => void) | undefined)?.(pose.subPoses)
+    if (pose.subPoses) (obj.userData.applySubPoses as ((p: Record<string, SubPose>) => void) | undefined)?.(pose.subPoses)
     // a beam on a link this pose moved casts from where the link now stands. Stopped, the beam probe reruns only on
     // a scene, cargo or registry change, so without this the beam stays drawn where the link was (a lift's deck
     // eye left at the lower level). Running, the frame's probe pass re-aims it.
@@ -1220,7 +1222,10 @@ export class RenderView implements IRenderView, IRenderViewTestSurface {
     for (const [id, entry] of this.entries) {
       const applyJoints = entry.visual.object.userData.applyJoints as ((j: Record<string, number>) => void) | undefined
       if (!applyJoints && !this.routing.baseDriven.has(id)) continue
-      applyJoints?.({})
+      // a rig drops its subPoses too; applyJoints({}) alone left a setSubPose-driven link where the run put it
+      const resetRunPose = entry.visual.object.userData.resetRunPose as (() => void) | undefined
+      if (resetRunPose) resetRunPose()
+      else applyJoints?.({})
       entry.visual.update(entry.part, this.lastResolved?.get(id))
       this.ensureFreshPose(entry) // re-bake the frozen subtree now (mirrors refreshPackage)
       entry.boundsDirty = true
@@ -1575,8 +1580,8 @@ export class RenderView implements IRenderView, IRenderViewTestSurface {
     this.handles.endDrag()
   }
 
-  focusOn(ids: readonly string[]): void {
-    viewCamera.focusOn(this, ids)
+  focusOn(ids: readonly string[], opts?: { instant?: boolean }): void {
+    viewCamera.focusOn(this, ids, opts)
   }
 
   startFollow(ids: readonly string[]): void {
@@ -1596,7 +1601,7 @@ export class RenderView implements IRenderView, IRenderViewTestSurface {
     viewCamera.updateFollow(this)
   }
 
-  private snapToAxis(dir: Vector3): void {
+  snapToAxis(dir: Vector3): void {
     viewCamera.snapToAxis(this, dir)
   }
 
@@ -1614,6 +1619,7 @@ export class RenderView implements IRenderView, IRenderViewTestSurface {
     this.nav.navStartTarget.copy(this.controls.target)
     this.nav.navStartProjection = this.snapshotProjection()
     this.nav.orbitPivot = this.pickOrbitPivot()
+    this.nav.orbitSnap = null
     this.nav.navigating = true
     this.nav.navCancelled = false
     // a chorded right-click fires pointermove (not pointerdown); watch moves for
@@ -1631,6 +1637,7 @@ export class RenderView implements IRenderView, IRenderViewTestSurface {
 
   /** drag released: clear the navigation snapshot and lift any abort freeze */
   private onNavEnd = (): void => {
+    viewCamera.endOrbitSnap(this)
     this.nav.navigating = false
     this.container.removeEventListener('pointermove', this.onNavAbortMove, true)
     if (this.nav.navCancelled) {
@@ -1648,6 +1655,7 @@ export class RenderView implements IRenderView, IRenderViewTestSurface {
   }
 
   private onNavAbortMove = (e: PointerEvent): void => {
+    this.nav.altHeld = e.altKey // orbit snapping follows Alt pressed or released mid-drag
     if (this.nav.navigating && !this.nav.navCancelled && (e.buttons & 2) !== 0) {
       this.cancelNavigation()
     }
@@ -1717,6 +1725,10 @@ export class RenderView implements IRenderView, IRenderViewTestSurface {
     const p = this.camera.position
     const t = this.controls.target
     return { px: p.x, py: p.y, pz: p.z, tx: t.x, ty: t.y, tz: t.z }
+  }
+
+  lookPose(): { px: number; py: number; pz: number; tx: number; ty: number; tz: number } {
+    return viewCamera.lookPose(this, this.isNavigating())
   }
 
   private trackCameraSettle(): void {
@@ -1918,6 +1930,7 @@ export class RenderView implements IRenderView, IRenderViewTestSurface {
     this.pilot.dispose()
     window.removeEventListener('keydown', this.onShiftChange)
     window.removeEventListener('keyup', this.onShiftChange)
+    window.removeEventListener('blur', this.onWindowBlur)
     this.renderer.domElement.removeEventListener('pointerdown', this.onShiftChange)
     this.renderer.domElement.removeEventListener('wheel', this.onZoomWheel)
     this.controls.removeEventListener('start', this.onNavStart)
@@ -2308,6 +2321,12 @@ export class RenderView implements IRenderView, IRenderViewTestSurface {
     // the ruler's per-axis components are revealed only while Shift is held; the per-frame
     // updateRulerLabel() reads this so the bracket appears/vanishes live (even mid-measure).
     this.overlays.rulerShift = e.shiftKey
+    this.nav.altHeld = e.altKey
+  }
+
+  // Alt+Tab away loses Alt's keyup: drop it so the next orbit doesn't snap
+  private readonly onWindowBlur = (): void => {
+    this.nav.altHeld = false
   }
 
   /** Dynamic-resolution hook: re-point the renderer + composer at a new pixel ratio, clamped to the

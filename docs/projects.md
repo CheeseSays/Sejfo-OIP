@@ -17,7 +17,8 @@ A `ProjectJSON` (`src/core/project/project.ts`) is a manifest over pieces that a
 ProjectJSON {
   version                    // 7 (1-6 accepted + migrated on load, splitting a multi-scene one; only 7 is written; 6 = asset files, 7 = program files)
   name
-  scene: SceneJSON           // the layout; its parts name their packages by id, and it carries no copies
+  scene: SceneJSON           // the layout; its parts name their packages by id, and it carries no copies;
+                             //   also its Units and its controllers (plcs, src/plc/DEVICE-IO.md)
   stProgram?, stScanMs?,     // the PLC program and its cycle time
   controller?, stDialect?    //   its task table; stDialect is a compatibility marker (below)
   simHz?                     // the physics step rate (below)
@@ -94,12 +95,18 @@ The main design choices:
    [plc/taskTree.ts](../src/plc/taskTree.ts)). The tree lists Main (the top-level code), the tasks and the
    program instances each runs, then the POUs by kind, the data types and the global variables. Double-clicking a
    task or a program opens a properties dialog
-   ([ControllerPropertiesDialogs.tsx](../src/editor/components/plc/ControllerPropertiesDialogs.tsx)).
+   ([ControllerPropertiesDialogs.tsx](../src/editor/components/plc/ControllerPropertiesDialogs.tsx)). While it runs, the
+   code shows each name's live value as the POU it is written in reads it
+   ([plc/watchScope.ts](../src/plc/watchScope.ts)). For a `PROGRAM` that runs as several instances, those are one
+   instance's: the first, until another is picked by clicking its row or the chip on the `PROGRAM`'s header, which says
+   which one is shown. The pick is a view, not part of the document.
 
    There is no separate Controller dock. The tree's first node, Controller, holds Main. Its properties are the
-   external PLC link ([ControllerDialog.tsx](../src/editor/components/plc/ControllerDialog.tsx)), a machine setting
-   kept in the browser, never in the project. While Play hands the scene to an external PLC, the toolbar shows
-   the link's state beside Play and Stop ([PlcLinkStatus.tsx](../src/editor/components/plc/PlcLinkStatus.tsx)).
+   scene's controllers ([ControllerDialog.tsx](../src/editor/components/plc/ControllerDialog.tsx)): which the program
+   here runs, which are PLCs and how Play reaches them, saved in the scene (`SceneJSON.plcs`). Each PLC's address
+   is a machine setting kept in the browser, never in the project ([src/plc/DEVICE-IO.md](../src/plc/DEVICE-IO.md),
+   "Several controllers"). While Play connects a PLC, the toolbar shows the link's state beside Play and Stop
+   ([PlcLinkStatus.tsx](../src/editor/components/plc/PlcLinkStatus.tsx)).
 
    A program with no table sees the default one, and its task interval is where the scan time is edited.
    Retiming the default table sets `stScanMs` and stores no table. "+ Program" asks for a name, then adds a
@@ -117,7 +124,7 @@ The main design choices:
 
    **Live, the program is store state** (`EditorState.stProgram` / `stScanMs` / `controller`). Everything reads
    it there: the run edge, the scene exporter, the room seeder, the project autosave and the ST panel. A sink
-   decides where it is kept durably: the shared Y.Text in a room, or localStorage and the project doc when solo
+   decides where it is kept durably: the shared Y.Text in a room, or the working copy when solo
    (`store.setStProgramSink`). There is one owner because readers that consulted different stores could seed a
    room with a layout and no logic. See `EditorState.stProgram` and the eslint boundary on `stProgram.ts`.
 
@@ -158,13 +165,13 @@ with no extra code.
   adds nothing to the main bundle.
 - **Folder on disk:** the same layout unzipped, for git, VS Code, agents and editing the project's parts
   (see below).
-- `serializeProject`'s flat JSON is the internal localStorage autosave form.
+- `serializeProject`'s flat JSON is the internal form of the browser working copy.
 
 The same data model is used everywhere ([architecture.md](./architecture.md)). In project format 6 a part's
 embedded assets are real files beside its manifest, `parts/<id>/assets/<sha256>.glb`, named by the hash of their
 bytes (`core/parts/partAssets.ts`). The folder codec, the `.oip` and Put on Shelf write them. Every host that reads a
 part folder joins them back into base64 `data` before baking: the codec, the `.oip`, the desktop folder IO and
-sync, the browser folder link, the CLIs, the shelf and Import Parts from Folder. Nothing else in the app sees the
+sync, the browser folder link, the CLIs, the shelf and a folder import (Import part > A folder of parts…). Nothing else in the app sees the
 difference. A missing file, or one that does not hash to its name, fails the open. In memory, and in the browser
 autosave, a room and a scene file, assets stay base64. `url` assets (a built-in copy naming an app-served model)
 are untouched ([part-sources.md](part-sources.md) "Assets").
@@ -198,7 +205,7 @@ out of every round, so it never writes, loads or removes one, and removing a par
 ordinary project content: the two-way folder sync below writes them and reads outside edits back, so a
 `behavior.js` edit on disk is re-baked and reaches the running app like any other changed file. The shell keeps
 no parts of its own and watches no parts folder (`apps/desktop/main.cjs`). `partsWorkspace.cjs` scans only a
-folder picked for **Import Parts from Folder**.
+folder picked for **Import part > A folder of parts…**.
 
 #### The program as files (format 7)
 
@@ -233,15 +240,18 @@ A folder from formats 4-6 keeps the program in one `program.st` (the manifest's 
 folder sync lays it out on its first round. A folder can name program files other than the ones the app writes:
 that old file, or POUs an agent put in one file. When it does, the manifest and those files read as changed in
 the app. The round writes the app's files and removes the folder's others, guarded like any write
-(`programLayoutBaseline`). Treating the difference as a rendering difference would lose a later program edit,
-because the app's per-POU files are not named by the folder's manifest.
+(`layoutBaseline`). Treating the difference as a rendering difference would lose a later program edit,
+because the app's per-POU files are not named by the folder's manifest. Tests get the same treatment: the app names
+each test's file from the test's name, so a folder that lists `tests/sort.test.json` for a test called "Sort by
+colour" is relaid as the app's file, and the old one removed. Otherwise an edit made in the app would go to a file
+the manifest does not list, and the next open would read the stale test.
 
 The ST program and every part behavior are real text files, so PLC and part logic can be reviewed. Loading is
 manifest-driven, so stale or extra files are ignored rather than fatal. Reassembly goes through
 `validateProject`, so a folder edited by hand or by an agent gets every clamp and migration an untrusted `.oip`
 upload does.
 
-A part folder is the parts-workspace format that **Import Parts from Folder** scans (`partsWorkspace.cjs`, which
+A part folder is the parts-workspace format that **Import part > A folder of parts…** scans (`partsWorkspace.cjs`, which
 can read a project's `parts/` directly). `manifest.json` omits the fields baked from the behavior (`params`,
 `format`, `interactive`, `snap`; `core/parts/partPackage.manifestOfPackage`), so the script is the source of truth.
 Rebuilding a part therefore runs the behavior once. Core's codec stays execution-free by taking an injected
@@ -309,7 +319,7 @@ How a round works:
   file), the manifest's machine fields, or any part (`sceneUntouched`).
 - **Timing**: the folder's fingerprint (paths, sizes, mtimes) is checked once a second. Writes go out 800 ms after
   edits pause (at most 4 s after the first), and synchronously as the window closes (`project:writeSync`). The
-  localStorage working copy is still written on every commit and is what boot opens, so it is the crash buffer.
+  working copy is still written on every commit and is what boot opens, so it is the crash buffer.
 - **The shell keeps which document lives where** (`apps/desktop/folderRegistry.cjs`,
   `userData/project-folders.json`): folder path, fingerprint and baselines per document id. Main holds it for
   three reasons. Main builds the menu that lists it (**File → Open Recent**). A write from main is synchronous,
@@ -321,8 +331,9 @@ How a round works:
   profile instead, and `OIP_PROJECTS_DIR` overrides both. **Unlink** detaches on purpose: the project stays open,
   app-only, and the shell remembers not to hand it a new folder.
 
-A folder named on the command line (`electron . <folder>`) opens at launch. The app is single instance per
-profile, so a second launch hands its folder to the running window. Double-clicking a `.oip` (or a `.oippart`)
+A folder named on the command line (`electron . <folder>`) opens at launch. The app is one process per profile, and
+a second launch naming a folder opens it in a window of its own, or brings forward the window that has it open
+([desktop-shell.md](desktop-shell.md#several-windows)). Double-clicking a `.oip` (or a `.oippart`)
 opens it in the desktop app: the installer registers both, and the file is imported as File > Import Project (or
 Import part) would, never edited in place ([desktop-shell.md](desktop-shell.md#project-and-part-files)).
 
@@ -427,9 +438,37 @@ will be. `add-part` writes into a folder, so it refuses an older one until the a
 
 ## The browser working copy
 
-In the browser the project's working copy is the `oip-web/project` autosave (`src/editor/project/projectFile.ts`; store
-`persistProject` / `adoptProjectLibrary`): the scene, its ST program and the project's parts in one document,
-which the `main.tsx` boot prefers.
+In the browser the project's working copy is the open document's row in the document library: IndexedDB `oip-web`,
+`docPayload` (`src/editor/project/projectFile.ts` and `libraryDb.ts`; store `persistProject` / `adoptProjectLibrary`).
+It holds the scene, its ST program and the project's parts in one document, as compact text, and the `main.tsx` boot
+opens it. There is no second copy of the open project in the browser: the projects list shows the same row.
+
+**Each tab has its own open document.** The pointer to it is `oip-web/document-id` in the tab's sessionStorage, which
+survives the reload a switch makes. localStorage keeps the document opened last, and a new tab starts on that one
+(`libraryDb.pinTabDocument`). So two tabs can work on two projects at once. Each tab also holds a shared Web Lock
+named for its document, which the browser releases when the tab closes. The projects list reads those locks to mark a
+row "open in another tab", and it does not delete or rename that row, since the other tab's next save would undo it.
+
+- **Saving.** `saveStoredProject` is synchronous for its caller, like every edit's commit. It keeps the text in memory
+  and queues the row write, one at a time, the latest replacing any still waiting. A save of exactly what is stored
+  writes nothing. A failed write raises the autosave banner (`onWorkingCopyWrite`, main.tsx), and every save after it
+  reports the failure until a write succeeds.
+- **A save lands a moment after the edit.** A page that is hidden or closed first writes what the store holds
+  (`flushPersist`). An unloading page's IndexedDB transaction may be aborted, so when a row write is still in flight
+  the latest text is also written to localStorage `oip-web/project-journal/<document>`, which is synchronous
+  (`keepPendingWrite`). The next boot of that document moves it into the row, and a page that lives on removes it once
+  the row commits. A tab that crashes within a few milliseconds of an edit can still lose that edit. A switch, a new
+  project, an import and a folder open wait for the incoming project's row to commit before they reload
+  (`flushWorkingCopy`).
+- **Boot reads the row first** (`openWorkingCopy`), with the bytes of every model it names, and then opens it
+  synchronously (`loadStoredProject`). A boot with no pointer, or a pointer with no row, opens what the single-scene
+  keys hold, or a default scene, and its first save gives that a record of its own.
+- **Moving in from localStorage.** Earlier builds kept the working copy in localStorage `oip-web/project`. The first
+  boot with IndexedDB writes it into the open document's row and removes the key once the row has committed. If a
+  save of it had been refused for quota (`oip-web/project-behind`) and the row was written after that, or it names
+  models whose bytes are gone, the row is kept instead, since it holds what the key lacks. A key that does not open is
+  left where it is and refused as below. A browser without IndexedDB keeps the working copy in localStorage, written
+  synchronously.
 
 **The single-scene keys are a fallback.** The store also writes `oip-web/autosave` and `oip-web/st-program` (the
 scene one throttled). It does not write `oip-web/user-packages`, because a copy of all the project's parts, embedded
@@ -439,21 +478,42 @@ project doc. If it is absent, boot builds one from the single-scene keys, and if
 default scene. So a fault in the project path loses no data.
 
 **A project doc that is present but refused is never replaced.** `validateProject` is all-or-nothing: one bad scene,
-package or test refuses the document. Saving the fallback above over it at boot would lose it, and the document
-library would then file the fallback over the same record. So `loadStoredProject` records the refusal
-(`projectFile.unopenedProject`). Every write of the working copy is refused while that text is still there
-(`saveStoredProject` is the one chokepoint: autosave, import, projects-list switch, folder link), and the document
-library does not sync. A banner offers Download (the stored text, to fix by hand) or Discard (remove it; what is on
-screen is filed as a new document, the old record untouched).
+package or test refuses the document. Saving the fallback above over it at boot would lose it. So `loadStoredProject`
+records the refusal (`projectFile.unopenedProject`). Every write of the working copy is refused while that text is
+still there (`saveStoredProject` is the one chokepoint: autosave, import, projects-list switch, folder link), and
+nothing is filed over its record. A banner offers Download (the stored text, to fix by hand) or Discard (what is on
+screen is filed as a new document, and the old record is left untouched).
 
-**Only one tab writes the working copy at a time.** Every tab on the origin shares it, and a save writes the whole
-document, so without a guard two tabs would erase each other's work silently. A session may only write over the
-text it last read or wrote (`saveStoredProject` compares). A `storage` event from another tab carrying anything
-else does the same (main.tsx). The tab that loses stops saving for good, goes view-only
-(`store.yieldToOtherTab`), and shows a banner whose Reload makes it the writer again. An identical write is no
-conflict, so opening a second tab on the same project locks nothing until one of them changes it. Every path that
-replaces the working copy also files the outgoing project in the document library first and stops if that fails
-(`documentStore.fileOutgoingDocument`: projects-list open/new, linked folder, `.oip` import, desktop folder open).
+**Only one tab writes a document at a time.** Two tabs can have the same document open, and a save writes the whole
+document, so without a guard they would erase each other's work silently. IndexedDB raises no event in other
+tabs, so each save that changes a document also writes a new stamp to localStorage
+`oip-web/project-stamp/<document>`. A session may only write while its document's stamp is the one it last read or
+wrote (`saveStoredProject` compares). A `storage` event from another tab carrying any other stamp does the same
+(main.tsx). Tabs on different documents never see each other's stamps. The tab that loses stops saving for good,
+goes view-only (`store.yieldToOtherTab`), and shows a banner whose Reload makes it the writer again. A save of exactly what is stored keeps the stamp, so opening a second tab on the same
+project locks nothing until one of them changes it. Every path that replaces the working copy also files the
+outgoing project in the document library first and stops if that fails (`documentStore.fileOutgoingDocument`:
+projects-list open/new, linked folder, `.oip` import, desktop folder open).
+
+**Model files in the browser.** Every library row and the legacy scene key name each embedded model or texture by
+the SHA-256 of its bytes, `{ ..., localAsset: <sha256> }` in place of `data`, and the bytes are kept in their own
+IndexedDB database, `oip-web-assets` (`src/editor/project/localAssets.ts`). A save then carries a few dozen bytes
+for a 6 MB model instead of 8 MB of base64. In memory, in a room and in every file that leaves the browser an asset
+is still `data`. Rows written by earlier builds embed their models, and are read as they are.
+
+- An asset is written by hash only once its bytes are known to be stored. A model added in the session is written
+  embedded the first time, its bytes are queued, and the project is saved again when they land
+  (`onLocalAssetsStored`, main.tsx). A tab that closes in between leaves an embedded model behind, never a hash with
+  no bytes.
+- The paths that replace the working copy and reload (a projects-list switch, a new project, a `.oip` import, a
+  linked or desktop folder) store the incoming project's models first (`storeLocalAssets`).
+- A row is read with the bytes of the models it names (`loadLocalAssets`). If some are gone the row does not open:
+  the working copy is refused like any other document this build cannot open. The bytes and the rows are the same
+  origin's IndexedDB, so a browser that evicts storage evicts both.
+- Bytes no row names are deleted 30 s after boot, once nothing has touched them for seven days (`sweepLocalAssets`).
+  The delay covers another tab that has stored bytes but not yet written their hash, or holds a deleted part in its
+  undo history. Nothing is swept when the rows cannot be read.
+- Without IndexedDB nothing is hashed, and assets stay embedded as before.
 
 **Workspace state is kept per document.** A remembered camera and a half-finished tutorial run are keyed by
 `documentStore.sceneSlotKey(SCENE_SLOT)`: the document id and the constant `scene-1`, the scene id format 1-3

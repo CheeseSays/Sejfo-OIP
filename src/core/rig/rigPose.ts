@@ -18,11 +18,111 @@ export interface LinkPose {
   pos: Vec3
   quat: Quat
 }
-/** A free-form override of a link's local pose (ctx.setSubPose) - either field omitted = keep rest. */
+/** A free-form override of a link's local pose (ctx.setSubPose) - a field omitted = keep rest. `quat` (unit) takes
+ *  precedence over the Euler `rotation` when both are given. */
 export interface SubPose {
   position?: Vec3
   rotation?: Vec3
+  quat?: Quat
+  /** a posable array link's instances, by index (`ctx.setSubPose(link, pose, i)`): each in the link's own frame,
+   *  a hole or `null` standing at its rest place in the row */
+  instances?: (InstancePose | null)[]
 }
+
+/** One posable array instance's pose in its link's frame; an omitted field keeps the instance's rest value. */
+export interface InstancePose {
+  position?: Vec3
+  rotation?: Vec3
+  quat?: Quat
+}
+
+/** Euler XYZ (radians, the setSubPose convention) as a quaternion, written into `out` at `o`. */
+export function eulerXYZQuatInto(e: ArrayLike<number>, out: Float64Array | number[], o = 0): void {
+  const c1 = Math.cos(e[0]! / 2)
+  const c2 = Math.cos(e[1]! / 2)
+  const c3 = Math.cos(e[2]! / 2)
+  const s1 = Math.sin(e[0]! / 2)
+  const s2 = Math.sin(e[1]! / 2)
+  const s3 = Math.sin(e[2]! / 2)
+  out[o] = s1 * c2 * c3 + c1 * s2 * s3
+  out[o + 1] = c1 * s2 * c3 - s1 * c2 * s3
+  out[o + 2] = c1 * c2 * s3 + s1 * s2 * c3
+  out[o + 3] = c1 * c2 * c3 - s1 * s2 * s3
+}
+
+function vecEq(a: readonly number[] | undefined, b: readonly number[] | undefined): boolean {
+  if (a === b) return true
+  if (!a || !b || a.length !== b.length) return false
+  for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false
+  return true
+}
+const poseEq = (a: InstancePose, b: InstancePose): boolean => vecEq(a.position, b.position) && vecEq(a.rotation, b.rotation) && vecEq(a.quat, b.quat)
+
+/** Two sub-poses command the same thing: position, rotation and every instance pose. */
+export function subPoseEq(a: SubPose | undefined, b: SubPose | undefined): boolean {
+  if (!a || !b) return !a && !b
+  if (!poseEq(a, b)) return false
+  const ai = a.instances
+  const bi = b.instances
+  if (ai === bi) return true
+  if (!ai || !bi || ai.length !== bi.length) return false
+  for (let i = 0; i < ai.length; i++) {
+    const x = ai[i]
+    const y = bi[i]
+    if (!x || !y) {
+      if (!x !== !y) return false
+      continue
+    }
+    if (!poseEq(x, y)) return false
+  }
+  return true
+}
+
+/** An own-value copy of a sub-pose, so a later write to the behavior's output can't change it. */
+export function copySubPose(s: SubPose): SubPose {
+  const copy = (p: InstancePose): InstancePose => ({
+    ...(p.position ? { position: [p.position[0], p.position[1], p.position[2]] as Vec3 } : {}),
+    ...(p.rotation ? { rotation: [p.rotation[0], p.rotation[1], p.rotation[2]] as Vec3 } : {}),
+    ...(p.quat ? { quat: [p.quat[0], p.quat[1], p.quat[2], p.quat[3]] as Quat } : {}),
+  })
+  const out: SubPose = copy(s)
+  if (s.instances) out.instances = s.instances.map((p) => (p ? copy(p) : null))
+  return out
+}
+
+/** One posable array instance placed in its link's frame, as position then quaternion into `out` (7 numbers).
+ *  `setSubPose(link, pose, i)` places the instance where `setSubPose(link, pose)` would place the link, in the link's
+ *  parent frame, so this is that pose relative to where FK stands the link this tick (`values`, `subPoses`, `params`,
+ *  `inclineRad` as FK took them). An instance not posed stands at its rest place `rest` (its array delta). The sim and
+ *  the view both place instances through this, so a carrier is drawn where it collides. */
+export function posedInstanceInto(out: Float64Array, geo: RigGeometry, i: number, values: Record<string, number>, subPoses: Record<string, SubPose> | undefined, params: RigParams, inclineRad: number, pose: InstancePose | null | undefined, rest: readonly number[]): void {
+  if (!pose) {
+    out[0] = rest[0]!
+    out[1] = rest[1]!
+    out[2] = rest[2]!
+    out[3] = 0
+    out[4] = 0
+    out[5] = 0
+    out[6] = 1
+    return
+  }
+  const link = linkLocalPoseInto(L0, geo, i, values, subPoses?.[geo.links[i]!.name], params, inclineRad)
+  const inst = linkLocalPoseInto(LI, geo, i, values, pose, params, inclineRad)
+  // inverse(link) * inst: the instance's pose seen from the link's own frame
+  const cx = -link[3]!, cy = -link[4]!, cz = -link[5]!, cw = link[6]!
+  const dx = inst[0]! - link[0]!, dy = inst[1]! - link[1]!, dz = inst[2]! - link[2]!
+  const tx = 2 * (cy * dz - cz * dy), ty = 2 * (cz * dx - cx * dz), tz = 2 * (cx * dy - cy * dx)
+  out[0] = dx + cw * tx + (cy * tz - cz * ty)
+  out[1] = dy + cw * ty + (cz * tx - cx * tz)
+  out[2] = dz + cw * tz + (cx * ty - cy * tx)
+  const bx = inst[3]!, by = inst[4]!, bz = inst[5]!, bw = inst[6]!
+  out[3] = cw * bx + cx * bw + cy * bz - cz * by
+  out[4] = cw * by - cx * bz + cy * bw + cz * bx
+  out[5] = cw * bz + cx * by - cy * bx + cz * bw
+  out[6] = cw * bw - cx * bx - cy * by - cz * bz
+}
+const L0 = new Float64Array(7)
+const LI = new Float64Array(7)
 
 type RigGeometry = Extract<PartPackageGeometry, { kind: 'rig' }>
 
@@ -91,24 +191,12 @@ export function qApply(q: Quat, v: Vec3): Vec3 {
  * joint applied - revolute rotates about the axis (in the link's local frame), prismatic slides along
  * it. Matches render/parts/sdkPart.ts's per-joint math exactly.
  */
-/** A link's rest rotation: the explicit quaternion if set, else Euler XYZ, else identity. */
-export function restQuatOf(link: RigLink): Quat {
+/** A link's rest rotation: the explicit quaternion if set, else Euler XYZ (with its `rotationParams` resolved
+ *  against `params`, when given), else identity. */
+export function restQuatOf(link: RigLink, params?: RigParams): Quat {
   if (link.quat) return link.quat
+  if (params && link.rotationParams?.length) return qFromEulerXYZ(resolvedOffset(link.rotation ?? [0, 0, 0], link.rotationParams, params))
   return link.rotation ? qFromEulerXYZ(link.rotation) : IDENTITY_QUAT
-}
-
-/**
- * A link's rest rotation at these params: its `rotationParams` replace the matching Euler axes of `rotation` (in
- * degrees, as the ref resolves), else {@link restQuatOf}.
- */
-export function restQuatFor(link: RigLink, params: RigParams | undefined): Quat {
-  if (!params || !link.rotationParams || link.rotationParams.length === 0 || link.quat) return restQuatOf(link)
-  const e: Vec3 = link.rotation ? [link.rotation[0], link.rotation[1], link.rotation[2]] : [0, 0, 0]
-  for (const sp of link.rotationParams) {
-    const r = resolvedRef(sp, params)
-    if (r !== null) e[sp.axis] = (r * Math.PI) / 180
-  }
-  return qFromEulerXYZ(e)
 }
 
 /**
@@ -137,7 +225,7 @@ export function legFrameDepth(shape: Pick<RigLegShape, 'frameDepth' | 'frameDept
 }
 
 export function rigLocalPose(link: RigLink, joint: RigJoint | undefined, value: number, params?: RigParams): LinkPose {
-  const restQuat = restQuatFor(link, params)
+  const restQuat = restQuatOf(link, params)
   const restPos = link.offset
   if (!joint) return { pos: restPos, quat: restQuat }
   const [lo, hi] = jointLimits(joint, params)
@@ -154,7 +242,7 @@ export function rigLocalPose(link: RigLink, joint: RigJoint | undefined, value: 
 /** A link's local pose with a setSubPose override taking precedence over its rest+joint transform. */
 export function rigLinkLocalPose(link: RigLink, joint: RigJoint | undefined, value: number, subPose: SubPose | undefined, params?: RigParams): LinkPose {
   if (subPose) {
-    const quat = subPose.rotation ? qFromEulerXYZ(subPose.rotation) : restQuatOf(link)
+    const quat = subPose.quat ?? (subPose.rotation ? qFromEulerXYZ(subPose.rotation) : restQuatOf(link, params))
     return { pos: subPose.position ?? link.offset, quat }
   }
   return rigLocalPose(link, joint, value, params)
@@ -337,6 +425,7 @@ export function rigLinkIndex(geo: RigGeometry): ReadonlyMap<string, number> {
 // composition is synchronous and non-reentrant, and neither ever escapes the call that fills it.
 const LOCAL = new Float64Array(7)
 const OFF = new Float64Array(3)
+const EQ = new Float64Array(4)
 const LOOK = new Float64Array(4)
 
 /** {@link resolvedOffset} into a scratch triple instead of a fresh array. */
@@ -345,7 +434,7 @@ function resolvedOffsetInto(offset: Vec3, offsetParams: readonly SizeParamRef[],
   out[1] = offset[1]
   out[2] = offset[2]
   for (const sp of offsetParams) {
-    const resolved = resolvedRef(sp, params)
+    const resolved = foldedRef(out[sp.axis]!, sp, params)
     if (resolved !== null) out[sp.axis] = resolved
   }
 }
@@ -419,12 +508,14 @@ function writeLocalPose(t: RigTables, i: number, values: Record<string, number>,
   let qy = t.restQuats[rq + 1]!
   let qz = t.restQuats[rq + 2]!
   let qw = t.restQuats[rq + 3]!
-  if (link.rotationParams) {
-    const rp = restQuatFor(link, params)
-    qx = rp[0]
-    qy = rp[1]
-    qz = rp[2]
-    qw = rp[3]
+  // a param-driven rest rotation (rotationParams; validation keeps it off a quat link) resolves per call
+  if (link.rotationParams && !link.quat) {
+    resolvedOffsetInto(link.rotation ?? [0, 0, 0], link.rotationParams, params, OFF)
+    eulerXYZQuatInto(OFF, EQ)
+    qx = EQ[0]!
+    qy = EQ[1]!
+    qz = EQ[2]!
+    qw = EQ[3]!
   }
   // C-paramgeo: resolve a param-driven offset (e.g. a hinge at -length/2) before composing.
   let px: number
@@ -442,18 +533,19 @@ function writeLocalPose(t: RigTables, i: number, values: Record<string, number>,
   }
   if (subPose) {
     // a setSubPose override takes precedence over the rest+joint transform; an omitted field keeps rest
+    const q = subPose.quat
     const e = subPose.rotation
-    if (e) {
-      const c1 = Math.cos(e[0] / 2)
-      const c2 = Math.cos(e[1] / 2)
-      const c3 = Math.cos(e[2] / 2)
-      const s1 = Math.sin(e[0] / 2)
-      const s2 = Math.sin(e[1] / 2)
-      const s3 = Math.sin(e[2] / 2)
-      qx = s1 * c2 * c3 + c1 * s2 * s3
-      qy = c1 * s2 * c3 - s1 * c2 * s3
-      qz = c1 * c2 * s3 + s1 * s2 * c3
-      qw = c1 * c2 * c3 - s1 * s2 * s3
+    if (q) {
+      qx = q[0]
+      qy = q[1]
+      qz = q[2]
+      qw = q[3]
+    } else if (e) {
+      eulerXYZQuatInto(e, EQ)
+      qx = EQ[0]!
+      qy = EQ[1]!
+      qz = EQ[2]!
+      qw = EQ[3]!
     }
     const sp = subPose.position
     if (sp) {
@@ -521,8 +613,13 @@ function writeLocalPose(t: RigTables, i: number, values: Record<string, number>,
  * renderer's per-frame joint path: a 57-link turntable with one joint). Allocation-free.
  */
 export function rigLinkLocalPoseInto(out: Float64Array, geo: RigGeometry, i: number, values: Record<string, number>, subPoses: Record<string, SubPose> | undefined, params: RigParams, inclineRad = 0): Float64Array {
+  return linkLocalPoseInto(out, geo, i, values, subPoses?.[geo.links[i]!.name], params, inclineRad)
+}
+
+/** {@link rigLinkLocalPoseInto} with the link's sub-pose handed in directly */
+function linkLocalPoseInto(out: Float64Array, geo: RigGeometry, i: number, values: Record<string, number>, subPose: SubPose | InstancePose | undefined, params: RigParams, inclineRad: number): Float64Array {
   const t = rigTables(geo)
-  writeLocalPose(t, i, values, subPoses ? subPoses[t.links[i]!.name] : undefined, params)
+  writeLocalPose(t, i, values, subPose, params)
   out.set(LOCAL.subarray(0, POSE_STRIDE))
   if (inclineRad !== 0 && t.parentIdx[i]! < 0 && !t.legs?.[i]) {
     const zq = qFromAxisAngle([0, 0, 1], inclineRad)
@@ -770,6 +867,13 @@ export function resolvedRef(sp: Omit<SizeParamRef, 'axis'>, params: RigParams): 
   return out
 }
 
+/** What one entry makes of a field that holds `current` so far: its resolved value, or that added to `current` for a
+ *  `plus` entry (entries for one field apply in order). Null when the entry does not resolve (the field stands). */
+export function foldedRef(current: number, sp: Omit<SizeParamRef, 'axis'>, params: RigParams): number | null {
+  const v = resolvedRef(sp, params)
+  return v === null ? null : sp.plus ? current + v : v
+}
+
 /**
  * A box's size with any C-paramgeo overrides applied: each `sizeParams` entry replaces one axis with
  * `params[param] * scale + add` (clamped to the entry's `[min, max]`) when that param is a finite number,
@@ -780,7 +884,7 @@ export function resolvedBoxSize(size: Vec3, sizeParams: readonly SizeParamRef[] 
   if (!sizeParams || sizeParams.length === 0) return size
   const out: Vec3 = [size[0], size[1], size[2]]
   for (const sp of sizeParams) {
-    const resolved = resolvedRef(sp, params)
+    const resolved = foldedRef(out[sp.axis], sp, params)
     if (resolved !== null && resolved > 0) out[sp.axis] = resolved
   }
   return out
@@ -792,7 +896,7 @@ export function resolvedOffset(offset: Vec3, offsetParams: readonly SizeParamRef
   if (!offsetParams || offsetParams.length === 0) return offset
   const out: Vec3 = [offset[0], offset[1], offset[2]]
   for (const sp of offsetParams) {
-    const resolved = resolvedRef(sp, params)
+    const resolved = foldedRef(out[sp.axis], sp, params)
     if (resolved !== null) out[sp.axis] = resolved
   }
   return out
@@ -805,7 +909,7 @@ export function resolvedMeshScale(sizeParams: readonly SizeParamRef[] | undefine
   const out: Vec3 = [1, 1, 1]
   if (!sizeParams) return out
   for (const sp of sizeParams) {
-    const f = resolvedRef(sp, params)
+    const f = foldedRef(out[sp.axis], sp, params)
     if (f !== null && f > 0) out[sp.axis] = f
   }
   return out
@@ -818,7 +922,7 @@ export function resolvedCylinder(shape: Extract<RigShape, { kind: 'cylinder' }>,
   let radius = shape.radius
   let height = shape.height
   for (const sp of shape.sizeParams ?? []) {
-    const resolved = resolvedRef(sp, params)
+    const resolved = foldedRef(sp.axis === 1 ? height : radius, sp, params)
     if (resolved !== null && resolved > 0) {
       if (sp.axis === 1) height = resolved
       else radius = resolved
@@ -913,6 +1017,33 @@ const MAX_INSTANCES = 256
 // 0.075 m roller pitch. The ceiling exists only to bound a pathological rig (a span ÷ a near-zero spacing)
 // before it can OOM the tab; a genuine truncation is surfaced to the author (render buildRig's warnIfCapped).
 export const MAX_DISTRIBUTE_INSTANCES = 8192
+// The `pitch` form counts carriers, each its own kinematic body when posable: 365 moving carriers on a 100 m loop
+// sorter measured 0.37 ms of physics a step, so this leaves room for the longest loops without letting a runaway
+// span build thousands of bodies.
+export const MAX_PITCH_INSTANCES = 1024
+
+/** What to tell the author when this link's `pitch` row wants more copies than it holds at these params, else null:
+ *  the copies would otherwise just spread out (a loop sorter's carriers drifting off their pitch). */
+export function pitchCapMessage(link: RigLink, params: RigParams): string | null {
+  const pitch = link.array?.pitch
+  if (!pitch) return null
+  const wanted = pitchArrayWanted(pitch, params)
+  if (wanted <= MAX_PITCH_INSTANCES) return null
+  return `"${link.name}" needs ${wanted} copies at this ${pitch.spanParam}, past the ${MAX_PITCH_INSTANCES} a pitch array holds: it has ${MAX_PITCH_INSTANCES}, so ctx.arrayCount and the row stop there. Shorten the span or widen the pitch.`
+}
+
+/** How many copies a `pitch` array wants for these params, round(span / pitch), before the MAX_PITCH_INSTANCES cap. */
+export function pitchArrayWanted(pitch: NonNullable<NonNullable<RigLink['array']>['pitch']>, params: RigParams): number {
+  const num = (name: string): number => {
+    const v = params[name]
+    return typeof v === 'number' && Number.isFinite(v) ? v : 0
+  }
+  let span = num(pitch.spanParam) * (pitch.spanScale ?? 1) + (pitch.spanAdd ?? 0)
+  for (const t of pitch.spanTerms ?? []) span += num(t.param) * (t.scale ?? 1)
+  span = Math.max(0, span)
+  // +1e-9: a span of exactly n and a half pitches in decimal can land a hair under the half in binary (0.35 / 0.1)
+  return pitch.pitch > 0 ? Math.max(1, Math.round(span / pitch.pitch + 1e-9)) : 1
+}
 
 /** World-phase distribution: copies are placed where `(W · flow axis)` is a multiple of `pitch` (offset by the
  *  anchor), so two collinear beds share grid lines with no snap-time communication - the SDK port of
@@ -974,9 +1105,10 @@ function gridAxisCoords(axis: { sizeParam: string; pitchParam?: string; marginPa
  *  (docs/seam-resolvers.md). `count`+`step` places `params[count]` copies `step` apart (centred or growing
  *  from the base); `stepParams` (C-paramgeo) makes a `step` axis track an instance param - the chain
  *  transfer's lane spacing following its `distance` param - with the static axis as the fallback. `grid`
- *  crosses two param-driven axes into an X×Z lattice (the EOAT cup bed; see gridAxisCoords). `showParam` is the
- *  link's switch (RigLink.showParam): false ⇒ zero deltas (mesh + collision vanish). The lattice/`count` forms are capped
- *  at MAX_INSTANCES (256); the always-instanced `distribute` form at the far higher MAX_DISTRIBUTE_INSTANCES. A
+ *  crosses two param-driven axes into an X×Z lattice (the EOAT cup bed; see gridAxisCoords). `pitch` fits round(span /
+ *  pitch) copies exactly `pitch` apart, centred. `showParam` is the link's switch (RigLink.showParam): false ⇒ zero
+ *  deltas (mesh + collision vanish). The lattice and `count` forms are capped at MAX_INSTANCES (256), `pitch` at
+ *  MAX_PITCH_INSTANCES (1024), and the always-instanced `distribute` form at the far higher MAX_DISTRIBUTE_INSTANCES. A
  *  non-array link (or one with no resolvable count) yields a single `[0,0,0]` (the link itself). */
 export function arrayInstanceDeltas(array: NonNullable<RigLink['array']>, params: RigParams, seam?: SeamContext, showParam?: string): Vec3[] {
   if (showParam && params[showParam] === false) return []
@@ -1033,6 +1165,17 @@ export function arrayInstanceDeltas(array: NonNullable<RigLink['array']>, params
     }
     return trimEnds(out)
   }
+  if (array.pitch) {
+    const { axis, pitch } = array.pitch
+    const n = Math.min(MAX_PITCH_INSTANCES, pitchArrayWanted(array.pitch, params))
+    const out: Vec3[] = []
+    for (let i = 0; i < n; i++) {
+      const d: Vec3 = [0, 0, 0]
+      d[axis] = (i - (n - 1) / 2) * pitch
+      out.push(d)
+    }
+    return trimEnds(out)
+  }
   const n = Math.max(1, Math.min(MAX, Math.round(num(array.count ?? '', 1))))
   // C-paramgeo: a stepParams entry replaces one static `step` axis with `params[param] × scale + add`
   // (same resolution as a link's offsetParams - sign-free), so e.g. lane spacing follows a live param.
@@ -1046,14 +1189,33 @@ export function arrayInstanceDeltas(array: NonNullable<RigLink['array']>, params
   return trimEnds(out)
 }
 
-/** A mesh link's declared collision box (its full size), or undefined: `collision: { box }` on the link. */
+export { copyGripName, parseCopyGripName } from '../parts/partPackage'
+
+/** A posable array link as a behavior is told about it: what `ctx.arrayCount` resolves from its params. */
+export interface PosableArraySpec {
+  name: string
+  array: NonNullable<RigLink['array']>
+  showParam?: string
+}
+
+/** The rig's posable array links (`array.posable`), as the JSON a behavior is created with, or undefined when it has
+ *  none. The behavior resolves each count with its own params, the ones the sim builds the instance bodies from. */
+export function posableArraysJson(geometry: { kind: string; links?: readonly RigLink[] }): string | undefined {
+  if (geometry.kind !== 'rig' || !geometry.links) return undefined
+  const specs: PosableArraySpec[] = geometry.links
+    .filter((l) => l.array?.posable === true)
+    .map((l) => ({ name: l.name, array: l.array!, ...(l.showParam ? { showParam: l.showParam } : {}) }))
+  return specs.length ? JSON.stringify(specs) : undefined
+}
+
+/** A mesh or frame link's declared collision box (its full size), or undefined: `collision: { box }` on the link. */
 export function linkCollisionBox(link: { collision?: RigLink['collision'] }): Vec3Tuple | undefined {
   return typeof link.collision === 'object' ? link.collision.box : undefined
 }
 
-/** Box half-extents approximating a link shape - the kinematic collision proxy for cargo pushing. A mesh
- *  uses the link's declared collision `box` (pass it in: {@link linkCollisionBox}), or zero (visual-only - the
- *  sim skips a body for it). */
+/** Box half-extents approximating a link shape - the kinematic collision proxy for cargo pushing. A mesh or a
+ *  frame uses the link's declared collision `box` (pass it in: {@link linkCollisionBox}), or zero (no body - the
+ *  sim skips one for it). */
 export function shapeHalfExtents(shape: RigShape, meshBox?: Vec3Tuple): Vec3 {
   switch (shape.kind) {
     case 'box':
@@ -1065,7 +1227,8 @@ export function shapeHalfExtents(shape: RigShape, meshBox?: Vec3Tuple): Vec3 {
     case 'mesh':
       return meshBox ? [meshBox[0] / 2, meshBox[1] / 2, meshBox[2] / 2] : [0, 0, 0]
     case 'frame':
-      return [0, 0, 0] // transform-only: no collision body
+      // transform-only, unless it declares a collision box (a solid whose look comes from geometry())
+      return meshBox ? [meshBox[0] / 2, meshBox[1] / 2, meshBox[2] / 2] : [0, 0, 0]
     case 'label':
       return [0, 0, 0] // render-only text plane: no collision body
     case 'leg':
@@ -1185,7 +1348,11 @@ export function linkFieldOwnership(geo: RigGeometry, linkName: string, params: R
   const offset: LinkFieldOwnership['offset'] = [null, null, null]
   // the last resolving ref for an axis owns it, since resolvedOffset applies them in order
   for (const sp of link.offsetParams ?? []) offset[sp.axis] = refOwner(sp, params, false) ?? offset[sp.axis]
-  const rotation: LinkFieldOwner | null = link.aim ? { by: 'aim', target: link.aim.target } : null
+  let rotation: LinkFieldOwner | null = link.aim ? { by: 'aim', target: link.aim.target } : null
+  // a param owns the rotation only when its refs cover all three axes: with fewer, an edit to the other axes still turns the link
+  if (!rotation && !link.quat && new Set((link.rotationParams ?? []).map((sp) => sp.axis)).size === 3) {
+    for (const sp of link.rotationParams ?? []) rotation = refOwner(sp, params, false) ?? rotation
+  }
   let boxSize: LinkFieldOwnership['boxSize'] = null
   let cylinder: LinkFieldOwnership['cylinder'] = null
   const shape = link.shape

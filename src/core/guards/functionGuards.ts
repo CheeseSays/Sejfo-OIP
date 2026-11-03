@@ -4,6 +4,8 @@ import type { ParamValue } from '../parts/partApi'
 import { resolvePartParams } from '../parts/partScript'
 import { withSnapExtents } from './guardExtents'
 import type { GuardExtents } from './guardExtents'
+import { withGuardGaps } from './guardOpenings'
+import type { GuardOpenings } from './guardOpenings'
 import { evalPartGeometry } from '../geometry/geometryEval'
 import { guardColliderCrossSection } from '../geometry/collisionShapes'
 import { packageRev } from '../parts/partRegistry'
@@ -49,6 +51,8 @@ export interface StaticWall {
   key: string
   /** the submesh's declared side guard (MeshPart.sideGuard); only these walls take part in the guard merge */
   sideGuard?: 'left' | 'right'
+  /** the submesh's declared surface friction (MeshPart.friction); absent keeps the wall default. Never on a guard */
+  friction?: number
   /** part-local box centre (the caller composes it with the part pose) */
   localCx: number
   localCy: number
@@ -79,8 +83,9 @@ const WALL_MEMO_MAX = 512
  * Empty for a part with no such submeshes (an inert or purely-conveying part).
  * The returned array is shared/cached - do not mutate it.
  */
-export function functionStaticWalls(part: PartInstance, pkg: PartPackage, extents?: GuardExtents): StaticWall[] {
-  const params = withSnapExtents(part, resolvePartParams(pkg.params, part.params as Record<string, ParamValue>), extents)
+export function functionStaticWalls(part: PartInstance, pkg: PartPackage, extents?: GuardExtents, openings?: GuardOpenings): StaticWall[] {
+  // the same host facts the renderer folds in (functionMesh.ts), so a gap or an extent moves the collider with the mesh
+  const params = withGuardGaps(part, withSnapExtents(part, resolvePartParams(pkg.params, part.params as Record<string, ParamValue>), extents), openings)
   const memoKey = `${pkg.id}@${packageRev(pkg.id)}|${JSON.stringify(params)}`
   const hit = WALL_MEMO.get(memoKey)
   if (hit) return hit
@@ -100,7 +105,7 @@ export function functionStaticWalls(part: PartInstance, pkg: PartPackage, extent
     const gx = mp.sideGuard ? guardColliderCrossSection(hzRaw) : null
     out.push({
       key: `fn:${i++}`,
-      ...(mp.sideGuard !== undefined ? { sideGuard: mp.sideGuard } : {}),
+      ...(mp.sideGuard !== undefined ? { sideGuard: mp.sideGuard } : mp.friction !== undefined ? { friction: mp.friction } : {}),
       localCx: (bb.minX + bb.maxX) / 2,
       localCy: (bb.minY + bb.maxY) / 2,
       localCz: gx ? localCz + (mp.sideGuard === 'left' ? -1 : 1) * gx.outwardShift : localCz,
@@ -119,6 +124,8 @@ export interface StaticHull {
   key: string
   /** authored MeshPart finish - informational; hulls never merge */
   finish?: string
+  /** the submesh's declared surface friction (MeshPart.friction); absent keeps the hull default */
+  friction?: number
   /** part-local hull points (the caller composes them with the part pose) */
   points: readonly { x: number; y: number; z: number }[]
 }
@@ -168,15 +175,16 @@ export function functionStaticHulls(part: PartInstance, pkg: PartPackage): Stati
       points.push({ x, y, z })
     }
     if (points.length < 4) continue // fewer than a tetrahedron's worth: no volume to collide
+    const facts = { ...(mp.finish !== undefined ? { finish: mp.finish } : {}), ...(mp.friction !== undefined ? { friction: mp.friction } : {}) }
     if (points.length > HULL_MAX_POINTS) {
       const bb = aabbOf(pos)
       if (!bb) continue
       const corners: { x: number; y: number; z: number }[] = []
       for (const x of [bb.minX, bb.maxX]) for (const y of [bb.minY, bb.maxY]) for (const z of [bb.minZ, bb.maxZ]) corners.push({ x, y, z })
-      out.push({ key, ...(mp.finish !== undefined ? { finish: mp.finish } : {}), points: corners })
+      out.push({ key, ...facts, points: corners })
       continue
     }
-    out.push({ key, ...(mp.finish !== undefined ? { finish: mp.finish } : {}), points })
+    out.push({ key, ...facts, points })
   }
   if (HULL_MEMO.size >= WALL_MEMO_MAX) HULL_MEMO.clear()
   HULL_MEMO.set(memoKey, out)

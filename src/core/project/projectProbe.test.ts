@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { CARGO_KIND_BOX, CARGO_KIND_PALLET } from '../frame'
 import type { BoxFrame } from '../frame'
 import { quatFromYXZ } from '../math'
-import { cargoColorName, cargoRows, ProbeSampler } from './projectProbe'
+import { CargoSnapshots, cargoColorName, cargoRows, ProbeSampler } from './projectProbe'
 import { operandProbeKey, probeKey } from './projectTest'
 import type { TestCheck } from './projectTest'
 
@@ -186,7 +186,8 @@ describe('count probe - colour filter', () => {
     expect(cargoColorName(...BLUE)).toBe('blue')
     expect(cargoColorName(1, 1, 1)).toBeUndefined()
     expect(cargoColorName(0.1, 0.05, 0.05)).toBeUndefined() // too dark
-    expect(cargoColorName(1, 0.9, 0)).toBeUndefined() // yellow
+    expect(cargoColorName(1, 0.9, 0)).toBe('yellow')
+    expect(cargoColorName(0, 1, 1)).toBeUndefined() // cyan
   })
 })
 
@@ -227,6 +228,30 @@ describe('passed probe - cargo that went through a place, cumulative', () => {
   })
 })
 
+describe('square probe - how far the cargo in a zone is turned off a heading', () => {
+  const yawed = (id: number, x: number, deg: number, color = RED): Body => ({ id, pos: [x, 1, 0], color, quat: quatFromYXZ(0, (deg * Math.PI) / 180, 0) })
+  const v = (heading: number, ...bodies: Body[]): number | boolean | undefined => read({ probe: { square: { zone: ZONE, heading } }, always: true, max: 10 }, frame(bodies))
+
+  it('reads the worst body in the zone, in degrees off square, and ignores bodies outside it', () => {
+    expect(v(30, yawed(1, 3, 30))).toBeCloseTo(0, 3)
+    expect(v(30, yawed(1, 3, 38), yawed(2, 4, 25))).toBeCloseTo(8, 3)
+    expect(v(30, yawed(1, 3, 33), yawed(2, 9, 70))).toBeCloseTo(3, 3) // body 2 is past the zone
+  })
+
+  it('folds by 90, so any edge parallel to the heading is square, and the most a box can be off is 45', () => {
+    expect(v(30, yawed(1, 3, 120))).toBeCloseTo(0, 3)
+    expect(v(30, yawed(1, 3, -60))).toBeCloseTo(0, 3)
+    expect(v(0, yawed(1, 3, 45))).toBeCloseTo(45, 3)
+    expect(v(30, yawed(1, 3, 67))).toBeCloseTo(37, 3) // the 45-degree build's worst box, against a 30-degree spur
+    expect(v(45, yawed(1, 3, 67))).toBeCloseTo(22, 3)
+  })
+
+  it('is absent with no matching body in the zone, so a zone off the path fails as never appeared', () => {
+    expect(v(30, yawed(1, 9, 30))).toBeUndefined()
+    expect(read({ probe: { square: { zone: ZONE, heading: 30, color: 'green' } }, always: true, max: 10 }, frame([yawed(1, 3, 60)]))).toBeUndefined()
+  })
+})
+
 describe('ProbeSampler - a probe on the right-hand side of a predicate', () => {
   it('reads it under the operand key, beside the source', () => {
     const s = new ProbeSampler([{ tag: 'Sorted1', always: true, min: { probe: { count: {} } } }])
@@ -235,12 +260,68 @@ describe('ProbeSampler - a probe on the right-hand side of a predicate', () => {
 })
 
 describe('cargoRows', () => {
-  it('lists each body: id, part, kind, tint and its name, centre to the millimetre', () => {
+  it('lists each body: id, part, kind, tint and its name, centre to the millimetre, tilt', () => {
     const rows = cargoRows(frame([{ id: 7, part: 'p1', pos: [1.23456, 1, -0.5], color: RED, kind: CARGO_KIND_PALLET }, { id: 8, pos: [0, 0, 0], color: [1, 1, 1] }]))
     expect(rows).toEqual([
-      { id: 7, part: 'p1', kind: 'pallet', color: '#e01010', colorName: 'red', pos: [1.235, 1, -0.5] },
-      { id: 8, part: null, kind: 'box', color: '#ffffff', pos: [0, 0, 0] },
+      { id: 7, part: 'p1', kind: 'pallet', color: '#e01010', colorName: 'red', pos: [1.235, 1, -0.5], tiltDeg: 0, yawDeg: 0 },
+      { id: 8, part: null, kind: 'box', color: '#ffffff', pos: [0, 0, 0], tiltDeg: 0, yawDeg: 0 },
     ])
+  })
+
+  it('yaw of a case resting on a cross slope is the way its edges run in plan, not its rolled cross edge', () => {
+    // a 24 degree slide falling toward -Z, the case's X edge along a 30 degree run: X lies in the slide, Y is its normal
+    const t = Math.tan((24 * Math.PI) / 180)
+    const unit = (v: number[]): number[] => v.map((c) => c / Math.hypot(...v))
+    const X = unit([Math.cos(Math.PI / 6), -Math.sin(Math.PI / 6) * t, -Math.sin(Math.PI / 6)])
+    const Y = unit([0, 1, -t]) // the normal of y = t z
+    expect(Math.abs(X[0]! * Y[0]! + X[1]! * Y[1]! + X[2]! * Y[2]!)).toBeLessThan(1e-12) // a real rotation: X in the slide
+    const Z = [X[1]! * Y[2]! - X[2]! * Y[1]!, X[2]! * Y[0]! - X[0]! * Y[2]!, X[0]! * Y[1]! - X[1]! * Y[0]!]
+    // the rotation whose columns are X, Y, Z, as a quaternion (the trace is positive here)
+    const w = Math.sqrt(1 + X[0]! + Y[1]! + Z[2]!) / 2
+    const quat: [number, number, number, number] = [(Y[2]! - Z[1]!) / (4 * w), (Z[0]! - X[2]!) / (4 * w), (X[1]! - Y[0]!) / (4 * w), w]
+    const [row] = cargoRows(frame([{ pos: [0, 0, 0], quat }]))
+    expect(row!.yawDeg).toBe(30)
+    expect(row!.tiltDeg).toBe(24)
+  })
+
+  it('yaw is the heading about +Y as rotationY measures it, kept apart from a tilt, and a half turn reads 180', () => {
+    const rows = cargoRows(frame([{ pos: [0, 0, 0], quat: quatFromYXZ(0, Math.PI / 4, 0) }, { pos: [0, 0, 0], quat: quatFromYXZ(0, -Math.PI / 2, 0) }, { pos: [0, 0, 0], quat: quatFromYXZ(0, 0.7, Math.PI / 6) }, { pos: [0, 0, 0], quat: quatFromYXZ(0, -Math.PI, 0) }]))
+    expect(rows.map((r) => r.yawDeg)).toEqual([45, -90, 40, 180])
+  })
+
+  it('tilt is the up axis from vertical: a yaw leaves it upright, a roll onto its side is 90', () => {
+    const rows = cargoRows(frame([{ pos: [0, 0, 0], quat: quatFromYXZ(0, 1.2, 0) }, { pos: [0, 0, 0], quat: quatFromYXZ(Math.PI / 2, 0, 0) }, { pos: [0, 0, 0], quat: quatFromYXZ(0, 0.7, Math.PI / 6) }]))
+    expect(rows.map((r) => r.tiltDeg)).toEqual([0, 90, 30])
+  })
+})
+
+describe('CargoSnapshots', () => {
+  it('keeps the rows at the first step reaching each time, in time order, and names the times the run never reached', () => {
+    const snaps = new CargoSnapshots([0.5, 0.1, 9])
+    for (const t of [0, 1 / 60, 0.1, 0.25, 0.5000001, 0.6]) snaps.onFrame(frame([{ pos: [t, 0, 0] }], { simTime: t }))
+    expect(snaps.snapshots.map((s) => [s.at, s.t, s.bodies[0]!.pos[0]])).toEqual([
+      [0.1, 0.1, 0.1],
+      [0.5, 0.5000001, 0.5],
+    ])
+    expect(snaps.missed()).toEqual([9])
+  })
+
+  it("gives each body its velocity over the step before, and none to a body that step spawned", () => {
+    const snaps = new CargoSnapshots([0.5])
+    snaps.onFrame(frame([{ id: 1, pos: [1, 0.5, 0] }], { simTime: 0.4 }))
+    snaps.onFrame(frame([{ id: 1, pos: [1.2, 0.3, 0] }, { id: 2, pos: [0, 0, 0] }], { simTime: 0.5 }))
+    const [a, b] = snaps.snapshots[0]!.bodies
+    expect(a!.vel).toEqual([2, -2, 0])
+    expect(b!.vel).toBeUndefined()
+  })
+
+  it('asks the runner what each body touches only at a snapshot, and leaves it out when the runner cannot say', () => {
+    const snaps = new CargoSnapshots([0.2])
+    let asked = 0
+    const contacts = (): ReadonlyMap<number, readonly string[]> => (asked++, new Map([[1, ['belt', 'cargo 2']]]))
+    for (const t of [0, 0.1, 0.2, 0.3]) snaps.onFrame(frame([{ id: 1, pos: [t, 0, 0] }, { id: 2, pos: [t + 1, 0, 0] }], { simTime: t }), { contacts })
+    expect(asked).toBe(1)
+    expect(snaps.snapshots[0]!.bodies.map((b) => b.touching)).toEqual([['belt', 'cargo 2'], undefined])
   })
 })
 

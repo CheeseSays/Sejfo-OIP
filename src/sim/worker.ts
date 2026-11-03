@@ -3,13 +3,14 @@
 // First: part behaviors step in this worker, so it locks down before anything else runs (core/lockdownBoot.ts)
 import '../core/lockdownBoot'
 import { subscribePartDiagnostics } from '../core/parts/partDiagnostics'
-import { listPackages } from '../core/parts/partRegistry'
+import { clearPackages, listPackages } from '../core/parts/partRegistry'
 import { setPartCallBeacon } from '../core/parts/partScript'
 import { DEFAULT_SIM_HZ } from '../core/types'
 import type { SceneJSON } from '../core/types'
 import { StError } from '../plc'
 import { catchUpSteps } from './catchUp'
-import { PlcHost, WATCH_HZ } from './plcHost'
+import { WATCH_HZ } from './plcHost'
+import { PlcGroup } from './plcGroup'
 import type { PlcFrameWire } from './plcHost'
 import type { MainToWorker, WorkerToMain } from './protocol'
 import { FrameWireEncoder } from './frameWire'
@@ -21,7 +22,7 @@ let joltPromise: Promise<JoltModule> | null = null
 let world: SimWorld | null = null
 // the attached ST program, scanning in lockstep with the step loop (null = none). Owned by the
 // world lifecycle: 'start'/'stop' clear it, and the attach ('runProgram') always follows 'start'.
-let plc: PlcHost | null = null
+let plc: PlcGroup | null = null
 let intervalId: ReturnType<typeof setInterval> | null = null
 let paused = false
 // sim-clock multiplier (a time-scale factor): the loop accrues scaled time so the
@@ -48,6 +49,18 @@ const HELD_EDITS = new Set<MainToWorker['type']>(['update', 'updatePatch', 'adop
 let liveScene: SceneJSON | null = null
 // a held edit landed while paused and no frame has shown it yet
 let heldDirty = false
+// Step requests not yet done, oldest first. The paused loop runs them on its next tick, so a step queued behind an
+// edit sees it. `left` counts down a request by steps; `until` ends one at a sim time instead.
+interface StepRequest {
+  left: number
+  until?: number
+  seq?: number
+  done: number
+}
+let stepQueue: StepRequest[] = []
+// how long one paused tick may spend stepping before it posts a frame and yields: a long request (seconds of sim
+// time) then still feeds the view and the hang watchdog (sim/client.ts) while it runs
+const STEP_TICK_BUDGET_MS = 40
 
 self.onmessage = (e: MessageEvent<MainToWorker>) => {
   if (e.data.type === 'beacon') {
@@ -78,10 +91,10 @@ function post(msg: WorkerToMain, transfer: Transferable[] = []): void {
 // the variable table rides a frame WATCH_HZ times a second, not on every one (PlcHost.snapshot says why); a
 // program just attached sends it at once, so nothing waits a tenth of a second for its first values
 let watchSentAt = -Infinity
-let watchSentFor: PlcHost | null = null
-function plcFrame(host: PlcHost): PlcFrameWire {
+let watchSentFor: PlcGroup | null = null
+function plcFrame(host: PlcGroup, force: boolean): PlcFrameWire {
   const now = performance.now()
-  if (watchSentFor === host && now - watchSentAt < 1000 / WATCH_HZ) return host.snapshot({ watch: false })
+  if (!force && watchSentFor === host && now - watchSentAt < 1000 / WATCH_HZ) return host.snapshot({ watch: false })
   watchSentAt = now
   watchSentFor = host
   return host.snapshot()
@@ -157,6 +170,10 @@ async function handle(msg: MainToWorker): Promise<void> {
       plc = null // fresh world, fresh program: the controller's attach message follows its 'start'
       stepMsTotal = stepMsMax = stepsDone = frameMsTotal = framesDone = plcMsTotal = 0
       resetFrameWire()
+      stepQueue = [] // the client drops its waiters on start and stop: nothing to answer
+      // This worker outlives its runs. A run knows only the packages its scene hands it (SimWorld registers them), so
+      // a part whose package the scene lacks fails the same way on every run, not just when no earlier run had it.
+      clearPackages()
       world = new SimWorld(jolt, msg.scene, { benchRaw, forceJsListener, perfParts, hz: msg.hz })
       liveScene = msg.scene
       // ...but don't step it yet when the caller says it has more to send. Ownership ('setDrivenTags') and
@@ -196,14 +213,32 @@ async function handle(msg: MainToWorker): Promise<void> {
     } else if (msg.type === 'setPaused') {
       // hold the world but stop stepping; the loop keeps running so resume is instant
       paused = msg.paused
+      // a resume ends the steps still queued. Pausing again while paused (the page hiding) keeps them.
+      if (!paused) endSteps(stepQueue.splice(0), true)
+    } else if (msg.type === 'step') {
+      const req: StepRequest = { left: msg.steps ?? 1, done: 0, ...(msg.until !== undefined ? { until: msg.until } : {}), ...(msg.seq !== undefined ? { seq: msg.seq } : {}) }
+      if (paused && world) stepQueue.push(req)
+      else endSteps([req], true)
+    } else if (msg.type === 'inspectCargo') {
+      if (world) {
+        const { ids, velocities } = world.cargoVelocities()
+        const touching = [...world.cargoContacts()]
+        post({ type: 'cargoDetail', seq: msg.seq, simTime: world.stepCount / world.hz, ids, velocities, touching }, [ids.buffer, velocities.buffer])
+      } else {
+        post({ type: 'cargoDetail', seq: msg.seq, simTime: 0, ids: new Uint32Array(0), velocities: new Float32Array(0), touching: [] })
+      }
     } else if (msg.type === 'setTimeScale') {
       // applied live by the running loop on its next tick
       timeScale = msg.scale
     } else if (msg.type === 'setTags') {
-      // PLC→part: hold the latest ST tag values for custom-part behaviors to read next step
-      world?.setBehaviorInputTags(msg.tags)
+      // PLC→part from the external PLCs' links: held beside the in-worker program's outputs for behaviors to read next step
+      world?.setBehaviorLinkTags(msg.tags)
     } else if (msg.type === 'forceTag') {
       plc?.force(msg.name, msg.value)
+    } else if (msg.type === 'setForces') {
+      plc?.setForces(msg.forces)
+    } else if (msg.type === 'resetScanTimes') {
+      plc?.resetScanTimes()
     } else if (msg.type === 'setDrivenTags') {
       // output ownership: which global tags the attached controller drives (ctx.tagDriven)
       world?.setBehaviorDrivenTags(msg.tags)
@@ -213,7 +248,7 @@ async function handle(msg: MainToWorker): Promise<void> {
       // attach (or live re-attach): compile here and scan in the step loop. The main thread already
       // compiled this source for validation, so a failure is a backstop - report it and stay detached.
       try {
-        plc = new PlcHost(msg.source, msg.periodSec, msg.wired)
+        plc = new PlcGroup(msg.runs)
       } catch (err) {
         plc = null
         post(plcFaultMsg(err))
@@ -225,10 +260,11 @@ async function handle(msg: MainToWorker): Promise<void> {
     } else if (msg.type === 'setScanPeriod') {
       plc?.setPeriod(msg.periodSec)
     } else if (msg.type === 'rebindProgram') {
-      plc?.rebind(msg.wired)
+      plc?.rebind(msg.wired, msg.controller ?? null)
     } else {
       stopLoop()
       paused = false
+      stepQueue = []
       plc = null
       world?.dispose()
       world = null
@@ -237,7 +273,17 @@ async function handle(msg: MainToWorker): Promise<void> {
     }
   } catch (err) {
     stopLoop()
+    paused = false
+    stepQueue = []
+    plc = null
+    // free the Jolt world and its behaviors; a throw from the teardown must not hide the error that got us here
+    try {
+      world?.dispose()
+    } catch (disposeErr) {
+      console.warn('[sim] dispose after a handler error threw', disposeErr)
+    }
     world = null
+    liveScene = null
     resetFrameWire()
     post({ type: 'error', message: err instanceof Error ? err.message : String(err) })
   }
@@ -259,6 +305,30 @@ function startLoop(): void {
     if (paused) {
       last = performance.now()
       wasPaused = true
+      if (stepQueue.length > 0) {
+        heldDirty = false // the stepped frame shows any held edit too
+        try {
+          const ended: StepRequest[] = []
+          const t0 = performance.now()
+          while (stepQueue.length > 0) {
+            const req = stepQueue[0]!
+            if (req.until !== undefined ? w.stepCount / hz + 1e-9 >= req.until : req.left <= 0) {
+              ended.push(stepQueue.shift()!)
+              continue
+            }
+            if (performance.now() - t0 >= STEP_TICK_BUDGET_MS) break
+            advance(w, stepSec)
+            req.left--
+            req.done++
+          }
+          postFrame(w, true, true)
+          endSteps(ended, false)
+        } catch (err) {
+          stopLoop()
+          post({ type: 'error', message: err instanceof Error ? err.message : String(err) })
+        }
+        return
+      }
       // Nothing steps, but a held edit still changed the world: a gizmo drag teleports a body, a live
       // edit adds or removes cargo, a promotion adopts one. Publish that unstepped, or the view, the
       // gizmo anchor and every live pick keep reading the pre-pause frame - the dragged box stays
@@ -298,27 +368,7 @@ function startLoop(): void {
       const maxSteps = catchUpSteps(timeScale, hz)
       let steps = 0
       while (acc >= stepMs && steps < maxSteps) {
-        // Interleave the PLC scan before each step, on the fixed step dt (sim time): the scan reads
-        // the tags behaviors wrote last step and its outputs apply to the step about to run. The
-        // same lockstep as the headless project-test runner, exactly reproducible at any frame
-        // rate or timeScale (see PlcHost). A runtime scan fault drops the program to STOP (detach +
-        // report) without touching the physics loop, like a faulted PLC leaving the machine powered.
-        if (plc) {
-          const tp = performance.now()
-          try {
-            plc.interleave(w, stepSec)
-          } catch (err) {
-            plc = null
-            post(plcFaultMsg(err))
-          }
-          plcMsTotal += performance.now() - tp
-        }
-        const t0 = performance.now()
-        w.step()
-        const dt = performance.now() - t0
-        stepMsTotal += dt
-        if (dt > stepMsMax) stepMsMax = dt
-        stepsDone++
+        advance(w, stepSec)
         acc -= stepMs
         steps++
       }
@@ -332,6 +382,40 @@ function startLoop(): void {
   }, 8)
 }
 
+/** answer the step requests that asked for an answer (a `seq`) */
+function endSteps(reqs: readonly StepRequest[], interrupted: boolean): void {
+  const simTime = world ? world.stepCount / world.hz : 0
+  for (const r of reqs) {
+    if (r.seq === undefined) continue
+    post({ type: 'stepped', seq: r.seq, simTime, steps: r.done, ...(interrupted ? { interrupted: true as const } : {}) })
+  }
+}
+
+/** one fixed step: the PLC scans that fall due, then physics. The running loop and a paused Step both come here. */
+function advance(w: SimWorld, stepSec: number): void {
+  // Interleave the PLC scan before each step, on the fixed step dt (sim time): the scan reads
+  // the tags behaviors wrote last step and its outputs apply to the step about to run. The
+  // same lockstep as the headless project-test runner, exactly reproducible at any frame
+  // rate or timeScale (see PlcHost). A runtime scan fault drops the program to STOP (detach +
+  // report) without touching the physics loop, like a faulted PLC leaving the machine powered.
+  if (plc) {
+    const tp = performance.now()
+    try {
+      plc.interleave(w, stepSec)
+    } catch (err) {
+      plc = null
+      post(plcFaultMsg(err))
+    }
+    plcMsTotal += performance.now() - tp
+  }
+  const t0 = performance.now()
+  w.step()
+  const dt = performance.now() - t0
+  stepMsTotal += dt
+  if (dt > stepMsMax) stepMsMax = dt
+  stepsDone++
+}
+
 // partIds + dressings go out only when they changed (frameWire.ts); reset whenever the world is rebuilt or
 // dropped, so a new world's first frame carries both in full
 const frameWire = new FrameWireEncoder()
@@ -339,8 +423,11 @@ function resetFrameWire(): void {
   frameWire.reset()
 }
 
-/** snapshot the world and ship it to the main thread; `held` = published while paused, no step behind it */
-function postFrame(w: SimWorld, held: boolean): void {
+/**
+ * snapshot the world and ship it to the main thread. `held` = published while paused (a held edit or a Step);
+ * `fullWatch` = carry the variable table even inside its 1/WATCH_HZ window, so a Step shows the values it made.
+ */
+function postFrame(w: SimWorld, held: boolean, fullWatch = false): void {
   const tf = performance.now()
   const f = w.frame()
   const flowFacts = w.drainFlowFacts()
@@ -361,6 +448,7 @@ function postFrame(w: SimWorld, held: boolean): void {
       ...frameWire.encode(f.partIds, f.dressings, f.shapes, f.shapeRefs),
       ...(f.joints ? { joints: f.joints } : {}),
       ...(f.subPoses ? { subPoses: f.subPoses } : {}),
+      ...(f.copySpeeds ? { copySpeeds: f.copySpeeds } : {}),
       ...(f.lamps ? { lamps: f.lamps } : {}),
       ...(f.values ? { values: f.values } : {}),
       ...(f.displays ? { displays: f.displays } : {}),
@@ -370,7 +458,7 @@ function postFrame(w: SimWorld, held: boolean): void {
       ...(f.beamHits ? { beamHits: f.beamHits } : {}),
       ...(f.marks ? { marks: f.marks } : {}),
       ...(held ? { paused: true as const } : {}),
-      ...(plc ? { plc: plcFrame(plc) } : {}),
+      ...(plc ? { plc: plcFrame(plc, fullWatch) } : {}),
       ...(flowFacts.length > 0 ? { flowFacts } : {}),
       stepStats: { totalMs: stepMsTotal, steps: stepsDone, maxMs: stepMsMax, frameTotalMs: frameMsTotal, frames: framesDone, plcTotalMs: plcMsTotal, ...(plc ? { plcSplit: { ...plc.perf } } : {}), worstStep: { ...w.worstStep }, overBudgetSteps: w.overBudgetSteps, ...(w.perfParts ? { worstScriptCall: { ...w.worstScriptCall } } : {}), phases: { ...w.phaseMs, ...w.scriptPerf() }, scriptMsByPart: Object.fromEntries(w.scriptMsByPart), rigMsByPart: Object.fromEntries(w.rigMsByPart), ...w.bodyStats() },
     },

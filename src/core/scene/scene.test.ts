@@ -905,11 +905,24 @@ describe('scene unit system (SceneJSON.units)', () => {
     expect(bad.ok && bad.scene.units).toBe(undefined)
     expect(bad.ok && bad.repairs?.some((r) => r.includes('units'))).toBe(true)
   })
+  it('loads, keeps and repairs the Length', () => {
+    const ok = validateScene({ version: SCENE_VERSION, parts: [], units: 'imperial', lengthUnit: 'mm' })
+    expect(ok.ok && [ok.scene.units, ok.scene.lengthUnit]).toEqual(['imperial', 'mm'])
+    expect(ok.ok && ok.repairs).toBeFalsy()
+    const bad = validateScene({ version: SCENE_VERSION, parts: [], lengthUnit: 'cubits' })
+    expect(bad.ok && 'lengthUnit' in bad.scene).toBe(false)
+    expect(bad.ok && bad.repairs?.some((r) => r.includes('lengthUnit'))).toBe(true)
+  })
+  it("reads the 'metric-mm' units one release saved as metric with a Length of mm, without a repair", () => {
+    const old = validateScene({ version: SCENE_VERSION, parts: [], units: 'metric-mm' })
+    expect(old.ok && [old.scene.units, old.scene.lengthUnit]).toEqual(['metric', 'mm'])
+    expect(old.ok && old.repairs).toBeFalsy()
+  })
 })
 
 describe('serializeScene carries the unit system', () => {
   it('round-trips through the scene file', () => {
-    const back = validateScene(JSON.parse(serializeScene({ version: SCENE_VERSION, parts: [], units: 'metric' })))
-    expect(back.ok && back.scene.units).toBe('metric')
+    const back = validateScene(JSON.parse(serializeScene({ version: SCENE_VERSION, parts: [], units: 'metric', lengthUnit: 'in' })))
+    expect(back.ok && [back.scene.units, back.scene.lengthUnit]).toEqual(['metric', 'in'])
   })
 })

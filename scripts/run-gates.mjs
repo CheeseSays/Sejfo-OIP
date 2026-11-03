@@ -157,6 +157,10 @@ const GATES = [
     why: "Insert Box is the one door to everything a rung can call that the element bar does not hold - a program's own FUNCTION_BLOCKs above all, which nothing else offers - and every box reaches the rung through the catalogue's one insert path (plc/ladder/ladderCatalog.ts), the bar's included. The unit tests hold the catalogue to the engine; only the app can show the bar's 'Block…' and Ctrl+B opening it on the search field, a typed name picking the program's own block, Enter landing it declared with every pin to fill and titled with its outputs drawn before one is named, a library function landing the same way, and Escape changing nothing",
   },
   {
+    script: 'verify-ladder-drag-zoom.mjs',
+    why: "the ladder sheet's own gestures write to the DOM and the program without React seeing most of them: Ctrl+wheel paints the zoom straight onto the sheet and saves it once the wheel settles, a wrapped rung's rows are joined by wire drawn into a layer React never reads, a rung moves by its number and a branch end stretches over its neighbours through pointer capture. Nothing else drives any of them, so each is read back from the stored program or the sheet itself",
+  },
+  {
     script: 'verify-demo-ladder.mjs',
     why: "the demo ships ONE program in two languages, Palletizer in ladder calling PalletTruck in Structured Text, and only the app can show the PLC panel treating a POU's language as the POU's own: a panel open on text when the demo loads comes up on the rungs of the program the controller runs, with no Text | Ladder switch and no idle twin; Play lights the rungs and the ladder drives the cell; the ST chip opens the text, the ladder chip brings the rungs back, and its 'Show as text' shows the rung text without forking the demo. The unit tests hold the program to being the same machine as the demo all in ST and all in ladder",
   },
@@ -170,7 +174,7 @@ const GATES = [
   },
   {
     script: 'verify-part-editing-ux.mjs',
-    why: "the part-editing surfaces say what an edit will do and never drop one (found in a parts-editing review): the behavior editor asks before a stray backdrop click or ✕ discards unapplied work, and only then; a rig node edit names how many placed copies follow; the last node can't be 'deleted' by a button that does nothing; a joint is renamable only while its script never mentions it, because a rename doesn't rewrite the script and a joint commanded by its old name silently stops moving; the browser offers no Save that can only say it can't; ✎ is off in a shared room. None of those threw. Checked to bite: a backdrop that closes without asking fails it. The desktop half (a project's parts live in its folder, one library, nothing to save) is verify-part-library-electron.mjs, which needs the real shell",
+    why: "the part-editing surfaces say what an edit will do and never drop one (found in a parts-editing review): the behavior editor asks before a stray backdrop click or ✕ discards unapplied work, and only then; a rig node edit names how many placed copies follow; the last node can't be 'deleted' by a button that does nothing; a joint is renamable only while its script never mentions it, because a rename doesn't rewrite the script and a joint commanded by its old name silently stops moving; the browser offers no Save that can only say it can't; ✎ and New part stay on in a shared project. None of those threw. Checked to bite: a backdrop that closes without asking fails it. The desktop half (a project's parts live in its folder, one library, nothing to save) is verify-part-library-electron.mjs, which needs the real shell",
   },
   {
     script: 'verify-parts-shelf-electron.mjs',
@@ -197,12 +201,44 @@ const GATES = [
     why: "a part's embedded model travels through a room by hash (docs/part-sources.md \"Rooms\"): an editor's bytes land in the collab server's asset store named by their SHA-256, the stored room carries the hash and not the base64, a viewer joining cold gets the exact bytes back, and a viewer uploads nothing. Runs its own collab server (server/index.mjs) on a free port with its own db and asset folder",
   },
   {
+    script: 'verify-live-share.mjs',
+    why: "live share (docs/live-share.md): anyone running in a shared project can be watched, and the collab server sends each run only to its followers. With no Live switch, a view link waits for the owner's run and follows it (its cargo moves, its own store stays stopped, nothing reaches its document); an editor joining mid-run is offered the run and starts at the same point once it says Watch; the owner's Spotlight takes the editor to the owner's run, which it can dismiss; with two people running, the view link stays on the owner's run and can pick the other; the viewer's own Play takes the view and Stop gives it back; the owner's Stop ends the run for its followers. Runs its own collab server on a free port; the late tab gets a browser of its own, since two tabs drawing a run starve a third one's renderer start",
+  },
+  {
+    script: 'verify-shared-part-editor.mjs',
+    why: "the Part Editor and deleting parts work in a shared project without touching anyone's line (collab/bridge.ts parks it while the editor shows the part alone), proven with two people against a real collab server: New part and ✎ open the editor while the other person's line stays as it was, the new part and an edit to it reach them, their edit to the line made meanwhile lands in the parked line and is there after Back, both end with the same line, and a deleted part leaves their parts. Checked to bite: with the bridge diffing the store's scene while the editor is open, the other person's line is wiped. Runs its own collab server on a free port",
+  },
+  {
+    script: 'verify-collab-offline.mjs',
+    why: "a collab server that cannot be reached is explained (components/PresenceStack.tsx): a blip only says Connecting…, but past 10 s the people button says Offline and its list names the server, says the changes are kept and offers Retry, which reconnects once the server is back. Runs its own collab server on a free port and kills it",
+  },
+  {
+    script: 'verify-present.mjs',
+    why: "Present (components/PresentOverlay.tsx) is for a projector or a display: it hides the toolbar, the docks, the viewport toolbar and the orbit gizmo and the viewport fills the window; its bar fades when the mouse is still and comes back when it moves; Escape and Exit bring the editor back; a link with &present=1 opens straight into it, locked: no bar, and no key (Escape, the palette's) reaches the editor",
+  },
+  {
+    script: 'verify-shared-project.mjs',
+    why: "a shared project stays the user's project (project/sharedProject.ts), so it is proven against a real collab server: Share > Can edit shares a solo project in place and the project menu keeps its name, tagged Shared; an edit in the room, the owner's or a collaborator's, reaches the project in storage by itself, and Stop sharing is offered; opening the app again opens it in its room; Stop sharing makes it the user's alone with everything done while shared, and it stays solo; the room keeps the edits for its links. Runs its own collab server on a free port",
+  },
+  {
     script: 'verify-desktop-file-open-electron.mjs',
     why: "a .oip or .oippart opened from outside the app (what a double-click does once the installer registers them): launched with a .oip the app asks and opens it as a project of its own, and a second launch naming a .oippart hands it to the running window, which takes it into the open project's parts while the second process exits. Main reads the file and the renderer gets bytes, never a path. Launches the dev Electron shell on a throwaway profile",
   },
   {
     script: 'verify-step-import.mjs',
     why: "a STEP file imports through a rig node's Import model...: the CAD kernel (occt-import-js, 7.6 MB of wasm) loads in a worker of its own only when a STEP file is converted, the page keeps drawing while it reads, and the node becomes an embedded GLB with one mesh per colour. What it guards is the part nothing else exercises: a worker that imports a CommonJS emscripten loader and a ?url wasm, which a vite or dependency upgrade can break without a single unit test noticing (the kernel's own tests run it in node, not through the bundler)",
+  },
+  {
+    script: 'verify-usd-import.mjs',
+    why: "a USD model imports through a rig node's Import model..., as one file or as its folder: the USD reader (@huggingface/usd-web-viewer, 2.3 MB of wasm in its own worker) loads only when a model is converted, and the node becomes an embedded GLB with composition honoured (a payload, a reference, a variant, an override from the stronger layer, centimetres and Z up) and one mesh per material. A lone root layer whose payload is elsewhere imports nothing and says to pick the folder. The model is written by the gate itself, first-party.",
+  },
+  {
+    script: 'verify-split-pieces.mjs',
+    why: "the Part Editor's Split into pieces (editor/rigSplit.ts): each node of an imported model is drawn by one link, the nearest that keeps it (core/glbBox.ts drawnElsewhere). Read from the rendered part: a split piece is drawn once and stays in place, a piece split from inside another is not drawn twice, a joint with a centred pivot moves nothing at rest, and deleting or merging a piece gives it back to the model. The model is written by the gate itself",
+  },
+  {
+    script: 'verify-named-plcs-electron.mjs',
+    why: "several PLCs in one run (src/plc/DEVICE-IO.md, \"Several controllers\"): the program here runs one line while two Modbus masters stand in for Cell2 and Cell3 on the same addresses, each on a port of its own, and each drives only its own belt. It caught the in-worker program wiping what the links wrote, which no unit test saw. Then the authoring side: Controller Properties' free ports and clash warning, the Inspector's Controller row, a name written in its set-up spelling, the Scene tree's badges, Assign to Controller and rename. Launches the dev Electron shell on a throwaway profile",
   },
   {
     script: 'verify-agent-mcp-electron.mjs',
@@ -279,6 +315,10 @@ const GATES = [
   {
     script: 'verify-webgpu-spur-slide-no-gpu-errors.mjs',
     why: 'WebGPU resource lifetime, the MERGE gesture the resize gate cannot reach: butting a spur onto a conveyor and sliding it along re-emits the HOST\'s geometry per pointer-move while the mover is drag-ejected, then the draw list goes QUIET - so a buffer freed under a live recording has nothing left to replace it and the main + shadow passes are rejected on every frame from the end of the drag onward (a PERMANENT black viewport, outline and gizmo still drawing over it). Waiting for a landed re-record before freeing was not enough; gpuRetire also notifies AFTER the release (SKIPs without WebGPU)',
+  },
+  {
+    script: 'verify-spur-diverter-gap.mjs',
+    why: "a diverter snapped onto a spur opens the spur's guard where its arms cross, as DRAWN: a drawn part only gets that opening through its `guardGaps` param (core/parts/hostFacts.ts), and a part that leaves the param out still loads, so the arms would run into solid guard with no error anywhere. Carries its own control (the spur alone keeps a whole guard)",
   },
   {
     script: 'verify-warm-load-no-gpu-errors.mjs',
@@ -413,6 +453,10 @@ const GATES = [
     why: "the browser can hold more than ONE project now (editor/project/documentStore.ts), and every way that goes wrong is invisible to a unit test: the library is IndexedDB, absent in the Node env. Isolation is the claim with teeth - a new project must carry none of the previous one's scenes - and the switch is write-then-RELOAD through the single tested boot path, so a scene tab that survives it survives everything. Also pins the split the design rests on: localStorage keeps the WORKING COPY (unchanged, quota-guarded, synchronous on every commit) while IndexedDB holds the library, which is what makes N projects safe on a store where one project with an embedded model can already exhaust the quota. The open document cannot be deleted, because it IS the working copy",
   },
   {
+    script: 'verify-browser-working-copy.mjs',
+    why: "the browser working copy is the open document's IndexedDB row, with models by hash in their own store (projectFile.ts, localAssets.ts), and nothing else in the browser holds a copy of it. Pins that a 6 MB model saves and reloads byte-exact, that a project whose stored bytes are gone is refused rather than opened without its model, that a .oip with the model imports into a browser that never stored it, that a project past the old 5 MB localStorage limit saves, that a page hidden with a row write in flight also leaves the text where a closing page can write it, and that the first boot moves an earlier build's localStorage working copy into the row (or keeps the row where a refused save left it newer). IndexedDB is absent in the Node env, so only a browser can check it",
+  },
+  {
     script: 'verify-folder-link-persist.mjs',
     why: "a linked project folder is the agent loop's whole input path, and it must survive a reload: a handle kept in module state dies on refresh, silently demoting the project to a plain document with the banner's ABSENCE as the only signal. The memory is IndexedDB, absent in the Node env, so none of it is unit-reachable. What this pins is the boot half - a row keyed by DOCUMENT id (not a global 'last folder', or reopening any project would inherit someone else's), consumed with no user action, and cleared by unlink so a dismissed folder stays dismissed. It also pins the two failures that are normal here rather than exotic: a handle the browser refuses to clone costs the memory but never the LINK, and a remembered folder that has since moved or been deleted has to arrive as the sticky banner - that read throws rather than returning, so the boot path has to catch it. A real FileSystemDirectoryHandle cannot appear in a test browser (showDirectoryPicker is a native dialog; the OPFS alternative kills the browser process when a handle of its own goes through IndexedDB and back - it reproduces with no app code at all, recipe in the gate's header), so the row is planted and what a handle DOES stays in projectFolderLink.test.ts",
   },
@@ -476,12 +520,20 @@ const GATES = [
     why: "the part sandbox end to end (docs/part-sandbox.md): a room hands everyone its custom parts' code, so a stranger's part must RUN (its display plate says so) while its classic escape stays inside, on the main thread AND the sim worker, for an editor and a view-link viewer alike; and Block must hold the code after a reload, Allow must undo it. Every unit test of the sandbox runs in node - this is the only proof the real page and worker lock down and that a real collab server's packages go through the gate. Stands up its own collab server",
   },
   {
+    script: 'verify-plc-force.mjs',
+    why: "a force is a run's state that changes what the line does without changing anything anyone saved, so a force that silently fails to hold, or outlives Stop, makes a commissioning session lie: this checks, in the real page and worker, that a forced variable holds against the program that writes it, that a write to it changes the held value, that the toolbar counts forces and releases them, that Stop releases them, that the rungs mark a forced contact (a badge drawn whole even beside the rail) and clear the mark on release, that the rungs' and the code's right-click menus force and release the operand under the pointer, that a device's tags, the Inspector's tag fields, the Scene tree and the Devices list force or mark the variable a part names, and that none of it is an edit of the project. plc.test.ts proves the hold; only a browser proves the path from the dock to the worker and back",
+  },
+  {
     script: 'guide-opcua.mjs',
-    why: "a published guide (/guides/opcua/) is a promise made in the app's own words, and nothing else reads those words: every label, default and status line the page quotes is looked up on the page and then found in the running desktop shell, and a real OPC UA client (node-opcua) does what the page tells a SCADA to do until the PLC stops the box at the sensor. Rewording the dialog, an Inspector label or a status line fails on the sentence that stopped matching, which is the moment to fix the page AND retake its pictures (`node e2e/guide-opcua.mjs --images`); it also fails a picture the page shows but that is missing or no longer the size its tag says. One of two guides that can be a gate (with guide-s7): the Modbus one needs a real OpenPLC. Launches the dev Electron shell and needs port 4843 free",
+    why: "a published guide (/guides/opcua/) is a promise made in the app's own words, and nothing else reads those words: every label, default and status line the page quotes is looked up on the page and then found in the running desktop shell, and a real OPC UA client (node-opcua) does what the page tells a SCADA to do until the PLC stops the box at the sensor. Rewording the dialog, an Inspector label or a status line fails on the sentence that stopped matching, which is the moment to fix the page AND retake its pictures (`node e2e/guide-opcua.mjs --images`); it also fails a picture the page shows but that is missing or no longer the size its tag says. One of three guides that can be a gate (with guide-s7 and guide-ads): the Modbus one needs a real OpenPLC. Launches the dev Electron shell and needs port 4843 free",
   },
   {
     script: 'guide-s7.mjs',
     why: "the S7 guide (/guides/s7/) followed the same way, against the unit tests' strict stand-in CPU (src/plc/link/s7FakeCpu.ts) on a real TCP socket, since no S7 CPU is at hand: the page's addresses, the dialog's defaults and PUT/GET reminder, nothing listening, a wrong slot refused, PUT/GET off named and then allowed mid-run without a second Play, the box stopped at the eye and the bits beside the eye's input left alone. Its quotes are the messages a reader stuck on PUT/GET actually sees, so rewording them in s7Client.ts or s7Link.ts fails here; retake its pictures with `node e2e/guide-s7.mjs --images`. Launches the dev Electron shell",
+  },
+  {
+    script: 'guide-ads.mjs',
+    why: "the ADS guide (/guides/ads/) as far as it can be followed without vendor software: step 1's scene, each row of its wiring table typed into the Inspector field the page names, and its picture the size its tag says. The connection itself needs the reader's TwinCAT router, which this project never runs. Retake its picture with `node e2e/guide-ads.mjs --images`. Launches the dev Electron shell",
   },
   {
     script: 'verify-repo-self-contained.mjs',

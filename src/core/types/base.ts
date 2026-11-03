@@ -263,6 +263,10 @@ export interface TagRefParamSpec {
   dir?: 'in' | 'out'
   /** the ST scalar the tag carries (the SDK's `ParamSpec.stType`) - pairs with {@link dir} */
   stType?: 'BOOL' | 'INT' | 'DINT' | 'REAL'
+  /** the unit of the value the tag carries (the SDK's `ParamSpec.unit`): `'m/s'`, `'FPM'`, `'m'`. A setpoint tag
+   *  that declares none takes its {@link setpointFor} param's. Shown as declared: the program reads and writes the
+   *  value in it, so the scene's Units never convert it. */
+  unit?: string
   /**
    * This tag is an analog setpoint that replaces the named number param while it's bound (the SDK's
    * `setpointFor`): a conveyor's `speedTag` replaces `speed`. The Inspector shows the live commanded
@@ -270,6 +274,9 @@ export interface TagRefParamSpec {
    * scene isn't using. Same units as the target param by contract.
    */
   setpointFor?: string
+  /** the part reads this tag only while a program drives it, and runs on its own setting otherwise (the SDK's
+   *  `onlyWhenDriven`, or `autoWhenDriven`, which implies it). The wiring check words an undriven warning by it. */
+  onlyWhenDriven?: boolean
   /** what each number a code tag carries means (the SDK's `values`), listed on the field */
   values?: { value: number; label: string }[]
 }
@@ -356,7 +363,7 @@ export interface PartDef {
   type: PartType
   label: string
   /** catalog section */
-  category: 'Equipment' | 'Devices' | 'Products' | 'Structure' | 'Robot Tools'
+  category: 'Equipment' | 'Devices' | 'Products' | 'Structure'
   /** placement height of the part origin when dropped on the ground plane */
   defaultY: number
   /** which viewport resize handles the part offers (y = vertical height handle) */

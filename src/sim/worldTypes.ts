@@ -7,6 +7,7 @@ import type { CargoMarkValue, PartPackage } from '../core/parts/partPackage'
 import type { BehaviorInput } from './embeddedBehavior'
 import type { ConveyorEntry } from '../core/geometry/collisionShapes'
 import { packageRev } from '../core/parts/partRegistry'
+import { copySubPose, subPoseEq } from '../core/rig/rigPose'
 import type { Quat, RigParams, SubPose, Vec3 } from '../core/rig/rigPose'
 import type { MountedOn } from '../core/scene/sceneMounts'
 import type { PartInstance } from '../core/types'
@@ -26,6 +27,9 @@ export interface KinematicScratch {
   readonly pos: Jolt.RVec3
   readonly quat: Jolt.Quat
 }
+
+/** CargoRegistry.placeBody: the one writer of a cargo body's pose (position, rotation or both) outside the solver */
+export type PlaceBody = (id: Jolt.BodyID, pos: Jolt.RVec3 | null, rot: Jolt.Quat | null) => void
 
 /** a body's frame / registry key: its BodyID's index and sequence number */
 export function bodyKey(body: Jolt.Body): number {
@@ -121,6 +125,10 @@ export interface PartGroup {
   bodies: Jolt.Body[]
   conveyorKeys: number[]
   boxIds: number[]
+  /** the behaviors and rigs this part's build attached. A clustered deck's owner attaches every member's behavior,
+   *  so they are filed under the owner, which every member's edit rebuilds (deckClusterKey). */
+  behaviors?: BehaviorRecord[]
+  rigs?: RigInstance[]
 }
 
 /** One attached custom-part behavior script. Drives a deck's surface velocity and/or a rig's joints. */
@@ -148,19 +156,13 @@ export function flatRecEq(a: Record<string, number | boolean> | undefined, b: Re
   return true
 }
 
-export function vec3Eq(a?: [number, number, number], b?: [number, number, number]): boolean {
-  if (!a || !b) return !a && !b
-  return a[0] === b[0] && a[1] === b[1] && a[2] === b[2]
-}
-
 export function subPosesEq(a: Record<string, SubPose> | undefined, b: Record<string, SubPose>): boolean {
   const ka = a ? Object.keys(a) : []
   if (ka.length !== Object.keys(b).length) return false
   for (const k of ka) {
     const y = b[k]
     const x = a![k]
-    if (!x || !y) return false
-    if (!vec3Eq(x.position, y.position) || !vec3Eq(x.rotation, y.rotation)) return false
+    if (!x || !y || !subPoseEq(x, y)) return false
   }
   return true
 }
@@ -169,12 +171,7 @@ export function subPosesEq(a: Record<string, SubPose> | undefined, b: Record<str
 export function snapshotRigInputs(rec: BehaviorRecord, rootPos: [number, number, number], rootYaw: number, rootQuat?: Quat): AppliedRigInputs {
   const subPoses: Record<string, SubPose> = {}
   if (rec.subPoses) {
-    for (const [k, v] of Object.entries(rec.subPoses)) {
-      subPoses[k] = {
-        ...(v.position ? { position: [v.position[0], v.position[1], v.position[2]] as [number, number, number] } : {}),
-        ...(v.rotation ? { rotation: [v.rotation[0], v.rotation[1], v.rotation[2]] as [number, number, number] } : {}),
-      }
-    }
+    for (const [k, v] of Object.entries(rec.subPoses)) subPoses[k] = copySubPose(v)
   }
   return { joints: { ...(rec.joints ?? {}) }, grips: { ...(rec.grips ?? {}) }, subPoses, rx: rootPos[0], ry: rootPos[1], rz: rootPos[2], yaw: rootYaw, ...(rootQuat ? { rq: [rootQuat[0], rootQuat[1], rootQuat[2], rootQuat[3]] as Quat } : {}) }
 }
@@ -198,6 +195,10 @@ export interface BehaviorRecord {
   /** a rig conveyor's deck bodies (one per `conveys` link), which it drives through `conveyorEntries` but does
    *  not hold as `body` - what the stopped→running wake has to search above (see wakeCargoOn) */
   deckBodies?: Jolt.Body[]
+  /** a posable conveying array's decks, one per copy (a cross-belt sorter's carriers): each driven only by
+   *  ctx.setSurfaceSpeed(speed, link, i), never by the part-wide surface commands. `was` is each copy's last
+   *  running state, for the stopped->running wake. */
+  copyDecks?: { link: string; entries: Extract<ConveyorEntry, { kind: 'linear' }>[]; bodies: Jolt.Body[]; was: boolean[] }[]
   pos: [number, number, number]
   fwd: [number, number, number]
   /** the deck body this script drives - held so a keyed part can be torn down on reload; absent for a joint-only rig */
@@ -233,6 +234,9 @@ export interface BehaviorRecord {
   beamBoxes?: Record<string, LiveBox>
   /** latest free-form link pose overrides this step (rig setSubPose), captured in tickBehaviors */
   subPoses?: Record<string, SubPose>
+  /** a posable conveying array's copy speeds this tick (ctx.setSurfaceSpeed(speed, link, i)), by link; {} when the
+   *  part has conveying copies and ran none, so the view stops their belts */
+  copySpeeds?: Record<string, number[]>
   /** latest PLC tags this script wrote this step (ctx.writeTag/writeNumber), captured for the frame */
   tags?: Record<string, number | boolean>
   /** set once the behavior has driven its base (ctx.drive) - the live root pos/fwd has moved off the saved
@@ -258,6 +262,7 @@ export function behaviorRecord(handle: number, pos: [number, number, number], fw
     wasConveying: undefined,
     wasDeckConveying: undefined,
     deckBodies: undefined,
+    copyDecks: undefined,
     pos,
     fwd,
     body: init.body,
@@ -273,6 +278,7 @@ export function behaviorRecord(handle: number, pos: [number, number, number], fw
     beamHits: undefined,
     beamBoxes: undefined,
     subPoses: undefined,
+    copySpeeds: undefined,
     tags: undefined,
     mobile: undefined,
     input: undefined,
@@ -285,6 +291,9 @@ export interface RigBody {
   body: Jolt.Body
   id: Jolt.BodyID
   offset?: Vec3
+  /** a posable array instance's index, and its rest place in the link's frame (its array delta) */
+  instance?: number
+  rest?: Vec3
 }
 
 /** One custom rig part in the running world (RigDriver.rigs). */

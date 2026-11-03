@@ -95,3 +95,27 @@ describe('setSceneUnits', () => {
     expect(change.scene.parts[0]).toBe(scene.parts[0])
   })
 })
+
+describe('setSceneUnits and the Length', () => {
+  const scene = (extra: Partial<SceneJSON>): SceneJSON => ({ ...blankScene(), ...extra })
+
+  it('carries a Length of the other system to the new Units, and says so', () => {
+    const toImperial = setSceneUnits(scene({ units: 'metric', lengthUnit: 'mm' }), 'imperial')
+    expect('lengthUnit' in toImperial.scene).toBe(false)
+    expect(toImperial.length).toBe('in')
+    const toMetric = setSceneUnits(scene({ units: 'imperial', lengthUnit: 'in' }), 'metric')
+    expect('lengthUnit' in toMetric.scene).toBe(false)
+    expect(toMetric.length).toBe('m')
+  })
+
+  it('reports the move for a scene with no Length saved too, since what it shows changes', () => {
+    expect(setSceneUnits(scene({}), 'imperial').length).toBe('in')
+  })
+
+  it('keeps a Length already of the new system, and a switch to the same Units moves nothing', () => {
+    const kept = setSceneUnits(scene({ units: 'imperial', lengthUnit: 'mm' }), 'metric')
+    expect(kept.scene.lengthUnit).toBe('mm')
+    expect(kept.length).toBeUndefined()
+    expect(setSceneUnits(scene({ units: 'metric', lengthUnit: 'mm' }), 'metric').length).toBeUndefined()
+  })
+})

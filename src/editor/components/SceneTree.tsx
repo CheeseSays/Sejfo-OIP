@@ -3,18 +3,21 @@ import type { DragEvent as ReactDragEvent, KeyboardEvent as ReactKeyboardEvent, 
 import { effectivelyHiddenSet, orderedTree, subtreeIds } from '../../core/scene/hierarchy'
 import { PART_DEFS } from '../../core/types'
 import type { SdkPart, PartDef, PartInstance } from '../../core/types'
-import { getPackage, packageCategory } from '../../core/parts/partRegistry'
+import { getPackage } from '../../core/parts/partRegistry'
+import { isStandardCategory, packageCategory } from '../../core/parts/partCategory'
 import { partDisplayNames } from '../../core/parts/partDisplayName'
 import { resolveKeyAction } from '../../core/keymap'
 import { runCommand, runCommandOn } from '../commands'
 import { preloadBehaviorEditor } from './behaviorEditorChunk'
 import { flattenRigForest, jointRange, rigGeometryOf, shapeLabel } from '../rigTree'
-import { sceneUnits } from '../../core/scene/sceneUnits'
+import { sceneDisplayUnits } from '../../core/scene/sceneUnits'
 import type { RigJoint, RigLink } from '../../core/parts/partPackage'
 import { partLinkOwnership } from '../../core/rig/rigPose'
 import type { EditorState, EditorStore } from '../store/store'
 import { rigNodeKey } from '../store/store'
 import type { EditorController } from '../controller'
+import { controllerBadges } from '../program/controllerBadges'
+import { partsWithForces, usePlcForces } from '../program/plcForces'
 import { matchesTreeFilter, sessionDefinitionScope } from '../treeNode'
 import type { TreeNodeSource } from '../treeNode'
 import { SceneTreeMenu } from './SceneTreeMenu'
@@ -25,11 +28,16 @@ import { ChevronIcon, PencilIcon, SceneIcon, ScriptIcon, TreeGlyph } from './too
 import type { TreeGlyphKind } from './toolbarIcons'
 import { defineMessages, t } from '../../core/i18n'
 
-export const CATEGORY_ICONS: Record<PartDef['category'], TreeGlyphKind> = {
+const CATEGORY_ICONS: Record<PartDef['category'], TreeGlyphKind> = {
   Equipment: 'equipment',
   Devices: 'devices',
   Products: 'products',
   Structure: 'structure',
+}
+
+/** a category's row glyph: a category a part names itself has no glyph of its own, so it takes Equipment's */
+export function categoryIcon(category: string): TreeGlyphKind {
+  return isStandardCategory(category) ? CATEGORY_ICONS[category] : 'equipment'
 }
 
 /** indentation per tree depth, in px */
@@ -170,6 +178,10 @@ interface TreeRowProps {
   collapsed: boolean
   canReorder: boolean
   running: boolean
+  /** a tag of the part is forced while the program runs (EditorController.forcePlcValue) */
+  forced?: boolean
+  /** the controller its PLC tags are on, when the row names one (program/controllerBadges.ts) */
+  controllerBadge?: string
   onRowClick: (e: ReactMouseEvent, desc: RowDesc) => void
   onRowContextMenu: (e: ReactMouseEvent, desc: RowDesc) => void
   onBeginRename: (desc: RowDesc) => void
@@ -194,6 +206,10 @@ interface TreeRowProps {
 }
 
 const M = defineMessages('sceneTree', {
+  // a mark, not a word: the forced badge the rungs draw beside an operand (LadderView)
+  forced: 'F',
+  forcedTitle: 'A tag of this part is forced: the running program holds it until released',
+  controllerTitle: 'Its PLC tags are on {name}',
   tagParam: 'param',
   whyParam: "Its position is partly set by the part's params: {params}",
   tagAim: 'aim',
@@ -336,6 +352,17 @@ const TreeRow = memo(function TreeRow(props: TreeRowProps) {
       ) : (
         <>
           <span className="tree-name">{label}</span>
+          {props.forced && (
+            <span className="tree-forced" data-testid="tree-forced" title={t(M.forcedTitle)}>
+              {t(M.forced)}
+            </span>
+          )}
+          {props.controllerBadge ? (
+            <span className="tree-controller" data-testid="tree-controller" title={t(M.controllerTitle, { name: props.controllerBadge })}>
+              {/* i18n-ok: the controller's name, as the tags spell it */}
+              {props.controllerBadge}
+            </span>
+          ) : null}
           {props.nodeBadges ? (
             <span className="tree-node-badges" data-testid="tree-node-badges">
               {props.nodeBadges}
@@ -421,6 +448,9 @@ const TreeRow = memo(function TreeRow(props: TreeRowProps) {
 })
 
 export function SceneTree({ store, state, controller }: SceneTreeProps) {
+  // the parts with a forced signal, re-worked out when a force is set or released (not every frame)
+  const forces = usePlcForces(controller)
+  const forcedParts = useMemo(() => partsWithForces(state.scene.parts, forces, controller?.plcWatch, controller?.plcAliases), [state.scene.parts, forces, controller])
   const [renamingId, setRenamingId] = useState<string | null>(null)
   const [text, setText] = useState('')
   // author-mode rig-node rename (parallel to the part-row rename above): which internal link is being
@@ -452,6 +482,8 @@ export function SceneTree({ store, state, controller }: SceneTreeProps) {
   // custom part's label comes from its package name, which can change with `parts` untouched; hence
   // packageRev, as in renderRows below.
   const displayNames = useMemo(() => partDisplayNames(parts), [parts, state.packageRev])
+  // which rows name the PLC their tags are on: few, since a group on one controller is named once
+  const badgeOf = useMemo(() => controllerBadges(parts, filtering), [parts, filtering, state.packageRev])
   // filtered view is a flat list (no nesting/DnD); otherwise a nested pre-order walk
   const allRows = useMemo(
     () =>
@@ -603,6 +635,24 @@ export function SceneTree({ store, state, controller }: SceneTreeProps) {
 
   const cancelRename = useCallback(() => setRenamingId(null), [])
 
+  // open every collapsed ancestor of `id`, so its row is in the list
+  const expandAncestors = useCallback((id: string) => {
+    const byId = live.current.partsById
+    const part = byId.get(id)
+    if (!part) return
+    setCollapsed((cur) => {
+      let next: Set<string> | null = null
+      const seen = new Set<string>()
+      for (let pid = part.parent; pid !== undefined && !seen.has(pid); pid = byId.get(pid)?.parent) {
+        seen.add(pid)
+        if (!cur.has(pid)) continue
+        next = next ?? new Set(cur)
+        next.delete(pid)
+      }
+      return next ?? cur
+    })
+  }, [])
+
   const beginRename = useCallback(
     (id: string) => {
       const { running, partsById: byId } = live.current
@@ -611,21 +661,11 @@ export function SceneTree({ store, state, controller }: SceneTreeProps) {
       if (!part) return
       // F2 on a part picked in the viewport can land under a collapsed ancestor: open the path so the
       // input mounts (a row hidden any other way is dropped by the rename guard above)
-      setCollapsed((cur) => {
-        let next: Set<string> | null = null
-        const seen = new Set<string>()
-        for (let pid = part.parent; pid !== undefined && !seen.has(pid); pid = byId.get(pid)?.parent) {
-          seen.add(pid)
-          if (!cur.has(pid)) continue
-          next = next ?? new Set(cur)
-          next.delete(pid)
-        }
-        return next ?? cur
-      })
+      expandAncestors(id)
       setText(part.name ?? '')
       setRenamingId(id)
     },
-    [],
+    [expandAncestors],
   )
 
   const toggleCollapse = useCallback((id: string) => {
@@ -779,7 +819,20 @@ export function SceneTree({ store, state, controller }: SceneTreeProps) {
     })
     return () => cancelAnimationFrame(raf)
   }, [])
-  useEffect(() => (scrollTargetKey === undefined ? undefined : revealRow(scrollTargetKey)), [scrollTargetKey, revealRow])
+  // A part picked in the viewport can sit under a collapsed ancestor: open the path once per new pick.
+  // Keyed on the pick, not the collapse set, so collapsing a parent of the selection later stays collapsed.
+  useEffect(() => {
+    if (lastSelected !== undefined) expandAncestors(lastSelected)
+  }, [lastSelected, expandAncestors])
+  // whether the target has a row yet: the expansion above lands a render later, and the reveal re-runs then
+  const targetListed = useMemo(
+    () => scrollTargetKey !== undefined && renderRows.some((r) => r.key === scrollTargetKey),
+    [renderRows, scrollTargetKey],
+  )
+  useEffect(
+    () => (scrollTargetKey === undefined || !targetListed ? undefined : revealRow(scrollTargetKey)),
+    [scrollTargetKey, targetListed, revealRow],
+  )
   // a rename can open on a row that isn't on screen (F2 after a viewport pick, which may also have just
   // expanded its ancestors): the input is kept mounted off-window, so scroll it to where it's typed into
   useEffect(() => (renamingKey === null ? undefined : revealRow(renamingKey)), [renamingKey, revealRow])
@@ -984,7 +1037,7 @@ export function SceneTree({ store, state, controller }: SceneTreeProps) {
                 depth={rigDepth}
                 icon={joint ? (joint.type === 'revolute' ? 'revolute' : 'prismatic') : 'node'}
                 typeLabel={state.treeTypes ? (joint ? joint.name : shapeLabel(link.shape)) : ''}
-                rowTitle={[joint ? `${joint.name}: ${joint.type} · ${jointRange(joint, sceneUnits(state.scene))}` : shapeLabel(link.shape), ...badges.why].join('\n')}
+                rowTitle={[joint ? `${joint.name}: ${joint.type} · ${jointRange(joint, sceneDisplayUnits(state.scene))}` : shapeLabel(link.shape), ...badges.why].join('\n')}
                 nodeBadges={badges.tags}
                 hasChildren={false}
                 grouped={false}
@@ -1048,7 +1101,7 @@ export function SceneTree({ store, state, controller }: SceneTreeProps) {
                 rowId={part.id}
                 label={displayName}
                 depth={depth}
-                icon={CATEGORY_ICONS[isCustom ? packageCategory(getPackage((part as SdkPart).packageId)) : def.category]}
+                icon={categoryIcon(isCustom ? packageCategory(getPackage((part as SdkPart).packageId)) : def.category)}
                 typeLabel={state.treeTypes ? typeSub : ''}
                 // with the type column toggled off, the type stays discoverable on hover
                 rowTitle={!state.treeTypes && typeSub ? typeSub : undefined}
@@ -1068,6 +1121,8 @@ export function SceneTree({ store, state, controller }: SceneTreeProps) {
                 collapsed={!open}
                 canReorder={canReorder}
                 running={state.running}
+                forced={forcedParts.has(part.id)}
+                controllerBadge={badgeOf.get(part.id)}
                 onRowClick={onRowClickDesc}
                 onRowContextMenu={onRowContextMenuDesc}
                 onBeginRename={onBeginRenameDesc}

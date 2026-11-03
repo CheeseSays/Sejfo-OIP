@@ -5,9 +5,12 @@ import { Compartment, EditorState, Prec, Transaction } from '@codemirror/state'
 import { forceLinting } from '@codemirror/lint'
 import type { Extension } from '@codemirror/state'
 import { EditorView, keymap, placeholder, runScopeHandlers } from '@codemirror/view'
+import { unfoldAll } from '@codemirror/language'
 import { changedSpan } from '../../../core/textDiff'
-import type { TagValue } from '../../../plc'
+import type { TagValue, WatchInstance } from '../../../plc'
 import { pushWatchValues, stExtensions } from '../../program/stLang'
+import { foldDeclarations } from '../../program/stFolding'
+import { watchNameAt, watchNameOfSelection } from '../../program/plcWatchList'
 import type { Controller } from '../../../core/controller'
 
 /** CodeMirror's own test for which modifier `Mod` is: Cmd on a Mac, Ctrl elsewhere (a key replayed through it has to
@@ -49,10 +52,31 @@ export interface StCodeEditorHandle {
   redo: () => void
   /** where the caret is, and the identifier under it if any (what a command about "the name here" starts from) */
   caret: () => { offset: number; word: string | null } | null
+  /**
+   * What a right-click at (x, y) is on, for the panel's menu: a click inside the selection keeps it, anywhere else puts
+   * the caret there first, as text editors do. `name` is the variable there (plcWatchList.ts `watchNameAt`, or the
+   * selection when it is one place), `selected` the selected text, and `at` where to open the menu. Without a point
+   * (the menu key) it answers for the caret.
+   */
+  contextAt: (point: { x: number; y: number } | null) => { name: string | null; selected: string; at: { x: number; y: number } } | null
+  /** replace the selection with `text` (Paste, Cut), as one step of this editor's history */
+  replaceSelection: (text: string, userEvent: 'input.paste' | 'delete.cut') => void
+  selectAll: () => void
+  /** put the keyboard in the text, keeping the selection where it was */
+  focus: () => void
+  /** fold every VAR section, TYPE and STRUCT (stFolding.ts); false when there was none left to fold */
+  foldDeclarations: () => boolean
+  /** open every folded block; false when none was folded */
+  unfoldAll: () => boolean
   /** re-measure: the editor was hidden (`display: none`, under another view of the panel) and is back on screen */
   refresh: () => void
-  /** push the live variable image for inline value overlays; `{}` clears them */
-  setWatchValues: (values: Record<string, TagValue>) => void
+  /** push the live variable image for inline value overlays, with the program instances that run it; `{}` clears them */
+  setWatchValues: (
+    values: Readonly<Record<string, TagValue>>,
+    instances?: readonly WatchInstance[],
+    picked?: Readonly<Record<string, string>>,
+    pick?: (type: string, instance: string) => void,
+  ) => void
   /**
    * Put the cursor at `offset` and scroll it to the top of the viewport.
    *
@@ -72,6 +96,8 @@ interface StCodeEditorProps {
   getTags: () => string[]
   /** the scene's controller table, read on each lint pass: the program is checked together with it */
   getController?: (source: string) => Controller | null
+  /** the default controller's name, which a task may spell (plc controllerDiagnostics) */
+  getDefaultPlc?: () => string | undefined
   /** false while the program is in a dialect this build does not read: no lint pass then (default true) */
   lints?: boolean
   /** invoked by Ctrl/Cmd-Enter (not F5, see the keymap below): the panel starts a stopped sim or reloads a running one */
@@ -128,7 +154,7 @@ function readOnlyExtension(readOnly: boolean | undefined): Extension {
 }
 
 export const StCodeEditor = forwardRef<StCodeEditorHandle, StCodeEditorProps>(function StCodeEditor(
-  { initialValue, onChange, getTags, getController, lints = true, onRun, onUndo, onRedo, collabExtension, readOnly, onReadingPosition, onReady, style },
+  { initialValue, onChange, getTags, getController, getDefaultPlc, lints = true, onRun, onUndo, onRedo, collabExtension, readOnly, onReadingPosition, onReady, style },
   ref,
 ) {
   // captured once: the editor is built a single time in the mount effect
@@ -146,6 +172,8 @@ export const StCodeEditor = forwardRef<StCodeEditorHandle, StCodeEditorProps>(fu
   getTagsRef.current = getTags
   const getControllerRef = useRef(getController)
   getControllerRef.current = getController
+  const getDefaultPlcRef = useRef(getDefaultPlc)
+  getDefaultPlcRef.current = getDefaultPlc
   const lintsRef = useRef(lints)
   lintsRef.current = lints
   const onRunRef = useRef(onRun)
@@ -174,10 +202,12 @@ export const StCodeEditor = forwardRef<StCodeEditorHandle, StCodeEditorProps>(fu
     // of the Yjs-backed shared undo that the collab extension brings
     const collab = collabRef.current
     // the reading position is layout, so it is read in a frame, and a scroll burst reports once per frame
+    // (the editor's own window: in a popped-out panel the main window may be minimised, and its frames stop)
+    const win = host.current.ownerDocument.defaultView ?? window
     let frame = 0
     const reportPosition = (): void => {
       if (frame !== 0 || !onReadingPositionRef.current) return
-      frame = requestAnimationFrame(() => {
+      frame = win.requestAnimationFrame(() => {
         frame = 0
         if (view.current) onReadingPositionRef.current?.(readingPosition(view.current))
       })
@@ -201,6 +231,7 @@ export const StCodeEditor = forwardRef<StCodeEditorHandle, StCodeEditorProps>(fu
           stExtensions(() => getTagsRef.current(), {
             ...(collab ? { history: false } : {}),
             getController: (src) => getControllerRef.current?.(src) ?? null,
+            getDefaultPlc: () => getDefaultPlcRef.current?.(),
             lints: () => lintsRef.current,
           }),
           ...(collab ? [collab] : []),
@@ -219,7 +250,7 @@ export const StCodeEditor = forwardRef<StCodeEditorHandle, StCodeEditorProps>(fu
     reportPosition()
     onReadyRef.current?.()
     return () => {
-      cancelAnimationFrame(frame)
+      win.cancelAnimationFrame(frame)
       v.scrollDOM.removeEventListener('scroll', reportPosition)
       v.destroy()
       view.current = null
@@ -279,9 +310,42 @@ export const StCodeEditor = forwardRef<StCodeEditorHandle, StCodeEditorProps>(fu
       const word = range ? v.state.sliceDoc(range.from, range.to) : null
       return { offset, word: word && /^[A-Za-z_][A-Za-z0-9_]*$/.test(word) ? word : null }
     },
+    contextAt: (point) => {
+      const v = view.current
+      if (!v) return null
+      const sel = v.state.selection.main
+      const pos = point ? v.posAtCoords(point) : sel.head
+      if (pos !== null && (sel.empty || pos < sel.from || pos > sel.to)) v.dispatch({ selection: { anchor: pos } })
+      v.focus()
+      const s = v.state.selection.main
+      const selected = v.state.sliceDoc(s.from, s.to)
+      let name: string | null = null
+      if (!s.empty) name = watchNameOfSelection(selected)
+      else if (pos !== null) {
+        const line = v.state.doc.lineAt(pos)
+        name = watchNameAt(line.text, pos - line.from)
+      }
+      const c = point ?? v.coordsAtPos(s.head) ?? v.dom.getBoundingClientRect()
+      return { name, selected, at: { x: 'x' in c ? c.x : c.left, y: 'y' in c ? c.y : c.bottom } }
+    },
+    replaceSelection: (text, userEvent) => {
+      const v = view.current
+      if (!v) return
+      v.dispatch(v.state.replaceSelection(text), { userEvent, scrollIntoView: true })
+      v.focus()
+    },
+    foldDeclarations: () => (view.current ? foldDeclarations(view.current) : false),
+    unfoldAll: () => (view.current ? unfoldAll(view.current) : false),
+    selectAll: () => {
+      const v = view.current
+      if (!v) return
+      v.dispatch({ selection: { anchor: 0, head: v.state.doc.length } })
+      v.focus()
+    },
+    focus: () => view.current?.focus(),
     refresh: () => view.current?.requestMeasure(),
-    setWatchValues: (values: Record<string, TagValue>) => {
-      if (view.current) pushWatchValues(view.current, values)
+    setWatchValues: (values, instances, picked, pick) => {
+      if (view.current) pushWatchValues(view.current, values, instances, picked, pick)
     },
     revealOffset: (offset: number) => {
       const v = view.current

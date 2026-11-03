@@ -10,6 +10,7 @@ import type { PartInstance, PartType, SceneJSON, SimRate } from '../../core/type
 import type { ProjectionMode } from '../../render/api'
 import type { StFileReportData } from '../components/plc/StFileReport'
 import type { UnopenedProject } from '../project/projectFile'
+import type { FollowTarget } from '../live/followTarget'
 import {
   readExternalPlc,
   readFaceSnap,
@@ -26,6 +27,9 @@ import {
   readVertexSnapOrigin,
 } from './storePrefs'
 import type { ExternalPlcSettings } from './storePrefs'
+import { plcSetupOf } from './storePlcs'
+import type { PlcSetup } from './storePlcs'
+import type { PropertyClipboard } from './storeProperties'
 
 /** Dev-only (see setState): recursively freeze a part snapshot so any in-place mutation throws at the
  *  offending line. Already-frozen subtrees short-circuit, so unchanged parts re-entering the store are O(1). */
@@ -183,11 +187,17 @@ export interface EditorState {
    */
   simHz: SimRate
   /**
-   * Whether Play serves the scene's I/O to an external PLC instead of running the program in-process, and
-   * where (editor/links/externalPlc.ts). A machine setting, kept in localStorage, never in the document: the
-   * document's part is the wiring, the addresses in the parts' tags.
+   * The scene's controllers as Play uses them (storePlcs.ts): the document's list (SceneJSON.plcs), whether the
+   * program here runs the default one and each one's protocol, with this computer's addresses from `plcPrefs`.
+   * Derived, kept current by setState whenever the document's scene or the preferences change; every reader of a
+   * link's settings reads this.
    */
-  externalPlc: ExternalPlcSettings
+  externalPlc: PlcSetup
+  /**
+   * This computer's PLC preferences, in localStorage, never in the document: each controller's address, and the
+   * simulated PLC's OPC UA server. Written only through the store's controller edits (storePlcs.ts).
+   */
+  plcPrefs: ExternalPlcSettings
   selectedIds: string[]
   tool: ToolMode
   liveSnap: boolean
@@ -298,6 +308,8 @@ export interface EditorState {
    *  rig node's "Change Width" (a node axis the part's Width sets), consumed and cleared by the Inspector. UI state
    *  only - never part of the document. `seq` makes a repeat request for the same field a new one. */
   paramFocus: { partId: string; param: string; seq: number } | null
+  /** what Copy Properties last took (storeProperties.ts), for Paste Properties. Never part of the document. */
+  propertyClipboard: PropertyClipboard | null
   running: boolean
   paused: boolean
   /** sim-clock speed multiplier the user asked for: 0.5 slow-mo … 8 fast-forward, 1 = realtime */
@@ -306,7 +318,21 @@ export interface EditorState {
    * worker is persistently short of {@link timeScale}; null while it is keeping up, or stopped.
    * Mirrored from SimClient.clock by the controller - see sim/simClockRate.ts for why it can differ. */
   speedActual: number | null
+  /** the view is drawing someone else's run, not a run of its own (controller/liveView.ts) */
+  liveFollowing: boolean
+  /** whom this client chose to watch (their presence id), or null; a session choice, never saved */
+  liveWatch: number | null
+  /** this client said no to the owner's current spotlight (live/followTarget.ts) */
+  spotlightDismissed: boolean
+  /** whose run this client follows now, and why (live/followTarget.ts, kept current by main.tsx joinLiveShare) */
+  liveTarget: FollowTarget | null
+  /** this client moved its own camera while following, so it no longer follows the other's view (controller/liveCamera.ts) */
+  liveViewDetached: boolean
   distractionFree: boolean
+  /** Present: only the scene, for a projector or a display (components/PresentOverlay.tsx); a session choice, never saved */
+  presenting: boolean
+  /** a display link's Present, which cannot be left from inside the app (main.tsx); only its URL sets it */
+  presentLocked: boolean
   /** view-only (shared read-only link): authoring is disabled and nothing this client does reaches the shared doc */
   readOnly: boolean
   /** collaborative (room) mode: a shared Yjs doc owns the scene. Mirrors the private `collab` flag so the UI
@@ -428,6 +454,7 @@ export function guardOpeningsTarget(s: Pick<EditorState, 'selectedIds' | 'scene'
 /** The state a new EditorStore starts in (its constructor): `scene`, or an empty one, with the machine preferences
  *  read from localStorage and the program as given (the store reads the solo buffer: stProgram.ts is its own seam). */
 export function initialEditorState(scene: SceneJSON | undefined, stProgram: string, stScanMs: number): EditorState {
+  const plcPrefs = readExternalPlc()
   return {
     scene: scene ?? { version: SCENE_VERSION, parts: [] },
     // Seeded from the solo buffer so a store that is never handed a document (a bare `new
@@ -439,7 +466,8 @@ export function initialEditorState(scene: SceneJSON | undefined, stProgram: stri
     controller: null,
     // every real boot path replaces this with the document's own rate (project, room, demo)
     simHz: DEFAULT_SIM_HZ,
-    externalPlc: readExternalPlc(),
+    plcPrefs,
+    externalPlc: plcSetupOf(scene ?? { parts: [] }, plcPrefs),
     selectedIds: [],
     tool: 'transform',
     liveSnap: readLiveSnap(),
@@ -478,11 +506,19 @@ export function initialEditorState(scene: SceneJSON | undefined, stProgram: stri
     lockedRigNodes: new Set(),
     behaviorEditTarget: null,
     paramFocus: null,
+    propertyClipboard: null,
     running: false,
     paused: false,
     timeScale: 1,
     speedActual: null,
+    liveFollowing: false,
+    liveWatch: null,
+    spotlightDismissed: false,
+    liveTarget: null,
+    liveViewDetached: false,
     distractionFree: false,
+    presenting: false,
+    presentLocked: false,
     readOnly: false,
     collab: false,
     listSelect: null,

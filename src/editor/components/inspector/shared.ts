@@ -3,9 +3,12 @@
 import type { PartInstance } from '../../../core/types'
 import { unitTable } from '../../../core/units'
 
-/** Title Case each word (capitalises every property word) */
+/** Title Case each word (capitalises every property word). A trailing bracket is kept as written: it holds a unit or
+ *  an explanation, and capitalising one turns "(m/s)" into "(M/S)" and "(s)" into "(S)", which are other units. */
 export function titleCase(s: string): string {
-  return s.replace(/\b\w/g, (c) => c.toUpperCase())
+  const m = /^(.*?)(\s*\([^()]*\))$/.exec(s)
+  const head = m ? m[1]! : s
+  return head.replace(/\b\w/g, (c) => c.toUpperCase()) + (m ? m[2]! : '')
 }
 
 /** how many decimals `n` needs to print exactly, up to `cap` */
@@ -95,4 +98,16 @@ export function evalNumeric(raw: string, unit: string): number | null {
   return Number.isFinite(plain) ? plain : null
 }
 
-export type Update = (label: string, key: string, mutate: (p: PartInstance) => PartInstance) => void
+/**
+ * A relative entry: "+= 1.2" or "-= 600mm" is an offset from the value the field holds, the rest read as
+ * evalNumeric reads a value. undefined when the text isn't one (a plain "-5" stays an absolute value), null when
+ * it is one whose amount doesn't parse.
+ */
+export function parseOffset(raw: string, unit: string): number | null | undefined {
+  const m = /^\s*([+-])=(.*)$/s.exec(raw)
+  if (!m) return undefined
+  const v = evalNumeric(m[2]!, unit)
+  return v === null ? null : m[1] === '-' ? -v : v
+}
+
+export type Update =(label: string, key: string, mutate: (p: PartInstance) => PartInstance) => void

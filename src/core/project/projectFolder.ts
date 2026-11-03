@@ -25,7 +25,7 @@
 // edited folder gets every clamp/migration a .oip does. Loading is manifest-driven: unreferenced files are ignored.
 //
 // A folder from formats 4-6 keeps the whole program in one `program.st` (the manifest's `stProgram`). It still reads,
-// and the folder sync rewrites it in this layout on its first round (core/project/folderSync.ts `programLayoutBaseline`).
+// and the folder sync rewrites it in this layout on its first round (core/project/folderSync.ts `layoutBaseline`).
 //
 // A pre-format-4 folder lists scenes (scenes/<id>.scene.json + scenes/<id>.st). It still reads: validateProject
 // splits it, the other scenes returned in `splitOff` for folders of their own (editor/folderSplit.ts); saving writes
@@ -37,7 +37,7 @@ import { serializeProject, validateProject } from './project'
 import type { ProjectJSON, ProjectValidationResult } from './project'
 import { manifestOfPackage } from '../parts/partPackage'
 import { agentGuideMarkdown } from '../agentGuide'
-import type { GuideScene, PartExtent } from '../agentGuide'
+import type { GuideDoor, GuideScene, PartExtent } from '../agentGuide'
 import type { Controller } from '../controller'
 import { partFootprint } from '../parts/partGeometry'
 import { builtInPackage } from '../parts/partRegistry'
@@ -68,6 +68,8 @@ export type ProgramSplitter = (source: string) => { name: string; text: string }
 /** How a project is spilled: its assets' bytes (core/parts/partAssets.ts) and its program's splitter. */
 export interface FolderOptions extends SplitOptions {
   splitProgram?: ProgramSplitter
+  /** the AGENTS.md it writes is for an agent at the folder (the default) or one driving the app's tools (get_guide) */
+  guideDoor?: GuideDoor
 }
 
 /** One file of a spilled project: a folder-relative POSIX path ("parts/conveyor/manifest.json") + its contents: utf-8
@@ -279,6 +281,7 @@ export function projectToFolderFiles(project: ProjectJSON, opts?: FolderOptions)
         // a project scene carries no copies of its parts' packages (core/project/project.ts): the library has the project's own,
         // and the app declares its built-ins (builtInPackage), the same split loading resolves against
         resolve: (id) => (doc.packages ?? []).find((p) => p.id === id) ?? builtInPackage(id),
+        ...(opts?.guideDoor ? { door: opts.guideDoor } : {}),
       },
     ),
   })

@@ -75,9 +75,11 @@ export function AnnotationOverlay({ store, view, controller, show }: AnnotationO
   const [revealed, setRevealed] = useState(false)
   useEffect(() => {
     let alive = true
-    void whenCoverHidden().then(() => {
-      if (alive) setRevealed(true)
-    })
+    void whenCoverHidden()
+      .then(() => {
+        if (alive) setRevealed(true)
+      })
+      .catch((e: unknown) => console.warn('[oip] annotation reveal failed', e))
     return () => {
       alive = false
     }
@@ -174,7 +176,8 @@ export function AnnotationOverlay({ store, view, controller, show }: AnnotationO
               view.pointerDownThrough(e.nativeEvent)
             }
           }}
-          onClick={() => store.select(chip.id)}
+          // a display link (locked Present) shows notes but does not select them
+          onClick={() => !store.getState().presentLocked && store.select(chip.id)}
         >
           {chip.glyph && <span className="note-chip-icon">{chip.glyph}</span>}
           <span className="note-chip-text">{chip.text}</span>

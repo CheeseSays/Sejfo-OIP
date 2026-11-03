@@ -87,8 +87,8 @@
           <li>A <b>Photo Eye</b> beside the belt, about two thirds of the way along, facing across it.</li>
         </ol>
         <p>
-          Select each device, find the <span class="ui">Comms</span> group in the Inspector, tick
-          <span class="ui">Enable Comms</span>, and type the program variable it connects to:
+          Select each device, find the <span class="ui">Comms</span> group in the Inspector, and type the program
+          variable it connects to:
         </p>
         <div class="scroll-x">
           <table class="map">
@@ -96,13 +96,13 @@
             <tbody>
               <tr><td>Photo Eye</td><td>Presence Tag</td><td class="m">Main.Eye</td><td>True while the sensor sees the box.</td></tr>
               <tr><td>Belt Conveyor</td><td>Run Tag</td><td class="m">Main.Run</td><td>The belt runs while it is true.</td></tr>
-              <tr><td>Belt Conveyor</td><td>Speed Tag (M/S)</td><td class="m">Main.Speed</td><td>The belt's speed, a setpoint your client can change.</td></tr>
+              <tr><td>Belt Conveyor</td><td>Speed Tag</td><td class="m">Main.Speed</td><td>The belt's speed, a setpoint your client can change.</td></tr>
             </tbody>
           </table>
         </div>
         <figure class="shot">
-          <img src="img/inspector-comms.webp" width="376" height="248" loading="lazy" decoding="async"
-            alt="The Inspector's Comms group for the Belt Conveyor: Enable Comms ticked, Speed Tag set to Main.Speed and Run Tag set to Main.Run." />
+          <img src="img/inspector-comms.webp" width="376" height="214" loading="lazy" decoding="async"
+            alt="The Inspector's Comms group for the Belt Conveyor, with Speed Tag set to Main.Speed and Run Tag set to Main.Run." />
           <figcaption>The Belt Conveyor's Comms group, wired to the program.</figcaption>
         </figure>
         <p>
@@ -138,7 +138,7 @@ END_PROGRAM</code></pre>
     <section class="section" id="serve">
       <div class="wrap">
         <h2>3. Start the OPC UA server</h2>
-        <p>Open <span class="ui">Simulation &gt; External PLC…</span> (or double-click the Controller node at the top of the PLC panel's organizer). Leave <span class="ui">Runs on</span> at <b>This simulator</b>, and in the <span class="ui">OPC UA server</span> section:</p>
+        <p>Open <span class="ui">Simulation &gt; PLC Controllers…</span> (or double-click the Controller node at the top of the PLC panel's organizer). Leave <span class="ui">Runs on</span> at <b>This simulator</b>, and in the <span class="ui">OPC UA server</span> section:</p>
         <ol class="steps">
           <li>Tick <span class="ui">Publish the program's variables</span>. The server starts at once; you do not need to press Play.</li>
           <li><span class="ui">Port</span>: <b>4843</b> is the default. OPC UA's standard port, 4840, is often taken by a discovery server that other OPC software installs.</li>

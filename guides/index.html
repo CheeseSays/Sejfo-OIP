@@ -10,14 +10,14 @@
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
 
     <title>Connection Guides | Open Industry Project</title>
-    <meta name="description" content="Step-by-step guides for connecting the Open Industry Project simulator to a real PLC, SCADA or HMI over Modbus TCP, OPC UA, S7 PUT/GET and ADS." />
-    <meta name="keywords" content="PLC, SCADA, HMI, Modbus TCP, OPC UA, S7, PUT/GET, TwinCAT, ADS, simulator, guides, virtual commissioning" />
+    <meta name="description" content="Step-by-step guides for connecting the Open Industry Project simulator to a real PLC, SCADA or HMI over Modbus TCP, OPC UA, S7 PUT/GET, SLMP and ADS." />
+    <meta name="keywords" content="PLC, SCADA, HMI, Modbus TCP, OPC UA, S7, PUT/GET, SLMP, MELSEC, TwinCAT, ADS, simulator, guides, virtual commissioning" />
     <link rel="canonical" href="https://www.openindustryproject.org/guides/" />
 
     <meta property="og:type" content="article" />
     <meta property="og:site_name" content="Open Industry Project" />
     <meta property="og:title" content="Connection Guides | Open Industry Project" />
-    <meta property="og:description" content="Step-by-step guides for connecting the Open Industry Project simulator to a real PLC, SCADA or HMI over Modbus TCP, OPC UA, S7 PUT/GET and ADS." />
+    <meta property="og:description" content="Step-by-step guides for connecting the Open Industry Project simulator to a real PLC, SCADA or HMI over Modbus TCP, OPC UA, S7 PUT/GET, SLMP and ADS." />
     <meta property="og:url" content="https://www.openindustryproject.org/guides/" />
     <meta property="og:image" content="https://www.openindustryproject.org/og-image.jpg?v=20261013" />
     <meta name="twitter:card" content="summary_large_image" />
@@ -50,7 +50,7 @@
         <p class="lede">
           Step-by-step guides for connecting a real PLC, SCADA or HMI to the simulator. Three guides are tested by
           following them in the desktop app: Modbus against OpenPLC, OPC UA against an OPC UA client (node-opcua),
-          and S7 against a stand-in S7 CPU in this repository. The PLC-server and ADS guides are not tested this way.
+          and S7 against a stand-in S7 CPU in this repository. The PLC-server, SLMP and ADS guides are not tested this way.
         </p>
       </section>
     </main>
@@ -69,6 +69,10 @@
           <a class="panel guide-card" href="/guides/s7/">
             <h3>An S7-1200 or S7-1500 (S7 PUT/GET)</h3>
             <p>The simulator reads and writes the CPU's inputs, outputs, memory and data blocks at the scene's own addresses. Covers the setting the CPU needs before it allows PUT/GET.</p>
+          </a>
+          <a class="panel guide-card" href="/guides/slmp/">
+            <h3>A MELSEC PLC (SLMP)</h3>
+            <p>The simulator reads and writes the CPU's X, Y, M and D devices at the scene's own addresses, over the 3E frame every Q, L, iQ-R and iQ-F CPU answers.</p>
           </a>
           <a class="panel guide-card" href="/guides/ads/">
             <h3>A TwinCAT PLC (ADS)</h3>

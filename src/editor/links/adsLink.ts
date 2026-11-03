@@ -13,7 +13,7 @@
 // Like EtherNet/IP and OPC UA, a PLC that is merely stopped still answers with its last values, so the watchdog cannot
 // see it.
 
-import { adsErrorText, adsStale, adsSymbolMessage, adsUnreachable, bindAdsPoint, fromAdsValue, toAdsValue } from '../../core/io/ads'
+import { adsRouteText, adsStale, adsSymbolMessage, adsUnreachable, bindAdsPoint, fromAdsValue, toAdsValue } from '../../core/io/ads'
 import type { AdsBinding, AdsPoint } from '../../core/io/ads'
 import { NamedLink, NOT_CONNECTED } from './clientLink'
 import { adsEndpoint, describeAdsPoint } from './externalPlc'
@@ -42,8 +42,7 @@ export class ExternalPlcAdsSession extends NamedLink<AdsPoint, AdsBinding> {
 
   /** "target machine not found: add a route ... (0x7). This PC's AMS Net ID is ...": a code, with this PC's Net ID where a route is the cure. */
   private codeText(code: number): string {
-    const text = adsErrorText(code)
-    return (code === 0x7 || code === 0x749) && this.localNetId ? `${text}. This PC's AMS Net ID is ${this.localNetId}` : text
+    return adsRouteText(code, this.localNetId)
   }
 
   protected isOpen(): boolean {

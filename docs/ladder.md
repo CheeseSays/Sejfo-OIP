@@ -3,13 +3,13 @@
 Ladder is a second front end on the Structured Text engine, not a second runtime. A rung lowers to the ST that
 means it, and everything downstream (checker, interpreter, TypeScript emitter, text exporters, the sim worker)
 sees ordinary statements. The code is [src/plc/ladder/ladder.ts](../src/plc/ladder/ladder.ts) (model, lowering, export caveats),
-[src/plc/parser.ts](../src/plc/parser.ts) (`ladderSection`) and [src/plc/ladder/ladderXml.ts](../src/plc/ladder/ladderXml.ts)
+[src/plc/parserLadder.ts](../src/plc/parserLadder.ts) (`ladderSection`) and [src/plc/ladder/ladderXml.ts](../src/plc/ladder/ladderXml.ts)
 (PLCopen `<LD>` in and out).
 
 **Its words are data, not branches in the checker.** A lowered place that an element requires to be BOOL carries a
 role, held in a side table keyed by the AST node (`ladderRole`, filled by `mapBack`) rather than as a field on
 `Expr`, so the ST AST stays free of ladder vocabulary. `LD_ROLES` says
-which side of a statement each role stands on and how to word its diagnostic, and `checker.ts` asks: one lookup on
+which side of a statement each role stands on and how to word its diagnostic, and the checker (`checkExpr.ts` `elementRule`) asks: one lookup on
 a read, one on a write. The identity key is safe because nothing clones a statement
 between the lowering and the check. A `structuredClone` introduced on that path would drop roles, which
 `ladder.test.ts` catches by asserting both messages exactly.
@@ -187,7 +187,8 @@ indexed once per key set, a bit of a word (`Status.%X3`), and an index that is i
 - While the program runs, Toggle Bit (Ctrl+T, or the toolbar) flips the BOOL under the selection once, and a pin's live
   number takes a value on double-click. Both write into the running program between scans
   (`EditorController.togglePlcBit` / `writePlcValue`), never into its text, so a variable the program writes itself is
-  overwritten by its next scan.
+  overwritten by its next scan. A variable forced in the Watch dock is held instead, and either write changes the held
+  value (src/plc/DEVICE-IO.md, "Writes and forces").
 - An edit goes into the text editor as one ordinary edit (`StCodeEditorHandle.edit`), so the view's Ctrl+Z is that
   editor's history (and a room's shared one), a save is a save, and a peer sees it as typing. The text editor stays
   mounted under the view for that reason.

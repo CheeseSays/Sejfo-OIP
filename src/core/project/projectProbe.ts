@@ -18,7 +18,7 @@ import { cargoKindName } from '../frame'
 import type { BoxFrame, CargoKindName } from '../frame'
 import { quatToYXZ } from '../math'
 import { isOperand, operandProbeKey, probeKey } from './projectTest'
-import type { CargoColor, CountProbe, JointProbe, LampProbe, MarkFilter, PassedProbe, PoseProbe, TestCheck, TestProbe, TestValue, Zone } from './projectTest'
+import type { CargoColor, CargoColorName, CountProbe, JointProbe, LampProbe, MarkFilter, PassedProbe, PoseProbe, SquareProbe, TestCheck, TestProbe, TestValue, Zone } from './projectTest'
 
 /** each frame row's marks (SimWorld.cargoMarks), index-aligned with the frame; null for a row with none */
 export type RowMarks = readonly (Readonly<Record<string, number | boolean | string>> | null)[]
@@ -74,17 +74,18 @@ function segmentHitsZone(z: Zone, a: readonly [number, number, number], b: reado
 }
 
 /**
- * The colour name a tint is called by: `red` / `green` / `blue` for a saturated tint whose channel dominates, else
- * undefined (too dark, or washed out: white, grey, yellow). The same rule the colour sensor part classifies by
- * (examples/parts/color-sensor), so a test filtering on `red` sees the boxes that sensor would call red. `rgb` is
+ * The colour name a tint is called by: `red` / `green` / `blue` for a saturated tint whose channel dominates,
+ * `yellow` for red and green together over a low blue, else undefined (too dark, or washed out: white, grey, cyan,
+ * magenta). A colour sensor matches its own list of colours instead; this is the test filter's fixed rule. `rgb` is
  * sRGB 0..1, as {@link BoxFrame.colors} carries it.
  */
-export function cargoColorName(r: number, g: number, b: number): 'red' | 'green' | 'blue' | undefined {
+export function cargoColorName(r: number, g: number, b: number): CargoColorName | undefined {
   const max = Math.max(r, g, b)
   if (max < 0.25) return undefined
-  const mid = r + g + b - max - Math.min(r, g, b)
-  if (mid > max * 0.6) return undefined
-  return max === r ? 'red' : max === g ? 'green' : 'blue'
+  const min = Math.min(r, g, b)
+  const mid = r + g + b - max - min
+  if (mid <= max * 0.6) return max === r ? 'red' : max === g ? 'green' : 'blue'
+  return min === b && b < mid * 0.5 ? 'yellow' : undefined
 }
 
 /** `#rrggbb` of an sRGB 0..1 tint. */
@@ -116,6 +117,26 @@ function matchesFilters(spec: CountProbe, frame: BoxFrame, i: number, marks?: Ro
   return true
 }
 
+/** How far a heading is off square to `heading`, folded by 90 so any edge parallel counts: degrees in [0, 45]. */
+export function offSquareDeg(yawDeg: number, heading: number): number {
+  const d = (((yawDeg - heading) % 90) + 90) % 90
+  return Math.min(d, 90 - d)
+}
+
+/** The worst {@link offSquareDeg} of the matching bodies inside the zone, or undefined when none is inside. */
+function readSquare(spec: SquareProbe, frame: BoxFrame, marks?: RowMarks): number | undefined {
+  let worst: number | undefined
+  for (let i = 0; i < frame.count; i++) {
+    const p = i * 3
+    if (!inZone(spec.zone, frame.positions[p]!, frame.positions[p + 1]!, frame.positions[p + 2]!)) continue
+    if (!matchesFilters(spec, frame, i, marks)) continue
+    const off = offSquareDeg(cargoYawDeg(frame, i), spec.heading)
+    if (worst === undefined || off > worst) worst = off
+  }
+  // to a tenth of a degree, so a failed check reads `became 7.6`
+  return worst === undefined ? undefined : Math.round(worst * 10) / 10
+}
+
 /** How many live cargo bodies match every filter. */
 function countCargo(spec: CountProbe, frame: BoxFrame, marks?: RowMarks): number {
   let n = 0
@@ -141,9 +162,40 @@ export interface CargoRow {
   /** its tint, `#rrggbb` */
   color: string
   /** what a colour filter calls it, when it is a saturated primary */
-  colorName?: 'red' | 'green' | 'blue'
+  colorName?: CargoColorName
   /** centre, world metres, to the millimetre */
   pos: [number, number, number]
+  /** how far it is tilted from upright, whole degrees (about 90 = on its side) */
+  tiltDeg: number
+  /** its heading about world +Y, whole degrees in (-180, 180]: for an upright body the angle a part's `rotationY`
+   *  measures, and for a tilted one the plan direction of its more nearly level edge ({@link cargoYawDeg}). A box is
+   *  symmetric, so 90 apart can be the same footprint */
+  yawDeg: number
+}
+
+/** Body `i`'s heading about world +Y in degrees: the plan direction of its more nearly level edge, its local X (as a
+ *  part's rotationY measures it) or else its local Z. For an upright body the two agree, and that is its rotationY. A
+ *  case rolled on a cross slope (a chute falling away from a sorter) still reads the way its edges run in plan, where
+ *  a YXZ yaw would read its rolled cross edge, several degrees off. */
+export function cargoYawDeg(frame: Pick<BoxFrame, 'quats'>, i: number): number {
+  const q = i * 4
+  const x = frame.quats[q]!, y = frame.quats[q + 1]!, z = frame.quats[q + 2]!, w = frame.quats[q + 3]!
+  // the body's local X and Z in world space
+  const ex = [1 - 2 * (y * y + z * z), 2 * (x * y + z * w), 2 * (x * z - y * w)]
+  const ez = [2 * (x * z + y * w), 2 * (y * z - x * w), 1 - 2 * (x * x + y * y)]
+  const rad = Math.abs(ex[1]!) <= Math.abs(ez[1]!) ? Math.atan2(-ex[2]!, ex[0]!) : Math.atan2(ez[0]!, ez[2]!)
+  const deg = (rad * 180) / Math.PI
+  // -180 and 180 are one heading; `+ 0` turns a -0 into 0
+  return deg <= -179.5 ? 180 : deg + 0
+}
+
+/** The angle between body `i`'s own up axis and world up, in degrees: its tilt from upright. */
+export function cargoTiltDeg(frame: Pick<BoxFrame, 'quats'>, i: number): number {
+  const qx = frame.quats[i * 4]!
+  const qz = frame.quats[i * 4 + 2]!
+  // the y component of the body's local +Y in world space
+  const upY = 1 - 2 * (qx * qx + qz * qz)
+  return (Math.acos(Math.max(-1, Math.min(1, upY))) * 180) / Math.PI
 }
 
 /** Every live cargo body in a frame, in frame order: the headless answer to "where are the boxes". */
@@ -166,9 +218,80 @@ export function cargoRows(frame: BoxFrame): CargoRow[] {
       color: toHex(r, g, b),
       ...(name ? { colorName: name } : {}),
       pos: [mm(frame.positions[c]!), mm(frame.positions[c + 1]!), mm(frame.positions[c + 2]!)],
+      tiltDeg: Math.round(cargoTiltDeg(frame, i)),
+      yawDeg: Math.round(cargoYawDeg(frame, i)),
     })
   }
   return out
+}
+
+/** A body in a {@link CargoSnapshot}: its row, and how fast it was moving. */
+export interface CargoSnapshotRow extends CargoRow {
+  /** velocity over the step before the snapshot, m/s to the millimetre per second; absent for a body that step spawned */
+  vel?: [number, number, number]
+  /** what its body had a contact with in that step: scene part ids, `cargo <id>`, `floor` (absent when the runner
+   *  cannot say) */
+  touching?: string[]
+}
+
+/** What a runner can tell {@link CargoSnapshots} beyond the frame, asked for only when a snapshot is taken. */
+export interface FrameExtras {
+  /** by frame id, what each cargo body touched in the step (sim/cargoContacts.ts) */
+  contacts?: () => ReadonlyMap<number, readonly string[]>
+}
+
+/** The live cargo at one asked-for time: `at` is the time asked for, `t` the first step that reached it. */
+export interface CargoSnapshot {
+  at: number
+  t: number
+  bodies: CargoSnapshotRow[]
+}
+
+/** Where the cargo is at chosen sim times of a test run (`test-project --cargo`, run_test's `cargo`). Hand
+ *  {@link onFrame} to the runner as its `onFrame`. */
+export class CargoSnapshots {
+  readonly snapshots: CargoSnapshot[] = []
+  private readonly pending: number[]
+  // the previous step's centres by body id, for each snapshot's velocities (a launched or teleported box shows as a
+  // speed no conveyor gives)
+  private prev = new Map<number, [number, number, number]>()
+  private prevT = 0
+
+  constructor(times: readonly number[]) {
+    this.pending = [...times].sort((a, b) => a - b)
+  }
+
+  readonly onFrame = (frame: Readonly<BoxFrame>, extras?: FrameExtras): void => {
+    if (this.pending.length === 0) return
+    while (this.pending.length > 0 && frame.simTime + 1e-9 >= this.pending[0]!) {
+      const contacts = extras?.contacts?.()
+      const bodies = this.rowsWithVelocity(frame).map((row) => {
+        const touching = contacts?.get(row.id)
+        return touching ? { ...row, touching: [...touching] } : row
+      })
+      this.snapshots.push({ at: this.pending.shift()!, t: frame.simTime, bodies })
+    }
+    const prev = new Map<number, [number, number, number]>()
+    for (let i = 0; i < frame.count; i++) prev.set(frame.ids[i]!, [frame.positions[i * 3]!, frame.positions[i * 3 + 1]!, frame.positions[i * 3 + 2]!])
+    this.prev = prev
+    this.prevT = frame.simTime
+  }
+
+  private rowsWithVelocity(frame: Readonly<BoxFrame>): CargoSnapshotRow[] {
+    const dt = frame.simTime - this.prevT
+    const mm = (v: number): number => Math.round(v * 1000) / 1000
+    return cargoRows(frame).map((row, i) => {
+      const was = this.prev.get(row.id)
+      if (!was || !(dt > 0)) return row
+      const at = [frame.positions[i * 3]!, frame.positions[i * 3 + 1]!, frame.positions[i * 3 + 2]!]
+      return { ...row, vel: [mm((at[0]! - was[0]) / dt), mm((at[1]! - was[1]) / dt), mm((at[2]! - was[2]) / dt)] }
+    })
+  }
+
+  /** the asked-for times the run ended before */
+  missed(): number[] {
+    return [...this.pending]
+  }
 }
 
 /**
@@ -214,7 +337,10 @@ export class ProbeSampler {
 
   /** Does a probe filter on marks, so the runner has to hand {@link values} each row's marks? */
   get needsMarks(): boolean {
-    return this.probes.some(({ probe }) => ('count' in probe && probe.count.marked !== undefined) || ('passed' in probe && probe.passed.marked !== undefined))
+    return this.probes.some(
+      ({ probe }) =>
+        ('count' in probe && probe.count.marked !== undefined) || ('passed' in probe && probe.passed.marked !== undefined) || ('square' in probe && probe.square.marked !== undefined),
+    )
   }
 
   /** Read every probe against one step's frame, keyed for the evaluator's sample table. `marks` is each row's marks,
@@ -231,6 +357,7 @@ export class ProbeSampler {
       let v: TestValue | undefined
       if ('count' in probe) v = this.colorWitnessed(probe.count.color) ? countCargo(probe.count, frame, marks) : undefined
       else if ('passed' in probe) v = this.readPassed(key, probe.passed)
+      else if ('square' in probe) v = this.colorWitnessed(probe.square.color) ? readSquare(probe.square, frame, marks) : undefined
       else if ('joint' in probe) v = this.readJoint(probe.joint)
       else if ('lamp' in probe) v = this.readLamp(probe.lamp)
       else v = this.readPose(probe.pose, frame)
@@ -247,7 +374,7 @@ export class ProbeSampler {
 
   private trackColors(frame: BoxFrame): void {
     for (const { probe } of this.probes) {
-      const color = 'count' in probe ? probe.count.color : 'passed' in probe ? probe.passed.color : undefined
+      const color = 'count' in probe ? probe.count.color : 'passed' in probe ? probe.passed.color : 'square' in probe ? probe.square.color : undefined
       if (color === undefined || this.colorsSeen.has(color)) continue
       for (let i = 0; i < frame.count; i++) {
         if (!colorMatches(color, frame, i)) continue

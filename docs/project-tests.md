@@ -57,8 +57,8 @@ that document splits on load (docs/projects.md "Splitting an older project"), an
 {
   "name": "start latches",    // optional display name (the CLI defaults to the file name)
   "duration": 30,             // simulated seconds, fixed-step; wall-clock ≈ much less
-  "scanMs": 10,               // optional PLC scan period; defaults to one scan per sim step. Only a program with
-                              // no controller table / CONFIGURATION uses it: a table's own task interval wins
+  "scanMs": 10,               // optional PLC scan period; defaults to the project's scan time, as Play scans. Only
+                              // a program with no controller table / CONFIGURATION uses it: a table's task interval wins
   "inputs": [                 // optional stimulus timeline (PLC/behavior input tags)
     { "at": 0,  "tag": "StartPB", "value": true },
     { "at": 0.5, "tag": "StartPB", "value": false }
@@ -137,6 +137,7 @@ takes the place of `tag`, and the temporal modes and predicates above apply to i
 |---|---|
 | `{ "count": { "zone": {"min":[x,y,z], "max":[x,y,z]}, "part": "id", "kind": "box"\|"pallet"\|"tote", "color": "red", "marked": "sealed" } }` | how many live cargo bodies match now - every filter optional and ANDed, `{}` counts all cargo |
 | `{ "passed": { "zone": {...}, "part", "kind", "color" } }` | how many cargo bodies have entered `zone` since the run began: cumulative, each body once, despawned ones included. "Boxes that passed this point", whenever they arrived. The zone is required, the filters are `count`'s |
+| `{ "square": { "zone": {...}, "heading": 30, "part", "kind", "color" } }` | how far the cargo in `zone` is turned off square to `heading`: the worst matching body inside it this step, in degrees from 0 to 45, to a tenth of a degree. Folded by 90, so any edge parallel to the heading is square. `heading` is degrees about +Y, as a part's `rotationY` (a spur's, in degrees). Absent while no matching body is inside. The zone and heading are required, the filters are `count`'s |
 | `{ "pose": { "part": "id", "axis": "x"\|"y"\|"z"\|"yaw" } }` | where that part is - a mobile part's driven base (`ctx.drive`), else an authored cargo body |
 | `{ "joint": { "part": "id", "joint": "name" } }` | a rig part's joint value (rad / m): the last one it commanded, latched; absent until it commands that joint |
 | `{ "lamp": { "part": "id", "lamp": "name" } }` | whether a part's lamp is lit (`true` / `false`): the last value its behavior commanded, latched; absent until it commands that lamp. It reads the command, so a lamp lit at rest only by its `param` is absent |
@@ -167,12 +168,19 @@ out or filter by `kind`.
 
 // at least 3 blue boxes went down lane 2 (a thin gate across the lane)
 { "eventually": true, "min": 3, "probe": { "passed": { "zone": { "min": [5.5,0.8,-1.2], "max": [6.5,1.5,-1.0] }, "color": "blue" } } }
+
+// every case rides the 30-degree spur within 10 degrees of square
+{ "always": true, "max": 10, "probe": { "square": { "zone": { "min": [4.4,0.7,-1.3], "max": [5.0,1.3,-0.9] }, "heading": 30 } } }
 ```
 
-**Colour** is `red`, `green` or `blue`, called by the rule the colour sensor part uses (a saturated tint whose channel
-dominates; white, grey, yellow and anything too dark are none of them), or an exact `#rrggbb` as the scene authors it
-(a spawner's `boxColors`, a box's `color`). It replaces the extra colour sensors a test otherwise adds to the scene
-just to see what went where.
+**`square` is for a place cargo rides through settled**, such as the middle of a spur, not the transfer onto it, where a
+case turns on purpose. Its zone has the same witness rule as `passed`: absent until a matching body is inside, so a
+zone beside the lane fails as never appeared instead of passing every `max`.
+
+**Colour** is `red`, `green`, `blue` or `yellow` (a saturated tint whose channel dominates, or red and green together
+over a low blue for yellow; white, grey, cyan, magenta and anything too dark are none of them), or an exact `#rrggbb`
+as the scene authors it (a spawner's `boxColors`, a box's `color`). It replaces the extra colour sensors a test
+otherwise adds to the scene just to see what went where.
 
 **`passed` sees a body go through, not stand in.** Entry is tested on the segment its centre swept since the last
 step, so a gate thinner than one step's travel (a box thrown off a diverter covers 5 cm a step) still counts it. A
@@ -285,7 +293,7 @@ finds the tags through what the package declares: its `'tag'` params with a `dir
 reads them (the param's default when the scene leaves it unset). Renaming a tag in the Inspector does not break the test. The flip side:
 a part that speaks tags through anything else (a plain string param, a fixed name) cannot be faulted, and
 the run refuses the fault rather than letting it touch nothing. A fault that silently did nothing would make
-every check after it pass for the wrong reason. The same holds for an unknown part id, comms switched off, or a tag param left blank.
+every check after it pass for the wrong reason. The same holds for an unknown part id, a tag param left blank, or a part whose declared comms switch is off.
 
 **Faults apply last on their side of the PLC.** A fault is the wire itself failing, so it outranks both what
 the device does and what a test `input` writes to the same tag.
@@ -339,8 +347,13 @@ not `lane2-full-logic` too. A report leads with the file name. A manifest that l
 too, with a note that the app will not run it until it is listed.
 
 **`--cargo 5,10.5` lists every live cargo body at those times**: id, part (or `-` for a spawned box), kind, tint
-(`#e01010 (red)`) and centre in world metres. It is the headless answer to "where are the boxes", which is what you
-need to place a `count` zone or a `passed` gate; `--json` carries it as `cargo` per test.
+(`#e01010 (red)`), centre in world metres, tilt from upright and heading about +Y (`yawDeg`), in whole degrees. The heading is the plan
+direction of the body's more nearly level edge: a part's `rotationY` for an upright body, and the way its edges run
+for one tilted on a cross slope, such as a chute falling away from a sorter. A spawned box has no part id, so a `pose` probe's `yaw` cannot follow it, and its heading here is how
+to see a case turn through a divert. It is the headless answer to "where
+are the boxes", which is what you need to place a `count` zone or a `passed` gate, and close-together times follow a
+box that tips or falls. `--json` carries it as `cargo` per test, and the agent's `run_test` takes the same times as
+`cargo` (core/project/projectProbe.ts `CargoSnapshots` serves both).
 
 **Why a check failed is printed with it.** A failed check says what was wrong; the cause is in the other tags
 just before (a stop went on, an eye saw a box). The run is deterministic, so a failed test is run a second time
@@ -384,11 +397,13 @@ setpoint (`setpointFor`, a conveyor's `speedTag`) or a despawner's `blockTag`, w
 despawner directly. A blank tag param un-wires the part: it reads and writes nothing, the wiring check leaves it out,
 and a blank command tag is never driven, so that part runs on its own params whatever the program does.
 
-**`check-wiring` counts the tests as wiring.** It finds a project's specs the way this runner does (listed, and
+**`check-wiring` and the Problems dock count the tests as wiring.** The CLI finds a project's specs the way this runner does (listed, and
 unlisted `tests/*.test.json`), and a tag a check reads (as its `tag` or a right-hand `{ "tag": ... }` operand)
 counts as read, while a tag an input drives (or a `commsLoss` fault's `statusTag`) counts as written. So a feedback
 tag only a test reads, or a despawner's block tag only a test drives, is not an "unread" / "undriven" warning, and
 the report says who covers it (`Lane1Blocked: nothing in the scene writes it; written by tests/lane-full.test.json`).
+The dock applies the same rule (`coverByTests`, core/project/projectTestTags.ts) to the tests the project keeps, and
+drops the covered row.
 
 This is the same path every part uses (the whole catalog is authored on the SDK,
 [architecture.md](architecture.md)), so the runner needs no special path for tests. Layering: the pure evaluator

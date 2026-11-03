@@ -16,13 +16,17 @@ Scene conventions the tools assume (rotationY direction, +X downstream, left = -
   joints, colliders. A folder with a `part.js` is built in memory the way `build-parts` builds it and the checks run
   on that build. A manifest or behavior beside it that differs from the build is a `stale` problem: the `part.js`
   changed and was not built, or the file was edited (by hand, the Part Editor or an agent tool) and the next build
-  would undo that edit.
+  would undo that edit. It also warns when a drawn part leaves out a host-fed param its declarations say it needs
+  (a conveyor with guards and no `guardHoles`), since that fact then never reaches it (part authoring guide, "Facts
+  the host fills in").
 - **`npm run inspect-glb -- <file.glb>`** - a model's node tree: names, local TRS, materials, subtree boxes.
 - **`npm run import-model -- <file.step|.stp> [--out <file.glb>]`** - STEP to GLB through the app's own conversion:
   `--up z|y` (default guessed from the exporting program), `--detail normal|coarse`, `--min-part-mm <n>` (default
   10), `--no-merge`, `--json`. Exit 1 = the file could not be converted.
-- **`npm run shot-part -- <part-folder> [--pose j=v,...] [--focus x,y,z,r]`** - PNG views of one part at rest /
-  posed, through the real renderer; `--focus` is a close-up of a part-local sphere.
+- **`npm run shot-part -- <part-folder> [--pose j=v,...] [--sub-pose link=<json>]... [--focus x,y,z,r]`** - PNG views of
+  one part at rest / posed, through the real renderer. `--sub-pose` poses a link as `ctx.setSubPose` does
+  (`'carriage={"position":[0,0.2,0]}'`, `'slat[3]={"rotation":[0,0,1]}'` for one copy of a posable array);
+  `--focus` is a close-up of a part-local sphere.
 - **`npm run build-part-sdk`** - regenerates `packages/part-sdk` from src/core, refusing output that doesn't compile;
   `-- --check` is the CI gate. It also fails when the SDK's surface changed without a raise of `PART_SDK_LEVEL`
   (src/core/parts/partSdk.ts; the levels are recorded in `packages/part-sdk/levels.json`, docs/part-sources.md).
@@ -31,10 +35,11 @@ Scene conventions the tools assume (rotationY direction, +X downstream, left = -
   the params, `rig(params)` (or a static `manifest.geometry`), `geometry()` and `step()`, importing other modules by
   relative path. From it this writes the behavior (the imports joined in, comments kept, `manifest` / `rig()` and
   unused helpers left out: scripts/lib/bundlePart.mjs) and the manifest (src/core/rig/rigCompile.ts turns each number that follows a param into a
-  ref: a straight line in one param, a straight line between two flat ends (the ref's `min` / `max`), or a product of
-  two params plus a constant (`mulParam`), on a link offset, a box, cylinder or grip zone size, an array step, a leg
-  row's frame depth, a joint's limits (`minParam` / `maxParam`, the static limit the widest over the range) or a bounds
-  field (`bounds.params`); it refuses one it can't express and passes through any ref `rig()` writes itself).
+  ref: a straight line in one param, a straight line between two flat ends (the ref's `min` / `max`), a product of
+  two params plus a constant (`mulParam`), or a sum of a line in each of two params (two refs, the second `plus`), on a
+  link offset or rotation, a box, cylinder, grip zone or detection zone size, an array step, a leg row's frame depth, a
+  joint's limits (`minParam` / `maxParam`, the static limit the widest over the range; no sums) or a bounds field
+  (`bounds.params`); it refuses one it can't express and passes through any ref `rig()` writes itself).
   - A bare name is `examples/parts/<dir>`, and no name means every one of those with a `part.js`. There the files are
     `behavior.ts` and `rig.json`, and shared code is in `examples/parts/_shared/`.
   - A path (anything with a slash) is any folder holding a `part.js`: a project's `parts/<slug>/`, a library's source
@@ -82,8 +87,10 @@ Scene conventions the tools assume (rotationY direction, +X downstream, left = -
 
 Never hand-edit scene.json; these go through the same checks the editor does.
 
-- **`npm run add-part -- <project-folder> <built-in id | part-folder> [--params k=v,...] [--id <id>] [--at x,y,z] [--rot <deg>]... [--place | --scaffold]`**
+- **`npm run add-part -- <project-folder> <built-in id | own part id | part-folder> [--params k=v,...] [--id <id>] [--at x,z | x,y,z] [--rot <deg>]... [--place | --scaffold]`**
   - The options after a part apply to that part, and place it: a part given any of them is placed without `--place`.
+  - `--at x,z` rests the part on the floor there by the editor's drop rule (its underside on the floor, a legged deck
+    at its stand height), as does a placed part with no `--at`. `--at x,y,z` puts its origin exactly there.
   - `--params` values are checked against each param's declared type, and a given value is never written over. One
     that needs a switch setting turns the switch and says so (`speedFpm=200` sets `fpmUnits=true`). One equal to
     what the part already has is printed as not stored. A list is one comma-joined value:
@@ -91,7 +98,8 @@ Never hand-edit scene.json; these go through the same checks the editor does.
     written as one: `--params 'segments=[[3,0],[1,10]]'`.
   - All or nothing: any bad part or value writes nothing and lists every error.
   - A built-in needs only its id (checked, then placed); an authored part is baked and added to the library. Creates
-    the project if missing.
+    the project if missing. A part in the project's `parts/` is named by its id, listed or not. A folder already in
+    `parts/` is listed, not copied, and moved to `parts/<id>/` (with its `part.js`) when it has another name.
   - `--scaffold` lays out a straight line with the real snap engine (eyes on a guard across the belt, buttons on the
     frame, a spawner over the infeed). It wires only the tags its program and starter test use, uniquely named
     (`Belt1Run`, `DischargeEye`, `StartPB`, `SpawnerRun`) unless a tag is named in `--params`. Other tag params stay
@@ -126,6 +134,8 @@ Never hand-edit scene.json; these go through the same checks the editor does.
 ## Checking a project
 
 - **`npm run validate-project -- <path>`** - the document loads; lists what loading repaired, `--strict` fails on it.
+  `--write` removes from a project folder's scene file the param keys loading drops (one a part's newer version no
+  longer declares) and changes nothing else.
 - **`npm run check-st -- <path...>`** - ST compiles. A project's program files are checked together, as the program
   they make, and each error is reported at its own file and line.
 - **`npm run check-wiring -- <path>`** - tags connect. The project's tests count, so a tag a test checks is read and
@@ -139,7 +149,7 @@ Never hand-edit scene.json; these go through the same checks the editor does.
   with it by `conveyorId` + `keepSpacing`: boxes stack on the stopped belt.
 - **`npm run test-project -- <folder>`** - control logic behaves. Exit 1 = a check failed, 3 = the project or a test
   could not run. `--only` takes an exact file or test name and falls back to a substring only when nothing matches
-  exactly; `--cargo 5,10` lists where every box is at those times. Prefer `passed` + `color` probes, tag-vs-tag
+  exactly; `--cargo 5,10` lists where every box is at those times, with its tilt, heading, velocity and what it touches. Prefer `passed` + `color` probes, tag-vs-tag
   checks and `from`/`until` windows over exact counts at exact times: [project-tests.md](project-tests.md).
 - **`npm run check-flow -- <project-folder> [--seconds N] [--input Tag=v@t] [--json]`** - what physically happened on
   the line: boxes dropped or lost, tipped, eye flickers with the tags that toggled, boxes still on a running
@@ -172,6 +182,10 @@ Never hand-edit scene.json; these go through the same checks the editor does.
   - `npm run openplc-loop` - a real OpenPLC Runtime v4 polls the headless sim over Modbus TCP and must stop a box
     where the in-process program does, bits and analog (a REAL each way). Uses `OPENPLC_URL`, else the per-user
     Windows install of the runtime's `Setup.exe`, started and stopped for the run.
+  - `npm run openplc-loop:cells` - two lines in one scene: the program here runs one, and OpenPLC runs the other as
+    the named controller Cell2 (`Cell2::%IX100.0`), on the same addresses. It goes through the app's Play path for
+    several controllers (the link area, the session, the shell's `plcIo.cjs` on link 1, the sim's two tag layers),
+    and both lines must behave as the in-process run. Same runtime and environment as `openplc-loop`.
   - `npm run s7-loop` - the same case over S7 PUT/GET: the app's own S7 session against snap7's S7 server
     (python-snap7 2.x: `python -m pip install --target .s7-loop/snap7 python-snap7==2.0.2`), the program on the far
     side transcribed into Python over the server's memory. It tests the bytes, not a Siemens CPU. snap7 enforces no

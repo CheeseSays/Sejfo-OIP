@@ -12,7 +12,10 @@
 // validation wholesale, so it inherits every clamp/migration scene validation does.
 
 import { savedParts, validateScene } from '../scene/scene'
-import { packageDependencies, productRefsOf, upgradeStoredPackage, validatePartPackage } from '../parts/partPackage'
+import { sceneSettings } from '../scene/scenePlcs'
+import { definitionsUsedBy } from '../parts/partPackage'
+import { validatePartPackage } from '../parts/partValidate'
+import { upgradeStoredPackage } from '../parts/partUpgrade'
 import { originOf, partFingerprint, withOrigin } from '../parts/partOrigin'
 import { builtInPackage, hasBuiltInPackages } from '../parts/partRegistry'
 import type { PartPackage } from '../parts/partPackage'
@@ -191,37 +194,12 @@ function unresolvedPackageIds(parts: unknown, resolving: readonly PartPackage[])
 export function missingLibraryCopies(library: readonly PartPackage[], partLists: readonly (readonly PartInstance[])[]): PartPackage[] {
   if (!hasBuiltInPackages()) return []
   const byId = new Map(library.map((p) => [p.id, p]))
-  const seen = new Set<string>()
-  const out: PartPackage[] = []
-  // the library's copy of `id`, adding the app's built-in when it lacks one; undefined when neither has it
+  // the library's copy of `id`, else the app's built-in stamped as a copy of this version
   const resolve = (id: string): PartPackage | undefined => {
-    let pkg = byId.get(id)
-    if (pkg === undefined) {
-      const builtIn = builtInPackage(id)
-      if (builtIn === undefined) return undefined
-      pkg = withOrigin(builtIn, 'app', partFingerprint(builtIn))
-      out.push(pkg)
-      byId.set(id, pkg)
-    }
-    return pkg
+    const builtIn = byId.has(id) ? undefined : builtInPackage(id)
+    return byId.get(id) ?? (builtIn && withOrigin(builtIn, 'app', partFingerprint(builtIn)))
   }
-  const queue: string[] = []
-  for (const parts of partLists) {
-    for (const p of parts) {
-      if (!('packageId' in p) || typeof p.packageId !== 'string') continue
-      queue.push(p.packageId)
-      const pkg = resolve(p.packageId)
-      if (pkg) queue.push(...productRefsOf(p.params, pkg))
-    }
-  }
-  while (queue.length > 0) {
-    const id = queue.pop()!
-    if (seen.has(id)) continue
-    seen.add(id)
-    const pkg = resolve(id)
-    if (pkg) queue.push(...packageDependencies(pkg))
-  }
-  return out
+  return definitionsUsedBy(partLists.flat(), resolve).filter((p) => !byId.has(p.id))
 }
 
 /**
@@ -278,7 +256,7 @@ function sceneWithPackages(
     version: SCENE_VERSION,
     parts: scene.parts,
     ...(packages.length > 0 ? { packages } : {}),
-    ...(scene.units !== undefined ? { units: scene.units } : {}),
+    ...sceneSettings(scene),
     ...(typeof stProgram === 'string' && stProgram !== ''
       ? { stProgram, ...(typeof stScanMs === 'number' ? { stScanMs } : {}) }
       : {}),
@@ -339,8 +317,8 @@ function validateMachine(
     return undefined
   }
   const candidate = sceneWithPackages(
-    // units as written: validateScene keeps a valid one and reports anything else
-    { version: SCENE_VERSION, parts: rawParts, ...(rawScene.units !== undefined ? { units: rawScene.units as SceneJSON['units'] } : {}) },
+    // the scene's settings as written: validateScene keeps what it can read and reports the rest
+    { version: SCENE_VERSION, parts: rawParts, ...sceneSettings(rawScene as Pick<SceneJSON, 'units' | 'lengthUnit' | 'plcs'>) },
     resolving,
     stProgram,
     stScanMs,
@@ -369,7 +347,7 @@ function validateMachine(
       version: SCENE_VERSION,
       parts: validated.scene.parts,
       ...(scenePkgs.length > 0 ? { packages: scenePkgs } : {}),
-      ...(validated.scene.units !== undefined ? { units: validated.scene.units } : {}),
+      ...sceneSettings(validated.scene),
     },
     ...(validated.stProgram !== undefined && validated.stProgram !== ''
       ? {
@@ -383,9 +361,10 @@ function validateMachine(
   }
 }
 
-/** The packages a scene's parts name: what it uses of a library (see {@link usedLibraryOnly} for why that is all). */
-export function placedPackageIds(scene: SceneJSON): Set<string> {
-  return new Set(scene.parts.flatMap((p) => ('packageId' in p && typeof p.packageId === 'string' ? [p.packageId] : [])))
+/** The ids of every definition `scene` uses (definitionsUsedBy), resolved through `packages` and the app's built-ins */
+export function usedPackageIds(scene: SceneJSON, packages: readonly PartPackage[]): Set<string> {
+  const byId = new Map(packages.map((p) => [p.id, p]))
+  return new Set(definitionsUsedBy(scene.parts, (id) => byId.get(id) ?? builtInPackage(id)).map((p) => p.id))
 }
 
 /**
@@ -398,9 +377,10 @@ export interface ExportLeaveOut {
   tests?: boolean
 }
 
-/** The library parts an export would carry that nothing in it uses: not placed in the scene. */
+/** The library parts an export would carry that nothing in it uses: not placed in the scene, nor named by what is
+ *  (a spawner's product). */
 export function unusedLibraryParts(project: ProjectJSON): PartPackage[] {
-  const used = placedPackageIds(project.scene)
+  const used = usedPackageIds(project.scene, project.packages ?? [])
   return (project.packages ?? []).filter((p) => !used.has(p.id))
 }
 
@@ -418,13 +398,12 @@ export function trimForExport(project: ProjectJSON, leave: ExportLeaveOut): Proj
 
 /**
  * A project split off an older multi-scene document, trimmed to what its own scene uses: the library parts it
- * places. All of it stays in the project it came from, the library's home; copying it into
- * every split-off project would put parts one scene never used into files that get shared and
- * exported on their own. A part names its package by `packageId` and nowhere else (a `partRef` param names a
- * scene part; part code spawns only boxes and pallets), so the scene's parts are the whole list.
+ * places, and what those name (a spawner's product). All of it stays in the project it came from, the library's home;
+ * copying it into every split-off project would put parts one scene never used into files that get shared and
+ * exported on their own.
  */
 function usedLibraryOnly(project: ProjectJSON): ProjectJSON {
-  const used = placedPackageIds(project.scene)
+  const used = usedPackageIds(project.scene, project.packages ?? [])
   const packages = (project.packages ?? []).filter((p) => used.has(p.id))
   const { packages: _library, ...rest } = project
   return { ...rest, ...(packages.length > 0 ? { packages } : {}) }
@@ -629,7 +608,7 @@ export function serializeProject(
         version: PROJECT_VERSION,
         name: project.name,
         ...(library.length > 0 ? { packages: library } : {}),
-        scene: { version: SCENE_VERSION, parts, ...(own.length > 0 ? { packages: own } : {}), ...(project.scene.units !== undefined ? { units: project.scene.units } : {}) },
+        scene: { version: SCENE_VERSION, parts, ...(own.length > 0 ? { packages: own } : {}), ...sceneSettings(project.scene) },
         ...(typeof project.stProgram === 'string' && project.stProgram !== ''
           ? {
               stProgram: project.stProgram,
@@ -673,7 +652,7 @@ export function sceneToProject(
       version: SCENE_VERSION,
       parts: scene.parts,
       ...(scene.packages && scene.packages.length > 0 ? { packages: scene.packages } : {}),
-      ...(scene.units !== undefined ? { units: scene.units } : {}),
+      ...sceneSettings(scene),
     },
     ...(typeof stProgram === 'string' && stProgram !== ''
       ? {
@@ -707,7 +686,7 @@ export function projectToScene(project: ProjectJSON): {
       version: SCENE_VERSION,
       parts: project.scene.parts,
       ...(packages.length > 0 ? { packages } : {}),
-      ...(project.scene.units !== undefined ? { units: project.scene.units } : {}),
+      ...sceneSettings(project.scene),
     },
     stProgram: project.stProgram ?? '',
     ...(project.stScanMs !== undefined ? { stScanMs: project.stScanMs } : {}),

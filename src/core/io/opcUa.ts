@@ -13,11 +13,16 @@
 // when both exist. A tag that matches more than one variable is refused with the candidates named, rather
 // than bound to whichever the server listed first. A NodeId written out (`ns=4;s=...`, `ns=3;i=...`) is taken as it is.
 //
+// Where the browse starts. Objects by default, or the start points a link names (OpcUaBrowseRoot). A variable found
+// under a path start point keeps its whole path from Objects, so a tag binds the same with start points as without.
+//
 // This module is pure: the browse itself, and every byte on the wire, belong to the desktop shell
 // (apps/desktop/opcUaIo.cjs, with node-opcua), and the session that joins them to the running scene to
 // editor/links/externalPlc.ts.
 
 import { looksLikeAddress } from './iecAddress'
+import { groupVariables } from './plcVariables'
+import type { PlcVariable, PlcVariableGroup } from './plcVariables'
 
 /** A scene tag the link carries, and which way. */
 export interface OpcUaPoint {
@@ -39,6 +44,11 @@ export interface OpcUaVariable {
 export interface OpcUaNodeInfo {
   /** the DataType attribute, as a NodeId string (`ns=0;i=1` is Boolean) */
   dataType: string
+  /**
+   * the built-in type id the DataType comes down to, which the shell finds by following its supertypes (a
+   * PLC's enumeration is an Int32, its alias of INT an Int16); 0 or absent when it found none
+   */
+  builtin?: number
   /** the UserAccessLevel attribute: bit 0 readable, bit 1 writable */
   access: number
 }
@@ -82,6 +92,46 @@ export function opcUaPointsFromTags(tags: readonly SceneTagWiring[]): { points: 
 }
 
 const NODE_ID = /^(ns=\d+;)?[isgb]=.+$/
+
+/** A tag written as a NodeId (`ns=4;s=Main.Eye`), which names its node without a browse. */
+export const isOpcUaNodeId = (tag: string): boolean => NODE_ID.test(tag)
+
+/**
+ * Where a browse starts, instead of Objects: a path of browse names from Objects (`DeviceSet.PLC.Programs`), or a
+ * NodeId. A server that also runs a CNC or a drive can hold tens of thousands of variables a program never uses.
+ */
+export type OpcUaBrowseRoot = { path: string[] } | { nodeId: string }
+
+/** How many start points a link keeps. */
+export const MAX_BROWSE_ROOTS = 16
+
+/** A start point as typed: a NodeId, or a path of browse names written as a tag is. */
+export function opcUaBrowseRoot(text: string): OpcUaBrowseRoot | null {
+  const s = text.trim()
+  if (s === '' || s.length > 512) return null
+  if (NODE_ID.test(s)) return { nodeId: s }
+  const path = tagSegments(s)
+  return path.some((seg) => seg === '' || /[[\]]/.test(seg)) ? null : { path }
+}
+
+/**
+ * The start points a field holds, separated by commas outside double quotes (`Programs, "Cell.A".Data`); null when one
+ * of them is not a path or a NodeId, or there are more than {@link MAX_BROWSE_ROOTS}. Empty text is none: browse Objects.
+ */
+export function parseOpcUaBrowseRoots(text: string): string[] | null {
+  const out: string[] = []
+  let cur = ''
+  let quoted = false
+  for (const ch of `${text},`) {
+    if (ch === '"') quoted = !quoted
+    if (ch === ',' && !quoted) {
+      if (cur.trim() !== '') out.push(cur.trim())
+      cur = ''
+    } else cur += ch
+  }
+  if (quoted || out.length > MAX_BROWSE_ROOTS || out.some((r) => opcUaBrowseRoot(r) === null)) return null
+  return out
+}
 
 /** A tag's name as browse-name segments: `"Conveyor".Eye` is Conveyor, Eye (a quoted segment may hold a dot; the quotes are not part of the name). */
 export function tagSegments(tag: string): string[] {
@@ -130,6 +180,25 @@ export function matchOpcUaTag(tag: string, variables: readonly OpcUaVariable[]):
  * NodeId). A browse name holding a dot is quoted, so it reads back as one segment. Sorted.
  */
 export function opcUaTagNames(variables: readonly OpcUaVariable[]): string[] {
+  return opcUaNamed(variables)
+    .map((n) => n.name)
+    .sort((a, b) => a.localeCompare(b))
+}
+
+/**
+ * The browse as the PLC connections window shows it: the variables {@link opcUaTagNames} names, grouped by the folder or
+ * object they sit in (its browse path, `/` between segments). A browse reads no types, so none is given.
+ */
+export function opcUaVariableGroups(variables: readonly OpcUaVariable[]): PlcVariableGroup[] {
+  const folder = new Map<string, string>()
+  const named: PlcVariable[] = opcUaNamed(variables).map((n) => {
+    folder.set(n.name, n.variable.path.slice(0, -1).join('/'))
+    return { name: n.name, short: n.variable.path[n.variable.path.length - 1]!, typeName: '', kind: null }
+  })
+  return groupVariables(named, (v) => folder.get(v.name) ?? '')
+}
+
+function opcUaNamed(variables: readonly OpcUaVariable[]): { name: string; variable: OpcUaVariable }[] {
   const key = (segs: readonly string[]): string => segs.join('\u0000').toLowerCase()
   // how many variables' paths end in each run of segments: a run held by one variable names it
   const ends = new Map<string, number>()
@@ -143,18 +212,18 @@ export function opcUaTagNames(variables: readonly OpcUaVariable[]): string[] {
   const parents = new Set(variables.map((v) => v.path.slice(0, -1).join('\u0000')))
   // only the segments a name uses must be typeable: a path may run through a device name holding spaces
   const spellable = (seg: string): boolean => seg !== '' && !/[\s/"]/.test(seg)
-  const out: string[] = []
+  const out: { name: string; variable: OpcUaVariable }[] = []
   for (const v of variables) {
     if (v.path.some((seg) => /[[\]]/.test(seg)) || parents.has(v.path.join('\u0000'))) continue
     for (let k = 1; k <= v.path.length; k++) {
       const tail = v.path.slice(v.path.length - k)
       if (ends.get(key(tail)) !== 1) continue
       const name = tail.map((seg) => (seg.includes('.') ? `"${seg}"` : seg)).join('.')
-      if (tail.every(spellable) && !NODE_ID.test(name) && !looksLikeAddress(name)) out.push(name)
+      if (tail.every(spellable) && !NODE_ID.test(name) && !looksLikeAddress(name)) out.push({ name, variable: v })
       break
     }
   }
-  return out.sort((a, b) => a.localeCompare(b))
+  return out
 }
 
 /**
@@ -208,6 +277,26 @@ const BUILTIN: Record<number, { name: string; kind: 'bool' | 'int' | 'float'; mi
   11: { name: 'Double', kind: 'float' },
 }
 
+/** The other built-in types, which no scene value travels as, by id: named in a refusal. */
+const OTHER_BUILTIN: Record<number, string> = {
+  8: 'Int64',
+  9: 'UInt64',
+  12: 'String',
+  13: 'DateTime',
+  14: 'Guid',
+  15: 'ByteString',
+  16: 'XmlElement',
+  17: 'NodeId',
+  18: 'ExpandedNodeId',
+  19: 'StatusCode',
+  20: 'QualifiedName',
+  21: 'LocalizedText',
+  22: 'Structure',
+  23: 'DataValue',
+  24: 'Variant',
+  25: 'DiagnosticInfo',
+}
+
 /** The built-in type id a DataType NodeId names, or null when it is not one a scene value travels as. */
 export function builtinOf(dataType: string): number | null {
   const m = /^(?:ns=0;)?i=(\d+)$/.exec(dataType)
@@ -216,7 +305,7 @@ export function builtinOf(dataType: string): number | null {
 }
 
 export function builtinName(id: number): string {
-  return BUILTIN[id]?.name ?? `type ${id}`
+  return BUILTIN[id]?.name ?? OTHER_BUILTIN[id] ?? `type ${id}`
 }
 
 /**
@@ -242,10 +331,11 @@ export function bindOpcUaPoints(
       problems.push(`${p.tag}: the PLC did not describe ${m.variable.path.join('.')}`)
       continue
     }
-    const builtin = builtinOf(info.dataType)
+    const builtin = info.builtin ? (BUILTIN[info.builtin] ? info.builtin : null) : builtinOf(info.dataType)
     const where = m.variable.path.join('.')
     if (builtin === null) {
-      problems.push(`${p.tag}: ${where} is not a single bit or number (its type is ${info.dataType})`)
+      const type = info.builtin ? builtinName(info.builtin) : info.dataType
+      problems.push(`${p.tag}: ${where} is not a single bit or number (its type is ${type})`)
       continue
     }
     const kind = BUILTIN[builtin]!.kind

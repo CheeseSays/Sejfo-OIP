@@ -1,9 +1,13 @@
 import { sanitizeParents } from './hierarchy'
 import { reseatOlderStairs } from '../stairReseat'
 import { canonicalAddress, looksLikeAddress } from '../io/iecAddress'
+import { controllerTag, splitControllerTag } from '../io/controllerTag'
+import { sceneSettings, validateScenePlcs } from './scenePlcs'
+import { readSavedUnits } from './sceneUnits'
 import { packageParamSpecs } from '../packageParams'
 import { getPackage, isAuthoritativePackage } from '../parts/partRegistry'
-import { upgradeStoredPackage, validatePartPackage } from '../parts/partPackage'
+import { validatePartPackage } from '../parts/partValidate'
+import { upgradeStoredPackage } from '../parts/partUpgrade'
 import type { PartPackage } from '../parts/partPackage'
 import { conveyorCenterOffsetX } from '../parts/partGeometry'
 import { DEFAULT_SIM_HZ, MAX_SIM_HZ, MIN_SIM_HZ, PART_DEFS, SCENE_VERSION, STAIRS_LANDING_DEPTH, toSimRate } from '../types'
@@ -136,9 +140,12 @@ function validateParam(spec: ParamSpec, v: unknown): ParamValue {
       // a PLC tag name (or '' for unbound); a tag the program hasn't declared yet is inert, not invalid.
       // A direct address (%IX100.0) is stored in its one canonical spelling, since the tag table meets
       // the program's located variables by exact key; a malformed one is kept as typed, for the wiring
-      // check to name
+      // check to name. Behind a controller's name (`Cell2::%IX0.0`, core/io/controllerTag.ts) the address is the same.
       if (typeof v !== 'string') return spec.default
-      return looksLikeAddress(v) ? (canonicalAddress(v) ?? v) : v
+      {
+        const { controller, local } = splitControllerTag(v)
+        return looksLikeAddress(local) ? controllerTag(controller, canonicalAddress(local) ?? local) : v
+      }
     case 'numberList':
       // structured table → each row coerced to `arity` finite numbers (clamped if bounded). A non-array
       // (e.g. legacy JSON string, or a malformed load) falls back to a deep copy of the default. A value
@@ -624,9 +631,13 @@ export function validateScene(data: unknown, runsAsEmbedded: ReadonlySet<string>
   if (root.simHz !== undefined && root.simHz !== simHz) {
     repairs.push(`simHz ${JSON.stringify(root.simHz)} is not a whole number from ${MIN_SIM_HZ} to ${MAX_SIM_HZ}, so the scene steps at ${simHz} Hz`)
   }
-  // the scene's Units (SceneJSON.units): absent = metric (core/scene/sceneUnits.ts); anything else is dropped, and said
-  const units = root.units === 'metric' || root.units === 'imperial' ? root.units : undefined
+  // the scene's Units and Length (SceneJSON.units, .lengthUnit): absent = metric, each field in its own unit
+  // (core/scene/sceneUnits.ts); anything else is dropped, and said
+  const { units, lengthUnit } = readSavedUnits(root.units, root.lengthUnit)
   if (root.units !== undefined && units === undefined) repairs.push(`units ${JSON.stringify(root.units)} is not "imperial" or "metric", so the scene is metric`)
+  if (root.lengthUnit !== undefined && root.lengthUnit !== lengthUnit) repairs.push(`lengthUnit ${JSON.stringify(root.lengthUnit)} is not "m", "mm" or "in", so each length shows in its own unit`)
+  // the scene's controllers (SceneJSON.plcs): an entry that cannot be read is dropped, and said
+  const plcs = validateScenePlcs(root.plcs, repairs)
   // a stair an older app seated by its own top landing moves in onto the deck edge it met (core/stairReseat.ts)
   for (const i of reseatOlderStairs(parts, runsAsEmbedded)) {
     repairs.push(`parts[${i}]${parts[i]!.name ? ` (${parts[i]!.name})` : ''} stood by its own top landing, which the deck it reaches now replaces, so it moves ${STAIRS_LANDING_DEPTH} m onto the deck edge`)
@@ -645,7 +656,7 @@ export function validateScene(data: unknown, runsAsEmbedded: ReadonlySet<string>
       version: SCENE_VERSION,
       parts: sanitized,
       ...(packages.length > 0 ? { packages } : {}),
-      ...(units !== undefined ? { units } : {}),
+      ...sceneSettings({ units, lengthUnit, plcs }),
     },
     ...(stProgram !== undefined ? { stProgram } : {}),
     ...(stScanMs !== undefined ? { stScanMs } : {}),
@@ -757,8 +768,8 @@ export function serializeScene(
         parts,
         // embed custom-part packages so the scene is self-contained: validateScene requires every custom
         // part's package to be present on the way back in (else the part - and the whole scene - is rejected).
-        // the scene's unit system (SceneJSON.units) is part of the document, like its parts
-        ...(scene.units !== undefined ? { units: scene.units } : {}),
+        // the scene's Units and its controllers (SceneJSON.units, .plcs) are part of the document, like its parts
+        ...sceneSettings(scene),
         ...(scene.packages && scene.packages.length > 0 ? { packages: scene.packages } : {}),
         ...(typeof stProgram === 'string' && stProgram !== ''
           ? {

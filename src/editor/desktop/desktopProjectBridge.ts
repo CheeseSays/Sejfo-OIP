@@ -8,8 +8,19 @@
 import { folderFilesToProject, projectToFolderFiles } from '../../core/project/projectFolder'
 import type { ProjectJSON } from '../../core/project/project'
 import { bakePart } from '../parts/bakePart'
-import { adoptImportedProject } from '../project/projectFile'
-import { clearEntryParams, currentDocumentId, fileOutgoingDocument, mintDocumentId, openDocument, supportsDocumentLibrary } from '../project/documentStore'
+import { adoptImportedProject, dropV1Snapshots } from '../project/projectFile'
+import { storeLocalAssets } from '../project/localAssets'
+import {
+  clearEntryParams,
+  currentDocumentId,
+  documentsOpenInTabs,
+  fileOutgoingDocument,
+  mintDocumentId,
+  onCurrentDocumentChange,
+  openDocument,
+  supportsDocumentLibrary,
+  writeDocument,
+} from '../project/documentStore'
 import { folderDisplayName, getOipProjectApi } from './desktopProjectApi'
 import type { FolderRead } from './desktopProjectApi'
 import { saveIntoFolder, saveToFolderNow, syncFolderNow, syncedFolderPath } from '../project/projectFolderSync'
@@ -22,7 +33,8 @@ export type { OipProjectApi } from './desktopProjectApi'
 /** File > Open Project Folder…: pick a folder and open the project in it. */
 export async function openProjectFromFolder(store: EditorStore): Promise<void> {
   const api = getOipProjectApi()
-  if (!api || store.getState().collab) return // a room's document is the collab doc, not a local folder
+  // a shared project is left for the one opened, as any open project is (adoptFolderProject clears its room)
+  if (!api) return
   const picked = await api.pickOpenFolder()
   if (picked) await openFolderRead(store, picked)
 }
@@ -30,7 +42,7 @@ export async function openProjectFromFolder(store: EditorStore): Promise<void> {
 /** Open a folder the app already knows the path of: File > Open Recent, a second launch naming one. */
 export async function openProjectFolderPath(store: EditorStore, root: string): Promise<void> {
   const api = getOipProjectApi()
-  if (!api || store.getState().collab) return
+  if (!api) return
   const read = await api.readAt(root)
   if (read) await openFolderRead(store, read)
 }
@@ -42,22 +54,13 @@ export async function openProjectFolderPath(store: EditorStore, root: string): P
  * and the folder is recorded against the document before the reload so the next boot keeps it in sync.
  */
 async function openFolderRead(store: EditorStore, read: FolderRead): Promise<void> {
-  const api = getOipProjectApi()
-  if (!api) return
-  if (read.error !== undefined) {
-    alert(`Couldn't read the project folder:\n${read.error}`)
+  const ready = await readyToOpen(store, read)
+  if ('error' in ready) {
+    alert(ready.error)
     return
   }
-  const result = folderFilesToProject(read.files, { bakePart })
-  if (!result.ok) {
-    alert(`Couldn't open the project folder:\n${result.errors.join('\n')}`)
-    return
-  }
-  if (read.docId !== null && read.docId === currentDocumentId() && !store.getState().demoSession) {
-    // already the project on screen: the sync is following that folder, so there is nothing to open
-    await syncFolderNow()
-    return
-  }
+  if (ready.already) return
+  const { result } = ready
   if (read.docId === null) {
     // Same wording split as the web import: with a library this opens the folder beside the project on
     // screen; without one it is a replacement, and the question has to say so.
@@ -68,6 +71,53 @@ async function openFolderRead(store: EditorStore, read: FolderRead): Promise<voi
   }
   const error = await adoptFolderProject(store, read.root, read.docId, result)
   if (error !== null) alert(`Couldn't open "${result.project.name}":\n${error}`)
+}
+
+/**
+ * An agent's open_project (apps/desktop/agentProjects.cjs). Main has already decided the folder may open and
+ * granted it, so nothing here asks the person, and a refusal comes back as text rather than an alert. Resolves to
+ * 'already' (it is the project on screen) or 'reloading' (the page is about to reload into it).
+ */
+export async function openFolderForAgent(store: EditorStore, root: string): Promise<{ error: string } | 'already' | 'reloading'> {
+  const api = getOipProjectApi()
+  if (!api) return { error: 'Opening a project folder needs the desktop app.' }
+  const read = await api.readAt(root)
+  if (!read) return { error: `Couldn't read ${root}: no answer from the app shell` }
+  const ready = await readyToOpen(store, read)
+  if ('error' in ready) return ready
+  if (ready.already) return 'already'
+  // without a library the open project's only copy would be overwritten, which the person has to agree to
+  if (read.docId === null && !supportsDocumentLibrary()) return { error: 'opening it would replace the open project, which has no other copy; the person opens it from File > Open Project Folder' }
+  const error = await adoptFolderProject(store, read.root, read.docId, ready.result)
+  return error === null ? 'reloading' : { error: `Couldn't open "${ready.result.project.name}": ${error}` }
+}
+
+/** A folder read checked as a project: why it cannot open, that it is the open project already, or the project. */
+async function readyToOpen(
+  store: EditorStore,
+  read: FolderRead,
+): Promise<{ error: string } | { already: true } | { already: false; result: Extract<ReturnType<typeof folderFilesToProject>, { ok: true }> }> {
+  if (read.error !== undefined) return { error: `Couldn't read the project folder:\n${read.error}` }
+  const result = folderFilesToProject(read.files, { bakePart })
+  if (!result.ok) return { error: `Couldn't open the project folder:\n${result.errors.join('\n')}` }
+  if (read.docId !== null && read.docId === currentDocumentId() && !store.getState().demoSession) {
+    // already the project on screen: the sync is following that folder, so there is nothing to open
+    await syncFolderNow()
+    return { already: true }
+  }
+  // open in another window: that window is brought forward, and this one keeps its project
+  if (await openElsewhere(read)) return { already: true }
+  return { already: false, result }
+}
+
+/** Bring forward the other window that has this folder's project open, if one does. */
+async function openElsewhere(read: FolderRead): Promise<boolean> {
+  const api = getOipProjectApi()
+  if (!api?.openWindow || !api.focusFolder) return false
+  if (await api.focusFolder(read.root)) return true
+  if (read.docId === null || !(await documentsOpenInTabs())?.has(read.docId)) return false
+  await api.openWindow(read.docId)
+  return true
 }
 
 /**
@@ -89,9 +139,11 @@ async function adoptFolderProject(
   // baseline null: the working copy is about to be built from this folder, so the next boot starts with
   // the two agreed rather than reading the app's rendering of every file as an edit
   if (id !== undefined) await api.remember(id, { path: root, name: result.project.name, baseline: null, signature: '', touch: true })
-  clearEntryParams() // a ?scene=demo entry URL would reload straight back into the demo
+  clearEntryParams() // a ?scene=demo or ?room= entry URL would reload straight back into the demo or the shared project
+  // its models go to the asset store first, so the working copy can name them by hash (localAssets.ts)
+  await storeLocalAssets(result.project)
   // adopt = write-then-reload; a failed write returns instead of reloading, so say why
-  const adopted = adoptImportedProject(result, id !== undefined ? { docId: id } : undefined)
+  const adopted = await adoptImportedProject(result, id !== undefined ? { docId: id } : undefined)
   return adopted.ok ? null : adopted.message
 }
 
@@ -166,7 +218,7 @@ export async function saveProjectToFolder(store: EditorStore, controller: SceneS
 
 /**
  * File > Save (Ctrl+S) on the desktop. The project saves itself into its folder as you work, so this
- * writes whatever is still pending and shows a Saved notice, so a habitual Ctrl+S gets a confirmation. A
+ * writes whatever is still pending and, the first time, shows a Saved notice saying where the work is. A
  * project with no folder gets one: its default folder, or a picker when the user unlinked it on purpose.
  *
  * On the built-in example it keeps a copy first (store.keepDemoCopy): the example is not the user's, and
@@ -181,19 +233,92 @@ export async function saveProjectNow(store: EditorStore, controller: SceneSwapGu
   const path = store.getState().folderPath
   // the desktop knows the folder's full path; a browser only its name
   const where = getOipProjectApi() !== null ? path : `the folder "${path}"`
-  if (outcome === 'saved' && path !== null && !forked) store.showSaveNotice('Saved', `All changes are in ${where}.`)
+  if (outcome === 'saved' && path !== null && !forked) showSaveNoticeOnce(store, 'Saved', `All changes are in ${where}.`)
+}
+
+const toldSaved = new WeakSet<EditorStore>()
+
+/**
+ * Save's answer, given on the first Save of the page only. The project autosaves, so the first answer says where the
+ * work is, and a habitual Ctrl+S after that has nothing new to report. Keyed by store: opening another project
+ * reloads the page, so this is once per opened project.
+ */
+export function showSaveNoticeOnce(store: EditorStore, ...notice: Parameters<EditorStore['showSaveNotice']>): void {
+  if (toldSaved.has(store)) return
+  toldSaved.add(store)
+  store.showSaveNotice(...notice)
+}
+
+/**
+ * Open a folder's project in a window of its own, leaving this window's project as it is. A folder some window
+ * already works in is brought forward instead. The new window boots into the document written here
+ * (libraryDb.pinTabDocument), so it never files or replaces another window's project on the way. Returns an error,
+ * or null.
+ */
+export async function openFolderInNewWindow(root: string): Promise<string | null> {
+  const api = getOipProjectApi()
+  if (!api?.openWindow || !api.focusFolder) return 'This version of the desktop app cannot open a second window.'
+  if (await api.focusFolder(root)) return null
+  const read = await api.readAt(root)
+  if (!read || read.error !== undefined) return `Couldn't read ${root}:\n${read?.error ?? 'no answer from the app shell'}`
+  if (read.docId !== null && read.docId === currentDocumentId()) return null // this window's own project
+  // open in a window that is not working in the folder (a library stand-in): bring that one forward, writing nothing
+  if (read.docId !== null && (await documentsOpenInTabs())?.has(read.docId)) {
+    await api.openWindow(read.docId)
+    return null
+  }
+  const result = folderFilesToProject(read.files, { bakePart })
+  if (!result.ok) return `Couldn't open ${root}:\n${result.errors.join('\n')}`
+  dropV1Snapshots(result)
+  const id = read.docId ?? mintDocumentId()
+  // as adoptFolderProject: the new window's working copy is built from the folder, so the two start agreed
+  await api.remember(id, { path: root, name: result.project.name, baseline: null, signature: '', touch: true })
+  await storeLocalAssets(result.project)
+  if (!(await writeDocument(id, result.project))) return 'This app would not store the project, so no window was opened.'
+  await api.openWindow(id)
+  return null
+}
+
+/**
+ * Open a project the library holds in a window of its own, or bring forward the window that has it open. A project
+ * with a folder opens from the folder, the store of record. Returns an error, or null.
+ */
+export async function openDocumentInNewWindow(docId: string, root: string | null): Promise<string | null> {
+  const api = getOipProjectApi()
+  if (!api?.openWindow) return 'This version of the desktop app cannot open a second window.'
+  if (root === null) {
+    await api.openWindow(docId)
+    return null
+  }
+  return openFolderInNewWindow(root)
 }
 
 /**
  * The folder-open requests that do not start in the renderer: a folder named on the command line at
- * launch (once), and File > Open Recent or a second launch while running. Call once at mount; returns
- * the unsubscribe.
+ * launch (once), File > Open Recent, and a second launch while running, which opens a window of its own. Also tells
+ * the shell which document this window has open. Call once at mount; returns the unsubscribe.
  */
 export function connectDesktopOpenRequests(store: EditorStore): () => void {
   const api = getOipProjectApi()
   if (!api) return () => {}
-  void api.takePendingOpen().then((root) => {
-    if (root) void openProjectFolderPath(store, root)
-  })
-  return api.onOpenPath((root) => void openProjectFolderPath(store, root))
+  void api
+    .takePendingOpen()
+    .then((root) => {
+      if (root) void openProjectFolderPath(store, root)
+    })
+    .catch((e: unknown) => console.warn('[oip] opening the folder the app was started with failed', e))
+  api.showingDocument?.(currentDocumentId())
+  const offs = [
+    api.onOpenPath((root) => void openProjectFolderPath(store, root)),
+    onCurrentDocumentChange((id) => api.showingDocument?.(id)),
+    api.onOpenPathInNewWindow?.(
+      (root) =>
+        void openFolderInNewWindow(root)
+          .then((error) => {
+            if (error !== null) alert(error)
+          })
+          .catch((e: unknown) => alert(e instanceof Error ? e.message : String(e))),
+    ),
+  ]
+  return () => offs.forEach((off) => off?.())
 }

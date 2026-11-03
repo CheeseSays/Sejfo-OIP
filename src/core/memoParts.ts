@@ -134,8 +134,9 @@ export function memoizeLocalized<T>(spec: LocalizedSpec<T>): (parts: readonly Pa
     }
     index.sync(influencers) // reconcile the persistent buckets; only changed refs are re-bucketed
     if (influencers.length === 0 || targets.length === 0) {
-      // nothing can be derived; don't strand entries that would never be revisited
-      if (cache.size > 0) {
+      // nothing can be derived; don't strand entries that would never be revisited. A registry change above has
+      // already emptied `cache`, so `lastOut` is checked too, or the previous scene's map would come back.
+      if (cache.size > 0 || lastOut.size > 0) {
         cache = new Map()
         lastOut = new Map()
       }

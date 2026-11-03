@@ -94,7 +94,7 @@ export function packageMaterialColor(pkgId: string | null, material: string): [n
 // roll is seen, before there is a direction of travel to trail.
 export function filmWeb(
   rigs: readonly RigInstance[],
-  webRollPrev: Map<BehaviorRecord, [number, number]>,
+  webRollPrev: WeakMap<BehaviorRecord, [number, number]>,
   b: BehaviorRecord,
   web: { link: string; offset: [number, number, number]; height: number },
   anchor: WrapBody,

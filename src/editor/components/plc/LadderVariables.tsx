@@ -153,7 +153,9 @@ export function LadderVariables({ source, pou, kind, rows, readOnly, onEdit, onS
   const rename = (r: TagRow, to: string): void => {
     const name = to.trim()
     if (!onRenameTag || name === '' || name === r.name) return
-    void onRenameTag(scope, r.name, name).then(setError)
+    void onRenameTag(scope, r.name, name)
+      .then(setError)
+      .catch((e: unknown) => setError(e instanceof Error ? e.message : String(e)))
   }
   const add = (): void => {
     const why = tagNameError(source, scope, adding.name)

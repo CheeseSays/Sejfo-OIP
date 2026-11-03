@@ -8,16 +8,19 @@
 //   - determinism  : nondeterministic / sandbox-escaping primitives (core/determinism.ts) - located
 //   - load         : doesn't call definePart, or is a syntax/eval error (embeddedBehavior.create)
 //   - rig          : a declared joint/gripper that isn't in the manifest's rig geometry
-//   - package      : structural problems in the resulting PartPackage (core/parts/partPackage.validate)
+//   - package      : structural problems in the resulting PartPackage (core/parts/partValidate.ts validatePartPackage)
 
 import { cargoCentreOffset, cargoPieces, cargoPiecesBounds } from '../core/cargoBody'
 import type { RigParams } from '../core/rig/rigPose'
+import { posableArraysJson } from '../core/rig/rigPose'
 import { checkDeterminism } from '../core/determinism'
 import type { ParamSchema } from '../core/parts/partApi'
 import type { PartPackage } from '../core/parts/partPackage'
 import { checkGeometryRefs, checkParamSpecs, undeclaredParamReads } from '../core/parts/partAuthoringChecks'
 import { evalPartGeometry, geometryLampNames, resolvePartParams } from '../core/geometry/geometryEval'
-import { canonicalOrigin, canonicalSnap, PACKAGE_FORMAT, rigLampNames, servoJointsJson, validatePartPackage, validateSnapParamRefs } from '../core/parts/partPackage'
+import { PACKAGE_FORMAT, rigLampNames, servoJointsJson } from '../core/parts/partPackage'
+import { validatePartPackage, validateSnapParamRefs } from '../core/parts/partValidate'
+import { canonicalOrigin, canonicalSnap } from '../core/parts/partUpgrade'
 import type { PackageManifest } from '../core/parts/partPackage'
 import { stampSdk } from '../core/parts/partSdk'
 import { pinShippedAsset } from '../core/shippedAssets'
@@ -55,7 +58,7 @@ export function validatePart(manifest: PackageManifest, behaviorSource: string):
   }
 
   // 2) Load - run the script once through the single eval chokepoint to bake the schema + read decls.
-  const handle = create(behaviorSource, '{}', servoJointsJson(manifest.geometry))
+  const handle = create(behaviorSource, '{}', servoJointsJson(manifest.geometry), posableArraysJson(manifest.geometry))
   if (handle <= 0) {
     const e = error() // also clears the runtime's error buffer
     // When determinism already explained the failure, don't duplicate it as an opaque load error.
@@ -142,7 +145,7 @@ export function validatePart(manifest: PackageManifest, behaviorSource: string):
   if (decl.unit) pkg.unit = decl.unit // a unit-load product type (validated with the package, validateUnit)
   // declarative snap features (a device's mount onto a host surface): the manifest's. Behavior code written before
   // format 4 declared them in definePart, and stored code cannot be rewritten, so a script's snap is still read when
-  // the manifest has none (in the current spelling, partPackage.ts canonicalSnap). Both, and different: refused.
+  // the manifest has none (in the current spelling, partUpgrade.ts canonicalSnap). Both, and different: refused.
   if (manifest.snap !== undefined) {
     pkg.snap = canonicalSnap(manifest.snap)
     if (decl.snap !== undefined && JSON.stringify(canonicalSnap(decl.snap)) !== JSON.stringify(pkg.snap)) {
@@ -154,7 +157,7 @@ export function validatePart(manifest: PackageManifest, behaviorSource: string):
   if (manifest.materials !== undefined) pkg.materials = manifest.materials
   if (manifest.thumbnail !== undefined) pkg.thumbnail = manifest.thumbnail
   // `exposes` (a scoped cell's public tags) retired with PLC tag scoping: refused here with the reason, where
-  // an author can act on it; a stored package just loses it (core/parts/partPackage.ts dropRetiredExposes)
+  // an author can act on it; a stored package just loses it (core/parts/partUpgrade.ts dropRetiredExposes)
   if ((manifest as { exposes?: unknown }).exposes !== undefined) {
     diagnostics.push({ kind: 'package', message: "exposes: retired with PLC tag scoping; a part's PLC interface is its 'tag' params, wired by name. Remove it" })
   }
@@ -219,6 +222,8 @@ export function validatePart(manifest: PackageManifest, behaviorSource: string):
   // conveyor there is nothing to turn with, and it would sit frozen while the sim runs.
   const unnamed = pkg.conveyor?.speedParam === undefined && drawn.some((p) => (p.spin && p.spin.speed === undefined) || (p.scroll && p.scroll.speed === undefined))
   if (unnamed) diagnostics.push({ kind: 'package', message: "geometry(): a submesh's spin or scroll names no speed, and this part declares no conveyor speed param to turn with; name the param that drives it (spin: { ..., speed: 'fanSpeed' })" })
+  // A bank turns its material's grain, not its geometry: one with no grain to turn would hold still.
+  const objectGrain = new Set((manifest.materials ?? []).filter((m) => m.triplanar?.space === 'object').map((m) => m.id))
   for (const p of drawn) {
     if (!p.spin || !p.instances) continue
     const [x, y, z] = p.spin.axis
@@ -226,6 +231,21 @@ export function validatePart(manifest: PackageManifest, behaviorSource: string):
     if (!(len > 0) || Math.abs(z / len) < 1 - 1e-6) {
       diagnostics.push({ kind: 'package', message: `geometry(): a spinning instanced bank turns each instance about its own local Z, so its spin.axis must be [0, 0, 1] or [0, 0, -1] (got ${JSON.stringify(p.spin.axis)}); lay the template's axle along Z` })
     }
+    if (p.material ? !objectGrain.has(p.material) : p.finish !== 'roller') {
+      diagnostics.push({
+        kind: 'package',
+        message: `geometry(): a spinning instanced bank turns its material's grain, not its geometry, and ${p.material ? `material "${p.material}" has no object-space triplanar grain` : `finish ${JSON.stringify(p.finish ?? 'mesh')} has no grain`} to turn, so it holds still. Give it finish 'roller' or a material with triplanar: { space: 'object' }, or draw each one as its own submesh, which turns its mesh (a toothed sprocket)`,
+      })
+    }
+  }
+  // A surface friction only means something on a solid, and a guard has none; either would be ignored without a word.
+  for (const p of drawn) {
+    const f = (p as { friction?: unknown }).friction
+    if (f === undefined) continue
+    if (typeof f !== 'number' || !Number.isFinite(f) || f < 0 || f > 2) diagnostics.push({ kind: 'package', message: `geometry(): a submesh's friction must be a number from 0 to 2, the scale a conveyor frictionParam uses (got ${JSON.stringify(f)})` })
+    else if (p.collision === undefined) diagnostics.push({ kind: 'package', message: "geometry(): a submesh has a friction but no collision, so nothing collides with it; give it collision: 'hull' or 'box'" })
+    else if (p.sideGuard !== undefined) diagnostics.push({ kind: 'package', message: 'geometry(): a side guard has no friction (cargo slides along it); drop friction or the sideGuard' })
+    else if (manifest.geometry.kind === 'rig') diagnostics.push({ kind: 'package', message: "geometry(): on a rig, geometry() is render-only, so a submesh's friction does nothing; set friction on the link" })
   }
   // A squash compresses along a rig link off one of the rig's lamps; anything else would sit still with no word why.
   for (const p of drawn) {

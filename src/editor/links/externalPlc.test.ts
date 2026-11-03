@@ -19,7 +19,12 @@ import {
   ExternalPlcSession,
   flattenFrameTags,
   plannedLink,
+  watchedPoints,
+  watchRefusal,
+  deriveS7Io,
+  plcTagListOf,
   POLL_TIMEOUT_MS,
+  readOpcUaTagList,
   statusHint,
   statusLine,
 } from './externalPlc'
@@ -247,7 +252,7 @@ describe('the table a scene makes', () => {
     registerPackage(MOTOR)
     const { io, problems } = deriveExternalIo([part('e', 't.sensor', { tag: '%QX0.0' }), part('m', 't.motor', { runTag: '%QX0.0.0' })], DEFAULT_EXTERNAL_PLC)
     expect(io.points).toEqual([])
-    expect(problems).toEqual([expect.stringMatching(/^e\.tag: this part publishes the value, so it is the PLC's input/), expect.stringMatching(/^m\.runTag: a bit address is byte\.bit/)])
+    expect(problems).toEqual([expect.stringMatching(/^e \(tag\): this part publishes the value, so it is the PLC's input/), expect.stringMatching(/^m \(runTag\): a bit address is byte\.bit/)])
   })
 })
 
@@ -588,6 +593,84 @@ describe('an OPC UA session', () => {
     expect(ua.listeners()).toBe(0)
     expect(session.status()).toMatchObject({ state: 'off', masters: [] })
   })
+
+  it('runs with what a browse found when a branch never answered, and names the branch', async () => {
+    const ua = uaServer()
+    const browse = ua.host.browse
+    const host: OpcUaHost = { ...ua.host, browse: async (opts) => ({ ...(await browse(opts)), skipped: ['DeviceSet.Cnc'] }) }
+    const session = new ExternalPlcOpcUaSession(host, 'opc.tcp://127.0.0.1:4840', POINTS, [], () => {})
+    await session.start({ Eye: false })
+    expect(session.status()).toMatchObject({ state: 'polling' })
+    expect(session.status().problems).toEqual(["a branch of the PLC's tags did not answer in time (DeviceSet.Cnc); a tag under it reads as missing"])
+    expect(session.browsed?.truncated).toBe(true) // the tag picker's list is incomplete
+    expect(session.exchange({})).toMatchObject({ 'Main.Run': true })
+  })
+
+  it('browses from the start points the link names, and gives the tag picker the list with them', async () => {
+    const ua = uaServer()
+    const asked: unknown[] = []
+    const browse = ua.host.browse
+    const host: OpcUaHost = {
+      ...ua.host,
+      browse: async (opts) => {
+        asked.push(opts?.roots)
+        return browse(opts)
+      },
+    }
+    const from = ['DeviceSet.PLC.Programs', 'ns=4;s=GVL']
+    const session = new ExternalPlcOpcUaSession(host, 'opc.tcp://127.0.0.1:4840', POINTS, [], () => {}, from)
+    await session.start({})
+    expect(asked).toEqual([[{ path: ['DeviceSet', 'PLC', 'Programs'] }, { nodeId: 'ns=4;s=GVL' }]])
+    expect(plcTagListOf(session.endpoint, session.from, session.browsed!)).toMatchObject({ from, state: 'ready' })
+    await session.stop()
+    asked.length = 0
+    const list = await readOpcUaTagList(host, 'opc.tcp://127.0.0.1:4840', ['Programs'], () => true)
+    expect(asked).toEqual([[{ path: ['Programs'] }]])
+    expect(list).toMatchObject({ from: ['Programs'], state: 'ready' })
+  })
+
+  it('says how many tags it has found while a long browse runs, and stops saying it once bound', async () => {
+    const ua = uaServer()
+    const heard = new Set<(e: { found: number }) => void>()
+    let finish = (): void => {}
+    const browse = ua.host.browse
+    const host: OpcUaHost = {
+      ...ua.host,
+      browse: async (opts) => {
+        await new Promise<void>((resolve) => (finish = resolve))
+        return browse(opts)
+      },
+      onProgress: (cb) => {
+        heard.add(cb)
+        return () => heard.delete(cb)
+      },
+    }
+    const session = new ExternalPlcOpcUaSession(host, 'opc.tcp://127.0.0.1:4840', POINTS, [], () => {})
+    const started = session.start({})
+    await vi.advanceTimersByTimeAsync(0)
+    heard.forEach((cb) => cb({ found: 1200 }))
+    expect(session.status()).toMatchObject({ state: 'starting', reading: 1200 })
+    expect(statusLine(session.status(), true, { ...DEFAULT_EXTERNAL_PLC, mode: 'opcua' })).toBe("Reading the PLC's tags at opc.tcp://127.0.0.1:4840: 1200 found so far...")
+    finish()
+    await started
+    expect(session.status().state).toBe('polling')
+    expect(session.status().reading).toBeUndefined()
+    expect(heard.size).toBe(0)
+  })
+
+  it('does not read the tree when every tag is a NodeId', async () => {
+    const ua = uaServer()
+    const points: OpcUaPoint[] = [
+      { tag: 'ns=4;s=Main.Eye', dir: 'toPlc', type: 'BOOL' },
+      { tag: 'ns=4;s=Main.Run', dir: 'fromPlc', type: 'BOOL' },
+    ]
+    const session = new ExternalPlcOpcUaSession(ua.host, 'opc.tcp://127.0.0.1:4840', points, [], () => {})
+    await session.start({ 'ns=4;s=Main.Eye': true })
+    expect(ua.ctl.browses).toBe(0)
+    expect(session.browsed).toBeNull()
+    expect(session.status()).toMatchObject({ state: 'polling', problems: [] })
+    expect(session.exchange({})).toEqual({ 'ns=4;s=Main.Run': false })
+  })
 })
 
 // EtherNet/IP: a Logix controller answers each tag by name with its value and CIP type. The fake controller here is a
@@ -810,6 +893,43 @@ describe('the table a scene makes for a PLC that serves', () => {
     expect(problems).toEqual([expect.stringMatching(/%IX0.0 is below the server device's first register \(%IW4\)/)])
     expect(plannedLink(parts, settings).points).toEqual(['%IX8.1  holding register 0 bit 1'])
     expect(plannedLink(parts, DEFAULT_EXTERNAL_PLC).points).toEqual(['%IX0.0  discrete input 0', '%IX8.1  discrete input 65'])
+  })
+})
+
+describe('Watch only', () => {
+  const EYE: PartPackage = {
+    format: PACKAGE_FORMAT,
+    id: 't.eye',
+    name: 't.eye',
+    params: { tag: { type: 'tag', dir: 'out', stType: 'BOOL', default: '' }, run: { type: 'tag', dir: 'in', stType: 'BOOL', default: '' } },
+    behavior: 'definePart({step(){}})',
+    geometry: { kind: 'rig', links: [{ name: 'deck', shape: { kind: 'box', size: [1, 0.1, 1] }, offset: [0, -0.05, 0], conveys: true }], joints: [], bounds: { length: 1, width: 1, top: 0.05, bottom: -0.1 } },
+  }
+  afterEach(() => clearPackages())
+  const parts = (tag: string, run: string) => [{ id: 'e', type: 'part', packageId: 't.eye', position: [0, 0, 0], rotationY: 0, params: { tag, run } }] as unknown as PartInstance[]
+
+  it('reads every tag from the PLC, the ones parts write included, and writes none', () => {
+    registerPackage(EYE)
+    const opcua = { ...DEFAULT_EXTERNAL_PLC, mode: 'opcua' as const }
+    expect(plannedLink(parts('MAIN.Eye', 'MAIN.Run'), opcua).points).toEqual(['MAIN.Eye  written to the PLC  BOOL', 'MAIN.Run  read from the PLC  BOOL'])
+    expect(plannedLink(parts('MAIN.Eye', 'MAIN.Run'), { ...opcua, watch: true }).points).toEqual(['MAIN.Eye  read from the PLC  BOOL', 'MAIN.Run  read from the PLC  BOOL'])
+    const s7 = { ...DEFAULT_EXTERNAL_PLC, mode: 's7' as const, watch: true }
+    const { io } = deriveS7Io(parts('%IX0.0', '%QX0.0'), s7)
+    expect(io.points.map((p) => p.dir)).toEqual(['toPlc', 'fromPlc'])
+    expect(watchedPoints(io.points).map((p) => [p.tag, p.dir])).toEqual([
+      ['%IX0.0', 'fromPlc'],
+      ['%QX0.0', 'fromPlc'],
+    ])
+  })
+
+  it('is refused over Modbus, which cannot read what the simulator would write, and says so', () => {
+    registerPackage(EYE)
+    for (const mode of ['serve', 'poll'] as const) {
+      const planned = plannedLink(parts('%IX0.0', '%QX0.0'), { ...DEFAULT_EXTERNAL_PLC, mode, watch: true })
+      expect(planned.points).toEqual([])
+      expect(planned.problems).toEqual([expect.stringMatching(/Watch only does not work over Modbus/)])
+    }
+    expect(watchRefusal({ mode: 'serve', watch: false })).toBeNull()
   })
 })
 

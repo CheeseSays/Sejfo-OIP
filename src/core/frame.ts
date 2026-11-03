@@ -1,6 +1,5 @@
 import { fitLoad, wrapAnchor } from './cargoWrap'
 import type { WrapBody } from './cargoWrap'
-import { ancestorIds } from './scene/hierarchy'
 import { hexToRgb, quatFromYXZ, quatToYXZ } from './math'
 import { getPackage, registryRevision } from './parts/partRegistry'
 import type { PartInstance } from './types'
@@ -14,7 +13,7 @@ import type { ParamValue } from './parts/partApi'
 import { resolvePartParams } from './parts/partScript'
 import { cargoPieces, cargoPiecesBounds, cargoShapeKey } from './cargoBody'
 import type { CargoPiece } from './cargoBody'
-import type { RigParams } from './rig/rigPose'
+import type { RigParams, SubPose } from './rig/rigPose'
 
 export const CARGO_KIND_BOX = 0
 export const CARGO_KIND_PALLET = 1
@@ -447,7 +446,11 @@ export function carryingAncestor(
   afterById: ReadonlyMap<string, PartInstance>,
   skip: (id: string) => boolean,
 ): { before: PartInstance; after: PartInstance } | null {
-  for (const anc of ancestorIds(afterParts, id)) {
+  // the parent chain in `afterById` (built from `afterParts`), nearest first as hierarchy's ancestorIds walks it, without
+  // rebuilding a whole-scene map per moved box. `afterParts` stays in the signature for callers.
+  const seen = new Set<string>([id])
+  for (let anc = afterById.get(id)?.parent; anc !== undefined && !seen.has(anc); anc = afterById.get(anc)?.parent) {
+    seen.add(anc)
     if (skip(anc)) continue
     const a0 = beforeById.get(anc)
     const a1 = afterById.get(anc)
@@ -536,7 +539,10 @@ export interface BoxFrame {
   /** per-part rig joint commands this step (partId → {jointName: value}); the view animates rig visuals. Absent when no rig part commanded a joint. */
   joints?: Record<string, Record<string, number>>
   /** per-part rig setSubPose overrides this step (partId → {linkName: {position?, rotation?}}). Absent when none. */
-  subPoses?: Record<string, Record<string, { position?: [number, number, number]; rotation?: [number, number, number] }>>
+  subPoses?: Record<string, Record<string, SubPose>>
+  /** per-part conveying-copy belt speeds this step (partId -> {link: speed per copy, m/s}), for the view to run each
+   *  copy's belt; present for every part with conveying copies, an empty map when none ran. Absent when no part has any. */
+  copySpeeds?: Record<string, Record<string, number[]>>
   /** per-part rig emissive lamp states this step (partId → {lampName: on}); the view lights rig visuals. Absent when no rig part lit a lamp. */
   lamps?: Record<string, Record<string, boolean>>
   /** Effective param values each behavior reported this step (ctx.report), keyed by part id then param

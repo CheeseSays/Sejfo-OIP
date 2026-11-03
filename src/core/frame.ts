@@ -1,6 +1,5 @@
 import { fitLoad, wrapAnchor } from './cargoWrap'
 import type { WrapBody } from './cargoWrap'
-import { ancestorIds } from './scene/hierarchy'
 import { hexToRgb, quatFromYXZ, quatToYXZ } from './math'
 import { getPackage, registryRevision } from './parts/partRegistry'
 import type { PartInstance } from './types'
@@ -447,7 +446,11 @@ export function carryingAncestor(
   afterById: ReadonlyMap<string, PartInstance>,
   skip: (id: string) => boolean,
 ): { before: PartInstance; after: PartInstance } | null {
-  for (const anc of ancestorIds(afterParts, id)) {
+  // the parent chain in `afterById` (built from `afterParts`), nearest first as hierarchy's ancestorIds walks it, without
+  // rebuilding a whole-scene map per moved box. `afterParts` stays in the signature for callers.
+  const seen = new Set<string>([id])
+  for (let anc = afterById.get(id)?.parent; anc !== undefined && !seen.has(anc); anc = afterById.get(anc)?.parent) {
+    seen.add(anc)
     if (skip(anc)) continue
     const a0 = beforeById.get(anc)
     const a1 = afterById.get(anc)

@@ -1,7 +1,7 @@
 // The scene tree's edits: delete, order (move up/down, reorder), rename, the visible / locked / grouped flags, and
 // soft-parenting (reparent, unparent, wrap in a new node, tree drag-and-drop). Each one is a single store.commit.
 // Extracted from store.ts verbatim; the EditorStore methods of the same names delegate here.
-import { containerAnchor, subtreeIds, wouldCreateCycle } from '../../core/scene/hierarchy'
+import { containerAnchor, partsById, subtreeIds, wouldCreateCycle } from '../../core/scene/hierarchy'
 import { uniqueSiblingName } from '../../core/parts/partDisplayName'
 import { createPart, nextId } from '../../core/scene/scene'
 import type { PartInstance } from '../../core/types'
@@ -161,9 +161,10 @@ export function reparent(store: EditorStore, ids: readonly string[], parentId: s
   const idSet = new Set(ids)
   if (idSet.size === 0) return
   let changed = 0
+  const byId = partsById(scene.parts)
   const parts = scene.parts.map((p) => {
     if (!idSet.has(p.id)) return p
-    if (wouldCreateCycle(scene.parts, p.id, parentId)) return p
+    if (wouldCreateCycle(scene.parts, p.id, parentId, byId)) return p
     if ((p.parent ?? null) === (parentId ?? null)) return p
     changed++
     if (parentId === null) {
@@ -219,7 +220,8 @@ export function moveInTree(store: EditorStore, draggedIds: readonly string[], ta
   if (moving.has(targetId)) return
   const target = scene.parts.find((p) => p.id === targetId)
   if (!target) return
-  for (const d of draggedIds) if (wouldCreateCycle(scene.parts, d, targetId)) return
+  const byId = partsById(scene.parts)
+  for (const d of draggedIds) if (wouldCreateCycle(scene.parts, d, targetId, byId)) return
   // the focused part is the top row of the dock inside a session, and its siblings aren't shown:
   // a drop "before"/"after" it can only mean into it (a sibling slot would leave the session)
   const pos = targetId === store.getState().focusedPartId ? 'inside' : dropPos

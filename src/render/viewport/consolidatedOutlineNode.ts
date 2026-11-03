@@ -319,6 +319,11 @@ class WebGPUConsolidatedOutline implements ISelectionOutline {
     this.syncSize()
   }
 
+  /** The targets follow the renderer's drawing buffer, which already carries the new ratio. */
+  setPixelRatio(): void {
+    this.syncSize()
+  }
+
   private syncSize(): void {
     const size = this.renderer.getDrawingBufferSize(new Vector2())
     this.sceneRT.setSize(size.x, size.y)

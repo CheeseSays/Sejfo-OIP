@@ -20,7 +20,7 @@ import { realizeInstancedTemplate, writeInstanceMatrices } from '../instancedTem
 import { realizeMeshDescription, rewriteMeshDescription } from '../meshDescriptionGeometry'
 import { BELT_TEX_PERIOD, boltMaterial, createBeltSurface, gapFillMaterial, guardMaterial, legMaterial, markTickUniformsAdvanced, railMaterial, rollerMaterial, deckTriplanarMaterial, shadowMesh } from '../common'
 import type { BeltTextureVariant } from '../common'
-import { beltBankMaterial, beltClockEpoch, rebaseBeltScroll, rebaseBeltScrollForWrap, writeFabricBankAttributes, writeFabricBankScroll } from '../beltFabricBank'
+import { acquireBeltBankMaterial, beltClockEpoch, releaseBeltBankMaterial, rebaseBeltScroll, rebaseBeltScrollForWrap, writeFabricBankAttributes, writeFabricBankScroll } from '../beltFabricBank'
 import { bumpRepaintEpoch, bumpStructureVersion } from '../structureRev'
 import { retireGeometry, retireInstancedMesh } from '../../gpuRetire'
 import { markLazyColliderBVH } from '../../bvh'
@@ -368,8 +368,11 @@ export function buildFunctionMesh(geo: Extract<PartPackage['geometry'], { kind: 
         const part = instancedParts[i]!
         const insts = part.instances!
         const isFabric = part.finish === 'belt' || (!part.finish && geo.conveys)
-        const mat = isFabric ? beltBankMaterial(bankVariant, bankTint) : part.spin ? spinMatFor({ ...part, spin: part.spin }) : matFor(part)
+        // a slot holds one reference to a shared bank material: this pass's acquire replaces the one it held
+        // (released after, so an unchanged colour never drops to zero), and dropping the slot releases it
+        const mat = isFabric ? acquireBeltBankMaterial(bankVariant, bankTint) : part.spin ? spinMatFor({ ...part, spin: part.spin }) : matFor(part)
         const slot = instMeshes[i]
+        releaseBeltBankMaterial(slot?.mat)
         if (slot && descEqual(slot.desc, part.desc) && insts.length <= slot.mesh.instanceMatrix.count) {
           if (slot.mat !== mat) { slot.mesh.material = mat; slot.mat = mat; structural = true } // pipeline/bindings swap
           if (slot.mesh.count !== insts.length) structural = true // a bundle bakes the draw's instance count
@@ -389,6 +392,7 @@ export function buildFunctionMesh(geo: Extract<PartPackage['geometry'], { kind: 
         const slot = instMeshes.pop()!
         root.remove(slot.mesh)
         retireInstancedMesh(slot.mesh)
+        releaseBeltBankMaterial(slot.mat)
         structural = true
       }
       // (re)tile the fabric + pick its weave now that a 'belt' part may have created it this pass + apply any
@@ -496,7 +500,7 @@ export function buildFunctionMesh(geo: Extract<PartPackage['geometry'], { kind: 
       for (const m of allMats) m.dispose()
       // retired, not disposed: drawn in the bundled main pass, so a recording may still hold them (gpuRetire.ts)
       for (const m of meshes) retireGeometry(m.mesh.geometry)
-      for (const m of instMeshes) retireInstancedMesh(m.mesh)
+      for (const m of instMeshes) { retireInstancedMesh(m.mesh); releaseBeltBankMaterial(m.mat) } // a bank material is shared, so released, not in allMats
       if (belt) belt.dispose() // every weave variant the belt minted, not just the bound one
     },
   }

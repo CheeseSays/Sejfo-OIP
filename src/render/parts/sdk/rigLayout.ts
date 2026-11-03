@@ -29,26 +29,54 @@ import type { InstancePool } from '../common'
 import type { LegPool } from '../common'
 import type { DeckSurface, WalkFinish } from '../common'
 import { syncBankEmptyVisibility } from '../instancedTemplate'
+import { retireGeometry } from '../../gpuRetire'
 
 // A guard's sensor-beam hole panel (core/guards/guardHoles.ts guardHolePanelDescription), one geometry per distinct plate
-// shape (sheet height, hole height, thickness), shared by every rig guard in the scene and kept for the session:
-// a scene has a handful of hole heights at most, and a geometry a recorded render bundle may still hold must never
-// be freed (gpuRetire.ts), so these are not.
-const holePanelGeometries = new Map<string, ReturnType<typeof realizeMeshDescription>>()
-function guardHolePanelGeometry(y0: number, y1: number, holeY: number, thickness: number): ReturnType<typeof realizeMeshDescription> {
-  const key = [y0, y1, holeY, thickness].map((v) => v.toFixed(4)).join('|')
-  let g = holePanelGeometries.get(key)
-  if (!g) {
-    g = realizeMeshDescription(guardHolePanelDescription(y0, y1, holeY, thickness))
-    holePanelGeometries.set(key, g)
+// shape (sheet height, hole height, thickness), shared by every rig guard in the scene. Each panel holds a reference
+// to the shape it draws. Dragging a sensor along a guard or scrubbing its height mints a new shape per frame, so a
+// shape no panel holds is evicted and retired (gpuRetire.ts: a recorded render bundle may still draw it).
+const holePanelGeometries = new Map<string, { geom: BufferGeometry; refs: number }>()
+/** the shape key each panel holds a reference to */
+const panelHoleKeys = new WeakMap<Mesh, string>()
+function holePanelKey(y0: number, y1: number, holeY: number, thickness: number): string {
+  return [y0, y1, holeY, thickness].map((v) => v.toFixed(4)).join('|')
+}
+/** Point `panel` at the shared plate for `key`, taking a reference to it and dropping the one it held. */
+function acquireHolePanelGeometry(panel: Mesh, key: string, y0: number, y1: number, holeY: number, thickness: number): BufferGeometry {
+  if (panelHoleKeys.get(panel) === key) return holePanelGeometries.get(key)!.geom
+  let entry = holePanelGeometries.get(key)
+  if (!entry) {
+    entry = { geom: realizeMeshDescription(guardHolePanelDescription(y0, y1, holeY, thickness)), refs: 0 }
+    holePanelGeometries.set(key, entry)
   }
-  return g
+  entry.refs++
+  releaseHolePanelGeometry(panel)
+  panelHoleKeys.set(panel, key)
+  return entry.geom
+}
+/** Drop the panel's reference. Safe to call twice: the second call finds no key. */
+function releaseHolePanelGeometry(panel: Mesh): void {
+  const key = panelHoleKeys.get(panel)
+  if (key === undefined) return
+  panelHoleKeys.delete(panel)
+  const entry = holePanelGeometries.get(key)
+  if (!entry || --entry.refs > 0) return
+  holePanelGeometries.delete(key)
+  retireGeometry(entry.geom)
+}
+/** Release every hole-panel shape the guard's panels hold (the rig's dispose). */
+export function releaseGuardSplit(gs: GuardSplitLink): void {
+  for (const panel of gs.panels) releaseHolePanelGeometry(panel)
+}
+/** live shape count, for tests */
+export function holePanelGeometryCount(): number {
+  return holePanelGeometries.size
 }
 
 // A mitred guard end (core/guards/guardExtents.ts GuardMitre) on a box link: the box stops square where the cut is deepest and
 // this right-angle wedge carries the band on out to the cut. Unit legs along +x and +z, y centred, so one scale
 // (c * thickness, height, thickness) and one of four proper rotations fits any end on either side. Shared scene-wide
-// and never freed, like the hole panels.
+// and never freed.
 const unitMitreWedge = realizeMeshDescription(extrudeDescription([[0, 0], [1, 0], [0, 1]], -0.5, 0.5, { axis: 'y' }))
 /** which end ('hi': the piece lies at lower x) and which way is outward in link-local z -> the turn that lays the
  *  wedge's legs along "out of the piece" and "outward". All proper rotations: a mirror scale would turn the faces
@@ -129,13 +157,18 @@ export function layoutGuardSplit(gs: GuardSplitLink, params: RigParams, linkByNa
     gs.group.add(panel)
     gs.panels.push(panel)
   }
-  while (gs.panels.length > panelHoles.length) gs.group.remove(gs.panels.pop()!)
+  while (gs.panels.length > panelHoles.length) {
+    const panel = gs.panels.pop()!
+    gs.group.remove(panel)
+    releaseHolePanelGeometry(panel)
+  }
   let panelGeometryChanged = false
   for (let i = 0; i < panelHoles.length; i++) {
     const [hx, hy] = panelHoles[i]!
     const panel = gs.panels[i]!
     // the plate is built in the link's frame: y about its centre, z from 0 through its thickness
-    const geom = guardHolePanelGeometry(y0 - gs.offsetY, y1 - gs.offsetY, hy - gs.offsetY, sz[2])
+    const py0 = y0 - gs.offsetY, py1 = y1 - gs.offsetY, holeY = hy - gs.offsetY
+    const geom = acquireHolePanelGeometry(panel, holePanelKey(py0, py1, holeY, sz[2]), py0, py1, holeY, sz[2])
     if (panel.geometry !== geom) { panel.geometry = geom; panelGeometryChanged = true }
     panel.position.set(hx, 0, -sz[2] / 2)
   }

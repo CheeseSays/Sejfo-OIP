@@ -16,7 +16,7 @@ import { boltMaterial, scrollMaterial, createBeltSurface, deckTriplanarMaterial,
 import { FN_NEUTRAL, descEqual } from './shared'
 import { buildMaterial } from './materials'
 import { realizeInstancedTemplate, writeInstanceMatricesHeld } from '../instancedTemplate'
-import { beltBankMaterial, beltClockEpoch, rebaseBeltScroll, rebaseBeltScrollForWrap, writeFabricBankAttributes, writeFabricBankScrolls } from '../beltFabricBank'
+import { acquireBeltBankMaterial, beltClockEpoch, releaseBeltBankMaterial, rebaseBeltScroll, rebaseBeltScrollForWrap, writeFabricBankAttributes, writeFabricBankScrolls } from '../beltFabricBank'
 import { BELT_TEX_PERIOD } from '../common'
 import { bumpRepaintEpoch, bumpStructureVersion } from '../structureRev'
 import { retireGeometry, retireInstancedMesh, retireTexture } from '../../gpuRetire'
@@ -308,7 +308,7 @@ export function createProcGeometry(deps: ProcGeometryDeps): ProcGeometry {
   const procSlots: { group: Group; mesh: Mesh; desc: MeshDescription; mat: Material }[] = []
   // MeshPart.instances banks: one InstancedMesh per emitted bank (stable emit order among the banks), the function
   // tier's realization (instancedTemplate.ts) hung on the bank's link group
-  const procBanks: { group: Group; mesh: InstancedMesh; desc: MeshDescription; mat: Material; perInstance?: string }[] = []
+  const procBanks: { group: Group; mesh: InstancedMesh; desc: MeshDescription; mat: Material; /** the shared bank material it holds a reference to (beltFabricBank.ts) */ bank: Material | null; perInstance?: string }[] = []
   let procKey = '' // last (behavior-source + resolved-params) key; re-emit only when it changes
   let procDisabled = false
   /** returns whether it actually removed anything (a draw-list change - see the bump below) */
@@ -320,7 +320,7 @@ export function createProcGeometry(deps: ProcGeometryDeps): ProcGeometry {
     // since a resize drag runs this on every pointer-move.
     for (const s of procSlots) { s.group.remove(s.mesh); retireGeometry(s.mesh.geometry) }
     procSlots.length = 0
-    for (const b of procBanks) { b.group.remove(b.mesh); retireInstancedMesh(b.mesh) }
+    for (const b of procBanks) { b.group.remove(b.mesh); retireInstancedMesh(b.mesh); releaseBeltBankMaterial(b.bank) }
     procBanks.length = 0
     return true
   }
@@ -376,23 +376,27 @@ export function createProcGeometry(deps: ProcGeometryDeps): ProcGeometry {
       const insts = part.instances!
       const group = (part.link ? linkGroups.get(part.link) : undefined) ?? root
       const copyBelt = perInstance.has(part) && part.finish === 'belt' && posableLinks.get(part.link!)?.conveys === true
-      let mat = copyBelt ? beltBankMaterial('standard', '#ffffff') : procMatFor(part)
+      // a slot holds one reference to its shared bank material (beltFabricBank.ts), released when it lets go. It
+      // keeps it through a double-sided copy too, which procDblVariants caches by the bank material's identity.
+      const bankMat = copyBelt ? acquireBeltBankMaterial('standard', '#ffffff') : null
+      let mat = bankMat ?? procMatFor(part)
       if (part.doubleSided) {
         if (part.lamps?.length || part.colorParam || part.scroll || part.spin) mat.side = DoubleSide
         else mat = asDoubleProc(mat)
       }
       const slot = procBanks[i]
       if (slot && slot.group === group && slot.mat === mat && descEqual(slot.desc, part.desc) && insts.length <= slot.mesh.instanceMatrix.count) {
+        releaseBeltBankMaterial(bankMat) // the slot already holds its reference
         // a bed sliding along its world grid gains and loses a roller as it goes: hold the drawn count (see there)
         if (writeInstanceMatricesHeld(slot.mesh, insts)) structural = true
         continue
       }
       structural = true
-      if (slot) { slot.group.remove(slot.mesh); retireInstancedMesh(slot.mesh) }
+      if (slot) { slot.group.remove(slot.mesh); retireInstancedMesh(slot.mesh); releaseBeltBankMaterial(slot.bank) }
       const mesh = realizeInstancedTemplate(part.desc, insts, mat)
       if (part.castShadow === false) mesh.castShadow = false
       group.add(mesh)
-      procBanks[i] = { group, mesh, desc: part.desc, mat }
+      procBanks[i] = { group, mesh, desc: part.desc, mat, bank: bankMat }
     }
     for (let i = 0; i < bankParts.length; i++) procBanks[i]!.perInstance = perInstance.has(bankParts[i]!) ? bankParts[i]!.link : undefined
     // (re)attach the fabric attributes of each copy belt: its u tiles by the submesh's length along X (a builder box
@@ -419,7 +423,7 @@ export function createProcGeometry(deps: ProcGeometryDeps): ProcGeometry {
     }
     for (let i = procBanks.length - 1; i >= bankParts.length; i--) {
       const b = procBanks.pop()!
-      b.group.remove(b.mesh); retireInstancedMesh(b.mesh)
+      b.group.remove(b.mesh); retireInstancedMesh(b.mesh); releaseBeltBankMaterial(b.bank)
       structural = true
     }
     for (let i = 0; i < parts.length; i++) {
@@ -546,7 +550,7 @@ export function createProcGeometry(deps: ProcGeometryDeps): ProcGeometry {
     banksOn: (link) => procBanks.filter((b) => b.perInstance === link).map((b) => b.mesh),
     setCopySpeeds: (speeds) => { copySpeeds = speeds },
     dispose: () => {
-      clearProcSlots() // the submesh geometries (their materials are in allMaterials)
+      clearProcSlots() // the submesh geometries (their materials are in allMaterials) and the bank materials they hold
       for (const t of scrollTexClones) retireTexture(t) // private scroll-channel texture copies (not the shared package texture)
     },
   }

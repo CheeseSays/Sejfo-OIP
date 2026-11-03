@@ -43,7 +43,7 @@ import type { PosedArray } from './rigArrayPose'
 import { createRigBeams } from './rigBeams'
 import { addLabelPlane, paintLabelPlates } from './rigLabels'
 import type { RigLabel } from './rigLabels'
-import { layoutArrayLink, layoutDeckCut, layoutGuardSplit, layoutLegs } from './rigLayout'
+import { layoutArrayLink, layoutDeckCut, layoutGuardSplit, layoutLegs, releaseGuardSplit } from './rigLayout'
 import type { DeckCutLink, GuardSplitLink, InstancedArrayLink, LegLink } from './rigLayout'
 
 // ---- rig -----------------------------------------------------------------
@@ -1038,6 +1038,7 @@ export function buildRig(geo: Extract<PartPackage['geometry'], { kind: 'rig' }>,
       for (const lb of lampBanks) lb.dispose() // lamp-bank instance buffers + cloned geometry (retired; the material is shared)
       for (const lb of linkBanks) lb.dispose() // link-bank instance buffers (retired; shared unit geometry, material in allMaterials)
       for (const ll of legLinks) disposeLegSet(ll.pool) // the trestle InstancedMesh buffers
+      for (const gs of guardSplitLinks) releaseGuardSplit(gs) // the shared hole-panel plates its panels hold (retired at zero)
       // label canvas textures/materials/geometries are per-instance. Textures + geometries retire (a recording may
       // still bind them, gpuRetire.ts); a material's dispose is already safe (bindings.deleteForRender).
       for (const d of labelDisposables) {

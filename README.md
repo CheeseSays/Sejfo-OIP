@@ -1,7 +1,7 @@
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset=".github/OIP-LOGO-RGB_HORIZONTAL-INV.svg">
   <source media="(prefers-color-scheme: light)" srcset=".github/OIP-LOGO-RGB_HORIZONTAL.svg">
-  <img alt="Open Industry Project" src=".github/OIP-LOGO-RGB_HORIZONTAL.svg" width="500">
+  <img alt="Open Industry Project" src=".github/OIP-LOGO-RGB_HORIZONTAL.svg" width="800">
 </picture>
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)

@@ -45,7 +45,7 @@ const stFileTransfer = (): Promise<typeof import('./program/stFileTransfer')> =>
 import { askName } from './nameDialog'
 import { acceleratorHint, primaryKey } from './keyHint'
 import { DESKTOP_SHELL } from './desktop/desktopMenuBridge'
-import { manageAgentDoor } from './agent/desktopAgent'
+import { requestAgentDoorReveal } from './agent/desktopAgent'
 import { DESKTOP_DOWNLOAD_URL, openInDesktopApp } from './desktop/desktopLink'
 import { canOpenExternal, openExternal, partFolderOf } from './parts/externalEditor'
 import { getOipPartsApi } from './desktop/desktopPartsBridge'
@@ -1099,12 +1099,15 @@ const COMMAND_DEFS: readonly Command[] = [
   },
   {
     // Whether an AI agent may drive this editor over MCP (the shell's agent door, docs/agent-tools.md). The
-    // shell owns the server and the choice, and asks with its own dialog; an installed app starts with it shut.
+    // switch lives in Settings > Agent connections, where people look for an on/off choice; this opens it there.
     id: 'help.agentConnections',
     label: 'Agent Connections…',
     group: 'Help',
     shellOnly: true,
-    run: () => manageAgentDoor(),
+    run: ({ ui }) => {
+      requestAgentDoorReveal()
+      ui.showSettings()
+    },
   },
   {
     // The tour had exactly one way in: a toolbar icon, hidden on the mobile layout and easy to miss on

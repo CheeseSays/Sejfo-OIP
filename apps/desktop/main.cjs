@@ -1,7 +1,7 @@
 // Main process of the desktop app: loads the oip-web editor in an Electron window and gives it the native
 // surfaces the browser lacks (project folders, the parts shelf, file associations, deep links, the native menu,
 // the agent door). Physics runs in the renderer as WASM, the same as in the browser.
-const { app, BrowserWindow, Menu, clipboard, dialog, ipcMain: electronIpcMain, nativeTheme, protocol, session, shell, screen } = require('electron')
+const { app, BrowserWindow, Menu, dialog, ipcMain: electronIpcMain, nativeTheme, protocol, session, shell, screen } = require('electron')
 const { basename, dirname, join, resolve } = require('node:path')
 const { existsSync, mkdirSync, realpathSync, writeFileSync, readFileSync } = require('node:fs')
 const { spawn } = require('node:child_process')
@@ -1000,13 +1000,14 @@ function registerIpc() {
   // The Inspector's USD import: a root layer the person picked, read with the layers and images beside it. USD layers
   // only, the one kind whose model is spread over its folder (editor/usdImport.ts)
   ipcMain.handle('model:readUsd', (_event, path) => (typeof path === 'string' && /\.(usd|usda|usdc)$/i.test(path) ? readModel(path) : { error: 'not a USD layer file' }))
-  // ...and whether it is open at all: Help > Agent Connections... asks main, which owns the server and the choice
   // Help > Check for Updates..., and the newer-build banner's "Get the update" (updater.cjs)
   // the downloaded update the page's notice offers (DesktopUpdateToast): which version, and its Restart
   ipcMain.handle('app:updateState', () => updater?.readyVersion() ?? null)
   ipcMain.handle('app:installUpdate', () => updater?.install())
   ipcMain.handle('app:checkForUpdates', (event) => updater?.checkInteractive(appWindow(BrowserWindow.fromWebContents(event.sender))))
-  ipcMain.handle('agent:manageDoor', (event) => manageAgentDoor(appWindow(BrowserWindow.fromWebContents(event.sender))))
+  // whether the agent door is open, and turning it on or off: main owns the server and the choice (setAgentDoor)
+  ipcMain.handle('agent:doorState', () => agentDoorState())
+  ipcMain.handle('agent:setDoor', (event, on) => setAgentDoor(appWindow(BrowserWindow.fromWebContents(event.sender)), on === true))
   // The renderer's menu model (editor/commands.ts) - rebuild the application menu from it.
   ipcMain.on('menu:model', (event, model) => {
     const win = BrowserWindow.fromWebContents(event.sender)
@@ -1422,7 +1423,7 @@ if (!app.requestSingleInstanceLock()) {
 // An MCP server on loopback, so an agent the user runs (Claude Desktop, Claude Code, ...) can drive the open editor.
 // At a FIXED port, because a client is configured with the URL once. Whether it is open is the user's choice
 // (agentDoorSetting.cjs: an installed app starts shut, the development shell open; OIP_MCP=0 / OIP_MCP_PORT
-// override), made and changed in Help > Agent Connections... (manageAgentDoor) and remembered in userData.
+// override), made and changed in Settings > Agent connections (setAgentDoor) and remembered in userData.
 // list_projects, open_project and new_project run here (agentProjects.cjs): main owns which folders may open
 const agentHost = new AgentHost({
   shellTools: createProjectTools({
@@ -1498,52 +1499,50 @@ async function startAgentDoor() {
   else console.log(`[mcp] agent door at ${opened.url}`)
 }
 
-// Help > Agent Connections...: say what the door allows, open or shut it, and hand over the URL. Native dialogs,
-// because main owns the server and the choice; the renderer only asks for this (preload oipAgent.manageDoor).
-async function manageAgentDoor(win) {
-  const parent = win && !win.isDestroyed() ? win : undefined
-  const ask = (opts) => (parent ? dialog.showMessageBox(parent, opts) : dialog.showMessageBox(opts))
-  if (!agentDoor) {
-    const { response } = await ask({
-      type: 'question',
-      title: 'Agent Connections',
-      message: 'Allow AI agents to connect to this app?',
-      detail:
-        'An AI agent you run on this computer (any MCP client, such as Claude Desktop or Claude Code) can then see ' +
-        'and edit the open project, run the simulation and change its PLC program. Its edits are saved like yours, ' +
-        "including to the project's folder.\n\n" +
-        'Any program on this computer can connect while this is on. Web pages and other computers cannot.',
-      buttons: ['Allow', 'Cancel'],
-      defaultId: 0,
-      cancelId: 1,
-      noLink: true,
-    })
-    if (response !== 0) return { enabled: false }
-    const opened = await openAgentDoor()
-    if (opened.error) {
-      await ask({ type: 'error', title: 'Agent Connections', message: 'Agent connections could not start.', detail: opened.error, buttons: ['OK'] })
-      return { enabled: false, error: opened.error }
-    }
-    writeDoorSetting(DOOR_SETTING_FILE, true)
-  }
-  const url = agentDoor.url
-  const { response } = await ask({
-    type: 'info',
-    title: 'Agent Connections',
-    message: 'AI agents can connect to this app.',
-    detail: `Add this MCP server to your agent:\n\n${url}\n\nIt stays on across launches until you turn it off here.`,
-    buttons: ['Copy URL', 'Turn Off', 'Close'],
-    defaultId: 0,
-    cancelId: 2,
-    noLink: true,
-  })
-  if (response === 0) clipboard.writeText(url)
-  if (response === 1) {
+/** Whether the door is open, and its URL: what Settings > Agent connections shows. */
+function agentDoorState() {
+  return { enabled: agentDoor !== null, url: agentDoor ? agentDoor.url : `http://127.0.0.1:${doorStart.port}/mcp` }
+}
+
+/** Tell every app window the door opened or shut, so a Settings dialog open in another window shows it. */
+function broadcastAgentDoor() {
+  const state = agentDoorState()
+  for (const w of appWindows()) w.webContents.send('agent:doorChanged', state)
+}
+
+// Settings > Agent connections turns the door on or off. Turning it on asks first in a native dialog, because main
+// owns the server and the choice, and a page must not be able to open the door without the person's answer.
+// Turning it off needs no question. The renderer only asks for this (preload oipAgent.setDoor).
+async function setAgentDoor(win, on) {
+  if (!on) {
     await closeAgentDoor()
     writeDoorSetting(DOOR_SETTING_FILE, false)
-    return { enabled: false }
+    broadcastAgentDoor()
+    return agentDoorState()
   }
-  return { enabled: true, url }
+  if (agentDoor) return agentDoorState()
+  const parent = win && !win.isDestroyed() ? win : undefined
+  const ask = (opts) => (parent ? dialog.showMessageBox(parent, opts) : dialog.showMessageBox(opts))
+  const { response } = await ask({
+    type: 'question',
+    title: 'Agent Connections',
+    message: 'Allow AI agents to connect to this app?',
+    detail:
+      'An AI agent you run on this computer (any MCP client, such as Claude Desktop or Claude Code) can then see ' +
+      'and edit the open project, run the simulation and change its PLC program. Its edits are saved like yours, ' +
+      "including to the project's folder.\n\n" +
+      'Any program on this computer can connect while this is on. Web pages and other computers cannot.',
+    buttons: ['Allow', 'Cancel'],
+    defaultId: 0,
+    cancelId: 1,
+    noLink: true,
+  })
+  if (response !== 0) return agentDoorState()
+  const opened = await openAgentDoor()
+  if (opened.error) return { ...agentDoorState(), error: opened.error }
+  writeDoorSetting(DOOR_SETTING_FILE, true)
+  broadcastAgentDoor()
+  return agentDoorState()
 }
 
 app.whenReady().then(() => {

@@ -23,9 +23,9 @@ tools and the proof that a line works.
 The desktop app serves MCP at **`http://127.0.0.1:5189/mcp`** while it is open (Streamable HTTP, JSON responses;
 protocol 2026-07-28 for clients that send per-request `_meta`, and 2025-11-25 and older for clients that open with
 `initialize`),
-once the user has allowed it. **Help > Agent Connections...** (also in the command palette) explains what it
-allows, turns it on, and offers the URL with a Copy button. The choice is remembered across launches, and the same
-item turns it off. An installed app starts with it off. The unpackaged development shell (`apps/desktop`,
+once the user has allowed it. **Settings > Agent connections** holds the switch: turning it on asks first in a
+native dialog that says what it allows, and the section then shows the URL with a Copy button. **Help > Agent Connections...** (also in the command palette) opens Settings at that section. The choice
+is remembered across launches, and the same switch turns it off. An installed app starts with it off. The unpackaged development shell (`apps/desktop`,
 `npm start`) starts with it on. The rule is `apps/desktop/agentDoorSetting.cjs`.
 
 | Client | How |

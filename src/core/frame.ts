@@ -482,6 +482,9 @@ export interface FrameBeamHit {
   /** which face of the body the beam hit, in the body's own frame: `'+x'` / `'-x'` / `'+y'` / `'-y'` / `'+z'` / `'-z'`
    *  (the walking pilot has none). It says which end of a part is toward the beam however it is turned. */
   face?: string
+  /** the hit body's yaw in radians, the angle of its local +X in the world XZ plane (0 faces +X, positive turns left, as
+   *  ctx.heading()). Absent for the walking pilot. */
+  yaw?: number
 }
 
 /** A dressing on one load (ctx.dress, core/cargoWrap): an open-ended box in the frame of the anchor body (the

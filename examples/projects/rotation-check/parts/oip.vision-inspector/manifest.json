@@ -1,0 +1,173 @@
+{
+  "id": "oip.vision-inspector",
+  "name": "Vision Inspector",
+  "category": "Devices",
+  "geometry": {
+    "kind": "rig",
+    "links": [
+      {
+        "name": "surface",
+        "shape": {
+          "kind": "frame"
+        },
+        "offset": [
+          0,
+          0.8,
+          0
+        ],
+        "offsetParams": [
+          {
+            "axis": 1,
+            "param": "surfaceHeight",
+            "scale": 1
+          }
+        ]
+      },
+      {
+        "name": "read",
+        "parent": "surface",
+        "shape": {
+          "kind": "frame"
+        },
+        "offset": [
+          0,
+          0.3,
+          0
+        ],
+        "offsetParams": [
+          {
+            "axis": 1,
+            "param": "clearance",
+            "scale": 0.5
+          }
+        ],
+        "zone": {
+          "size": [
+            1,
+            0.6,
+            0.5
+          ],
+          "sizeParams": [
+            {
+              "axis": 0,
+              "param": "width",
+              "scale": 1
+            },
+            {
+              "axis": 1,
+              "param": "clearance",
+              "scale": 1
+            },
+            {
+              "axis": 2,
+              "param": "readDepth",
+              "scale": 1
+            }
+          ]
+        }
+      },
+      {
+        "name": "scanLine",
+        "parent": "surface",
+        "shape": {
+          "kind": "frame"
+        },
+        "offset": [
+          -0.5,
+          0.05,
+          0
+        ],
+        "offsetParams": [
+          {
+            "axis": 0,
+            "param": "width",
+            "scale": -0.5
+          }
+        ],
+        "beam": {
+          "range": 1,
+          "rangeParam": "width",
+          "showParam": "showBeam",
+          "axis": [
+            1,
+            0,
+            0
+          ]
+        }
+      }
+    ],
+    "joints": [],
+    "bounds": {
+      "length": 1.17,
+      "width": 0.2,
+      "top": 1.664,
+      "params": [
+        {
+          "field": "length",
+          "param": "width",
+          "add": 0.17
+        },
+        {
+          "field": "top",
+          "param": "surfaceHeight",
+          "add": 0.864
+        },
+        {
+          "field": "top",
+          "param": "clearance",
+          "add": -0.6,
+          "plus": true
+        }
+      ]
+    }
+  },
+  "materials": [
+    {
+      "id": "housing",
+      "color": [
+        0.479,
+        0.509,
+        0.539
+      ],
+      "metalness": 0.6,
+      "roughness": 0.35
+    },
+    {
+      "id": "head",
+      "color": [
+        0.06,
+        0.065,
+        0.075
+      ],
+      "metalness": 0.2,
+      "roughness": 0.5
+    },
+    {
+      "id": "cap",
+      "color": [
+        0.05,
+        0.3,
+        0.55
+      ],
+      "metalness": 0.1,
+      "roughness": 0.45
+    },
+    {
+      "id": "lens",
+      "color": [
+        0.18,
+        0.18,
+        0.18
+      ],
+      "metalness": 0,
+      "roughness": 0.3
+    }
+  ],
+  "origin": {
+    "app": "v2:10886:c9qc9mlqwn"
+  },
+  "sdk": {
+    "level": 16,
+    "of": "v2:10886:c9qc9mlqwn"
+  }
+}

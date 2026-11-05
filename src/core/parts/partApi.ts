@@ -741,8 +741,11 @@ export interface PartContext<P extends ParamSchema = ParamSchema, J extends stri
    * "wrapped". A beam also sees the walking pilot, as a real photo-eye sees a person, and a box the pilot carries.
    * `face` is the face of the body it hit, in the body's own frame (`'+x'`, `'-x'`, `'+y'`, `'-y'`, `'+z'`, `'-z'`): which
    * end of a part is toward the beam, however the part is turned.
+   * `yaw` is the body's heading about the vertical in radians, in the same convention as {@link heading} (0 faces world +X,
+   * positive turns left seen from above), so a vision check compares it with its own heading. A box looks the same every half
+   * turn, so a check treats `yaw` modulo the product's symmetry. Absent when the beam hit the walking pilot.
    */
-  sense(beam: string): { hit: boolean; distance: number; color: [number, number, number]; marks?: Readonly<Record<string, number | boolean | string>>; face?: string }
+  sense(beam: string): { hit: boolean; distance: number; color: [number, number, number]; marks?: Readonly<Record<string, number | boolean | string>>; face?: string; yaw?: number }
   /**
    * Read a load cell: the weight resting on a `loadCell` link this tick, in kg (the vertical force through the
    * platform over g). The host measures it from the physics, not from what the cargo says it weighs: every body

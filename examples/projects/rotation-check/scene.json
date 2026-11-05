@@ -1,0 +1,56 @@
+{
+  "version": 4,
+  "parts": [
+    {
+      "id": "camera",
+      "type": "part",
+      "packageId": "oip.vision-inspector",
+      "position": [
+        2.5,
+        0,
+        0
+      ],
+      "rotationY": 1.570796,
+      "params": {
+        "width": 1.8,
+        "doneTag": "Inspected",
+        "okTag": "RotationOk",
+        "angleTag": "Deviation",
+        "rejectCountTag": "InspectorRejects"
+      }
+    },
+    {
+      "id": "belt",
+      "type": "part",
+      "packageId": "oip.belt-conveyor",
+      "position": [
+        0,
+        0.8,
+        0
+      ],
+      "rotationY": 0,
+      "params": {
+        "fpmUnits": false,
+        "standHeight": 0.8,
+        "speed": 1,
+        "runTag": "BeltRun"
+      }
+    },
+    {
+      "id": "infeed",
+      "type": "part",
+      "packageId": "oip.box-spawner",
+      "position": [
+        0.4,
+        1.3,
+        0
+      ],
+      "rotationY": 0,
+      "params": {
+        "boxesPerMinute": 30,
+        "randomRotation": true,
+        "runTag": "Infeed"
+      }
+    }
+  ]
+}

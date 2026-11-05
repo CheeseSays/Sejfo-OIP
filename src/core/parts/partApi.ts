@@ -841,7 +841,7 @@ export interface PartContext<P extends ParamSchema = ParamSchema, J extends stri
    * 6 mm, every pallet is 0.135 tall, default 48 x 40 in, 1.22×1.02; a tote is snapped to a standard size within 6 mm,
    * default 0.6×0.32×0.4),
    * `color` [r, g, b] 0..1 (default white), `mass` kg, `offset` from the part origin in the part's local frame (so a spawner
-   * drops cargo below/ahead of itself). The host creates a dynamic body at the part's pose + offset when the
+   * drops cargo below/ahead of itself), `yaw` radians turned about the vertical on top of the part's own heading (default 0). The host creates a dynamic body at the part's pose + offset when the
    * sim runs; call it when your rate timer fires. Deterministic. Spawned cargo stays until something removes it
    * ({@link despawn}, or falling out of the world) or the run stops, so a line with no outlet piles up the way a
    * real one would. The one limit is the physics engine's body table, 10,240 bodies in total: past it a spawn is
@@ -855,6 +855,7 @@ export interface PartContext<P extends ParamSchema = ParamSchema, J extends stri
     color?: [number, number, number]
     mass?: number
     offset?: [number, number, number]
+    yaw?: number
     marks?: Record<string, number | boolean | string>
   }): void
   /**

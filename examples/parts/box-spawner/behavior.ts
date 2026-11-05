@@ -87,6 +87,7 @@ definePart({
     height: { type: 'number', default: 0.4, min: 0.1, step: 0.05, label: 'Box height (m)', group: 'Box', visibleWhen: { param: 'product', is: 'oip.box' }, desc: 'Extent along local Y of each spawned box. Ignored while Random size is on.' },
     randomSize: { type: 'boolean', default: false, label: 'Random size', group: 'Box', visibleWhen: { param: 'product', is: 'oip.box' }, desc: 'Give each box a random size and IGNORE the three dimensions above. The random range is fixed by the part (0.4-0.8 long, 0.3-0.5 high, 0.3-0.5 wide), not derived from them.' },
     mass: { type: 'number', default: 10, min: 0.5, max: 100, step: 0.5, label: 'Mass (kg)', group: 'Box', visibleWhen: { param: 'product', is: 'oip.box' }, desc: 'Mass given to every spawned box, whatever its size.' },
+    randomRotation: { type: 'boolean', default: false, label: 'Random rotation', desc: 'Turn each item to a random heading about the vertical as it drops, instead of straight with the spawner. Works for any product.' },
     disable: { type: 'boolean', default: false, label: 'Paused', desc: 'Stop spawning entirely. Use (C, or E while walking) is a separate hand stop: it pauses and resumes the feed during a run without changing this setting, and is cleared when the run stops.' },
     release: {
       type: 'enum', default: 'interval', label: 'Release',
@@ -146,14 +147,15 @@ definePart({
         }
       }
       const color = pal.length > 0 ? pal[ci] : p.product === 'oip.box' ? hexRgb(p.boxColor) : undefined
+      const spin = p.randomRotation ? { yaw: ctx.rng() * Math.PI * 2 } : {}
       const marks = values.length > 0 ? { [p.mixAttribute]: values[vi] } : undefined
       if (p.product === 'oip.box') {
         const rnd = (i) => SIZE_MIN[i] + ctx.rng() * (SIZE_MAX[i] - SIZE_MIN[i])
         const size = p.randomSize ? [rnd(0), rnd(1), rnd(2)] : [p.length, p.height, p.width]
-        ctx.spawn({ part: 'oip.box', params: { length: size[0], height: size[1], width: size[2] }, color: color, mass: p.mass, offset: [0, -0.2, 0], ...(marks ? { marks } : {}) })
+        ctx.spawn({ part: 'oip.box', params: { length: size[0], height: size[1], width: size[2] }, color: color, mass: p.mass, offset: [0, -0.2, 0], ...spin, ...(marks ? { marks } : {}) })
       } else if (p.product) {
         // any other product drops as itself, with its settings from the Inspector; a colour only from the cycle list
-        ctx.spawn({ part: p.product, params: settingsOf(p.productSettings), ...(color ? { color } : {}), offset: [0, -0.2, 0], ...(marks ? { marks } : {}) })
+        ctx.spawn({ part: p.product, params: settingsOf(p.productSettings), ...(color ? { color } : {}), offset: [0, -0.2, 0], ...spin, ...(marks ? { marks } : {}) })
       } else {
         continue // no product: the feed paces on and drops nothing
       }

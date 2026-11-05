@@ -1,0 +1,20 @@
+{
+  "name": "Boxes turned at random are inspected, the misrotated ones latch the alarm and are counted, and Reset clears it",
+  "duration": 30,
+  "inputs": [
+    { "at": 0.5, "tag": "Start", "value": true },
+    { "at": 0.6, "tag": "Start", "value": false },
+    { "at": 24, "tag": "Stop", "value": true },
+    { "at": 24.1, "tag": "Stop", "value": false },
+    { "at": 28, "tag": "Reset", "value": true },
+    { "at": 28.1, "tag": "Reset", "value": false }
+  ],
+  "checks": [
+    { "at": 2, "tag": "RotationAlarm", "equals": false },
+    { "eventually": true, "until": 23, "tag": "Inspected", "equals": true },
+    { "eventually": true, "until": 23, "tag": "RotationAlarm", "equals": true },
+    { "at": 27, "tag": "RotationAlarm", "equals": true },
+    { "at": 27, "tag": "Rejected", "min": 1 },
+    { "at": 29.5, "tag": "RotationAlarm", "equals": false }
+  ]
+}

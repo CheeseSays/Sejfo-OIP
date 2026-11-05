@@ -1,0 +1,17 @@
+{
+  "version": 7,
+  "name": "Rotation Check",
+  "scene": "scene.json",
+  "program": [
+    "plc/program.st"
+  ],
+  "tests": [
+    "tests/rotation.test.json"
+  ],
+  "packages": [
+    "parts/oip.vision-inspector",
+    "parts/oip.belt-conveyor",
+    "parts/oip.box-spawner",
+    "parts/oip.box"
+  ]
+}

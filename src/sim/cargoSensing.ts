@@ -209,7 +209,10 @@ export function castBeamRows(
   const ratio = [Math.abs(local[0]) / (best.hx || 1), Math.abs(local[1]) / (best.hy || 1), Math.abs(local[2]) / (best.hz || 1)]
   const axis = ratio[0]! >= ratio[1]! && ratio[0]! >= ratio[2]! ? 0 : ratio[1]! >= ratio[2]! ? 1 : 2
   const face = `${local[axis]! >= 0 ? '+' : '-'}${'xyz'[axis]}`
-  return { hit: true, distance: bestT, color: best.color, ...(marks ? { marks } : {}), face }
+  // the yaw: where the body's local +X points in the world XZ plane, the same convention as ctx.heading()
+  const fx = qApply(bq, [1, 0, 0])
+  const yaw = Math.atan2(-fx[2], fx[0])
+  return { hit: true, distance: bestT, color: best.color, ...(marks ? { marks } : {}), face, yaw }
 }
 
 /** every unheld (no gripper, pilot or pin - see holders) cargo box whose surface is within `radius` of a world point: the pickup volume for

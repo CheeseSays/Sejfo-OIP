@@ -89,7 +89,7 @@ interface Instance {
 type TagVal = number | boolean
 
 /** A sensor beam's nearest-cargo result for this tick (C-sensing), handed in by the host. */
-type BeamHit = { hit: boolean; distance: number; color: [number, number, number]; marks?: Readonly<Record<string, CargoMark>>; face?: string }
+type BeamHit = { hit: boolean; distance: number; color: [number, number, number]; marks?: Readonly<Record<string, CargoMark>>; face?: string; yaw?: number }
 const CLEAR_BEAM: BeamHit = { hit: false, distance: 0, color: [0, 0, 0] }
 const EMPTY_SPEEDS: Record<string, number> = {} // shared empty conveyor-speed map (scene has no conveyors this tick)
 // Cap on a published display string. A display crosses the worker boundary every tick it changes, so an
@@ -651,7 +651,7 @@ export function create(source: string, paramsJson = '{}', servosJson?: string, a
       // part's clear beam.
       sense: (beam: string): BeamHit => {
         const h = sensed.beams[beam] ?? CLEAR_BEAM
-        return { hit: h.hit, distance: h.distance, color: [h.color[0], h.color[1], h.color[2]], ...(h.marks ? { marks: Object.freeze({ ...h.marks }) } : {}), ...(h.face ? { face: h.face } : {}) }
+        return { hit: h.hit, distance: h.distance, color: [h.color[0], h.color[1], h.color[2]], ...(h.marks ? { marks: Object.freeze({ ...h.marks }) } : {}), ...(h.face ? { face: h.face } : {}), ...(typeof h.yaw === 'number' ? { yaw: h.yaw } : {}) }
       },
       zone: (zone: string, filter?: unknown): number => {
         const t = filtered(zone, filter)

@@ -923,3 +923,20 @@ lamps [vacuumLamp] animates=true
   drawn[4] {material:eoatPlastic,rides:eoat}
   drawn[5] {lamp:vacuumLamp,material:eoatLens,rides:eoat}
   drawn[6] {instances:25.0000,material:eoatCup,rides:eoat}
+
+## oip.vision-inspector (rig)
+class {}
+footprint {hx:0.5850,hz:0.1000,y0:0,y1:1.6640}
+plugs []
+params reserved=[] tags=[doneTag:out:BOOL,okTag:out:BOOL,angleTag:out:REAL,countTag:out:DINT,rejectCountTag:out:DINT]
+lamps [fail,pass,scan] animates=false
+  link surface {shape:frame}
+  link read {shape:frame,zone:true}
+  link scanLine {sensesBeam:true,shape:frame}
+  drawn[0] {collision:static,material:housing}
+  drawn[1] {collision:static,material:housing}
+  drawn[2] {collision:static,material:cap}
+  drawn[3] {material:head}
+  drawn[4] {lamp:scan,material:lens}
+  drawn[5] {lamp:pass,material:lens}
+  drawn[6] {lamp:fail,material:lens}

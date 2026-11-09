@@ -79,13 +79,12 @@ const ROD_STEEL = [0.18, 0.18, 0.19]
 // ever push cargo. Everything is in the rig frame (the origin on the floor under the robot's axis).
 function proxyLinks() {
   const links = []
-  // frame: three legs between the arms, joined to a hub by spokes
+  // frame: a hub with three spokes between the arms, hung from above (no legs)
   const LEG_R = 0.62
   for (const arm of ARMS) {
-    const az = arm.azimuth + Math.PI / 3 // legs stand between the arms
+    const az = arm.azimuth + Math.PI / 3 // spokes point between the arms
     const c = Math.cos(az)
     const s = Math.sin(az)
-    links.push(box(`leg${arm.n}`, null, [0.06, SHOULDER_Y + 0.12, 0.06], [r8(LEG_R * c), (SHOULDER_Y + 0.12) / 2, r8(LEG_R * s)], FRAME_PAINT))
     links.push(box(`spoke${arm.n}`, null, [LEG_R, 0.06, 0.08], [r8((LEG_R / 2) * c), SHOULDER_Y + 0.09, r8((LEG_R / 2) * s)], FRAME_PAINT, { rotation: [0, r8(-az), 0] }))
   }
   links.push(cyl('hub', null, 0.26, 0.14, [0, SHOULDER_Y + 0.07, 0], FRAME_PAINT))
@@ -273,7 +272,7 @@ definePart({
         rod: ROD,
         anchor: ANCHOR,
       },
-      // The footprint at rest, centred on the axis: the legs stand 0.62 m out, the hub top is 2.04 m up.
+      // The footprint at rest, centred on the axis: the spokes reach 0.62 m out, the hub top is 2.04 m up.
       bounds: { length: 1.4, width: 1.4, top: 2.05 },
       posable: true, // opt into the in-scene pose gizmo
     }

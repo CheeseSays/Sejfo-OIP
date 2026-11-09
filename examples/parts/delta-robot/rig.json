@@ -6,28 +6,6 @@
     "kind": "rig",
     "links": [
       {
-        "name": "leg1",
-        "shape": {
-          "kind": "box",
-          "size": [
-            0.06,
-            2.02,
-            0.06
-          ]
-        },
-        "offset": [
-          0.31,
-          1.01,
-          0.53693575
-        ],
-        "color": [
-          0.05,
-          0.055,
-          0.06
-        ],
-        "collision": "none"
-      },
-      {
         "name": "spoke1",
         "shape": {
           "kind": "box",
@@ -55,28 +33,6 @@
         ]
       },
       {
-        "name": "leg2",
-        "shape": {
-          "kind": "box",
-          "size": [
-            0.06,
-            2.02,
-            0.06
-          ]
-        },
-        "offset": [
-          -0.62,
-          1.01,
-          0
-        ],
-        "color": [
-          0.05,
-          0.055,
-          0.06
-        ],
-        "collision": "none"
-      },
-      {
         "name": "spoke2",
         "shape": {
           "kind": "box",
@@ -102,28 +58,6 @@
           -3.14159265,
           0
         ]
-      },
-      {
-        "name": "leg3",
-        "shape": {
-          "kind": "box",
-          "size": [
-            0.06,
-            2.02,
-            0.06
-          ]
-        },
-        "offset": [
-          0.31,
-          1.01,
-          -0.53693575
-        ],
-        "color": [
-          0.05,
-          0.055,
-          0.06
-        ],
-        "collision": "none"
       },
       {
         "name": "spoke3",

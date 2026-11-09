@@ -227,11 +227,8 @@ footprint {hx:0.7000,hz:0.7000,y0:0,y1:2.0500}
 plugs []
 params reserved=[speed] tags=[commandTag:in:INT,executeTag:in:BOOL,doneTag:out:BOOL,enableTag:in:BOOL,gripperTag:in:BOOL,in1Tag:in:BOOL,in2Tag:in:BOOL,in3Tag:in:BOOL,in4Tag:in:BOOL,out1Tag:out:BOOL,out2Tag:out:BOOL,out3Tag:out:BOOL,out4Tag:out:BOOL]
 lamps [vacuumLamp] animates=false
-  link leg1 {shape:box}
   link spoke1 {shape:box}
-  link leg2 {shape:box}
   link spoke2 {shape:box}
-  link leg3 {shape:box}
   link spoke3 {shape:box}
   link hub {shape:cylinder}
   link shoulder1 {shape:frame}

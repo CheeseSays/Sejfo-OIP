@@ -1,11 +1,11 @@
 # golden.edge-mount-rail: 168 snapped probes
-# golden.two-mount-sensor: 10972 snapped probes
+# golden.two-mount-sensor: 11156 snapped probes
 # oip.belt-conveyor: 244 snapped probes
 # oip.belt-conveyor~incline: 244 snapped probes
 # oip.blade-stop: 368 snapped probes
 # oip.chain-transfer: 368 snapped probes
 # oip.chain-transfer~4lanes: 368 snapped probes
-# oip.clamp-tool: 16 snapped probes
+# oip.clamp-tool: 40 snapped probes
 # oip.color-sensor: 1032 snapped probes
 # oip.curved-conveyor: 64 snapped probes
 # oip.curved-conveyor~reversed: 64 snapped probes
@@ -19,11 +19,11 @@
 # oip.guard-rail: 158 snapped probes
 # oip.guard-rail~2m: 176 snapped probes
 # oip.laser-sensor: 944 snapped probes
-# oip.pitch-gripper: 16 snapped probes
+# oip.pitch-gripper: 40 snapped probes
 # oip.platform: 180 snapped probes
 # oip.platform~tall: 184 snapped probes
-# oip.push-button: 10969 snapped probes
-# oip.rack: 4152 snapped probes
+# oip.push-button: 11153 snapped probes
+# oip.rack: 4232 snapped probes
 # oip.roller-conveyor: 180 snapped probes
 # oip.roller-conveyor~short-narrow: 444 snapped probes
 # oip.roller-conveyor~tilt12: 180 snapped probes
@@ -35,7 +35,7 @@
 # oip.stairs~short: 68 snapped probes
 # oip.turntable-conveyor: 428 snapped probes
 # oip.turntable-conveyor~turned: 428 snapped probes
-# oip.vacuum-tool: 16 snapped probes
+# oip.vacuum-tool: 40 snapped probes
 golden.edge-mount-rail onto oip.platform: 84 36e04922851e7a8b
 golden.edge-mount-rail onto oip.platform~tall: 84 2751d62228555004
 golden.two-mount-sensor onto golden.edge-mount-rail: 184 e7fca58dc45ffdc7
@@ -60,6 +60,7 @@ golden.two-mount-sensor onto oip.curved-conveyor: 184 8f7d6745b57792cd
 golden.two-mount-sensor onto oip.curved-conveyor~reversed: 184 a59cdc75c83120ff
 golden.two-mount-sensor onto oip.curved-roller-conveyor: 184 b674cdb8b9eb9280
 golden.two-mount-sensor onto oip.curved-roller-conveyor~sweep45: 184 f532b0774813252d
+golden.two-mount-sensor onto oip.delta-robot: 184 de8444549d481892
 golden.two-mount-sensor onto oip.despawner: 184 88379241b3315d9b
 golden.two-mount-sensor onto oip.diffuse-sensor: 184 95d670560127c024
 golden.two-mount-sensor onto oip.diverter: 184 3aa766f24b6f0689
@@ -127,6 +128,7 @@ oip.chain-transfer onto oip.roller-conveyor: 184 94366c08a52f720c
 oip.chain-transfer onto oip.roller-conveyor~short-narrow: 184 3f8af816c290d15b
 oip.chain-transfer~4lanes onto oip.roller-conveyor: 184 c768446a03df8332
 oip.chain-transfer~4lanes onto oip.roller-conveyor~short-narrow: 184 8d0d5ab9d0c67e91
+oip.clamp-tool onto oip.delta-robot: 24 8d6f854410ebf086
 oip.clamp-tool onto oip.six-axis-robot: 16 8fa80e672cec23c7
 oip.color-sensor onto golden.guard-stand: 120 47c363686ffbc9a8
 oip.color-sensor onto oip.belt-conveyor: 120 5e44e7651c715112
@@ -207,6 +209,7 @@ oip.laser-sensor onto oip.roller-conveyor~tilt12: 116 6b548066ca9d1c3a
 oip.laser-sensor onto oip.spur-conveyor: 96 8ba3f1e8609f817b
 oip.laser-sensor onto oip.spur-conveyor~splay: 88 a7d236c25e931643
 oip.laser-sensor onto oip.spur-roller-conveyor: 96 1a36d5ecf105b6cd
+oip.pitch-gripper onto oip.delta-robot: 24 8d1f0c94f9875006
 oip.pitch-gripper onto oip.six-axis-robot: 16 34111ec694bb4c48
 oip.platform onto oip.platform: 88 b902f416551e8642
 oip.platform onto oip.platform~tall: 92 4eb0313d04c677e3
@@ -234,6 +237,7 @@ oip.push-button onto oip.curved-conveyor: 184 69c48589dadea283
 oip.push-button onto oip.curved-conveyor~reversed: 184 e883f836e65d6bbd
 oip.push-button onto oip.curved-roller-conveyor: 184 b1792dc12ca4d4de
 oip.push-button onto oip.curved-roller-conveyor~sweep45: 184 c54ecaf089a0f58d
+oip.push-button onto oip.delta-robot: 184 22ca24efd9dc99fb
 oip.push-button onto oip.despawner: 184 60cd7779fef55495
 oip.push-button onto oip.diffuse-sensor: 184 8bd09d028d06efd0
 oip.push-button onto oip.diverter: 181 c8b2a19a649ed56b
@@ -294,6 +298,7 @@ oip.rack onto oip.curved-conveyor: 16 81aa142a3c1ef1bc
 oip.rack onto oip.curved-conveyor~reversed: 16 f9cc351f8814056e
 oip.rack onto oip.curved-roller-conveyor: 16 5c66daa698dfc054
 oip.rack onto oip.curved-roller-conveyor~sweep45: 16 e4f552678581a415
+oip.rack onto oip.delta-robot: 80 6cb2cd90535a7f50
 oip.rack onto oip.despawner: 80 0051ed862faa91ea
 oip.rack onto oip.diffuse-sensor: 92 af7a340121a13fe9
 oip.rack onto oip.diverter: 88 30170aab8301a6e1
@@ -429,4 +434,5 @@ oip.turntable-conveyor~turned onto oip.spur-conveyor~splay: 8 0fe2673c2e795f07
 oip.turntable-conveyor~turned onto oip.spur-roller-conveyor: 20 ed8e9de38636ed07
 oip.turntable-conveyor~turned onto oip.turntable-conveyor: 48 af66b3826d9770a4
 oip.turntable-conveyor~turned onto oip.turntable-conveyor~turned: 48 be70296fcf4ad742
+oip.vacuum-tool onto oip.delta-robot: 24 ec346ef05b364127
 oip.vacuum-tool onto oip.six-axis-robot: 16 27de6d1e269dbfbb

@@ -221,6 +221,61 @@ lamps [] animates=true
   drawn[4] {instances:35.0000,look:roller,spins:true}
   drawn[5] {instances:70.0000,look:roller,noShadow:true,spins:true}
 
+## oip.delta-robot (rig)
+class {}
+footprint {hx:0.7000,hz:0.7000,y0:0,y1:2.0500}
+plugs []
+params reserved=[speed] tags=[commandTag:in:INT,executeTag:in:BOOL,doneTag:out:BOOL,enableTag:in:BOOL,gripperTag:in:BOOL,in1Tag:in:BOOL,in2Tag:in:BOOL,in3Tag:in:BOOL,in4Tag:in:BOOL,out1Tag:out:BOOL,out2Tag:out:BOOL,out3Tag:out:BOOL,out4Tag:out:BOOL]
+lamps [vacuumLamp] animates=false
+  link spoke1 {shape:box}
+  link spoke2 {shape:box}
+  link spoke3 {shape:box}
+  link hub {shape:cylinder}
+  link shoulder1 {shape:frame}
+  link drive1 {shape:cylinder}
+  link arm1 {shape:frame}
+  link armTube1 {shape:box}
+  link elbow1 {shape:frame}
+  link elbowBar1 {shape:box}
+  link rod1a {shape:frame}
+  link rodTube1a {shape:box}
+  link rod1b {shape:frame}
+  link rodTube1b {shape:box}
+  link shoulder2 {shape:frame}
+  link drive2 {shape:cylinder}
+  link arm2 {shape:frame}
+  link armTube2 {shape:box}
+  link elbow2 {shape:frame}
+  link elbowBar2 {shape:box}
+  link rod2a {shape:frame}
+  link rodTube2a {shape:box}
+  link rod2b {shape:frame}
+  link rodTube2b {shape:box}
+  link shoulder3 {shape:frame}
+  link drive3 {shape:cylinder}
+  link arm3 {shape:frame}
+  link armTube3 {shape:box}
+  link elbow3 {shape:frame}
+  link elbowBar3 {shape:box}
+  link rod3a {shape:frame}
+  link rodTube3a {shape:box}
+  link rod3b {shape:frame}
+  link rodTube3b {shape:box}
+  link slideX {shape:frame}
+  link slideY {shape:frame}
+  link platform {shape:frame}
+  link platformDisc {shape:cylinder}
+  link end1a {shape:frame}
+  link end1b {shape:frame}
+  link end2a {shape:frame}
+  link end2b {shape:frame}
+  link end3a {shape:frame}
+  link end3b {shape:frame}
+  link eoat {shape:frame}
+  link gripper {gripZone:true,shape:frame}
+  drawn[0] {material:lampBezel,rides:platform}
+  drawn[1] {lamp:vacuumLamp,material:lampLens,rides:platform}
+
 ## oip.despawner (rig)
 class {}
 footprint {hx:1.0000,hz:1.0000,y0:0,y1:1.0000}

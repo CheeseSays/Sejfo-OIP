@@ -150,6 +150,10 @@
             "$ref": "#/$defs/RigJoint"
           }
         },
+        "delta": {
+          "description": "Makes the rig a delta mechanism ({@link RigDelta}): its arm joints are solved from the platform joints.",
+          "$ref": "#/$defs/RigDelta"
+        },
         "mount": {
           "description": "Makes the rig a part that rides a link of its parent ({@link RigMount}). Omitted = it stands where it is placed.",
           "$ref": "#/$defs/RigMount"
@@ -1302,6 +1306,78 @@
       "required": [
         "maxVelocity",
         "maxAccel"
+      ]
+    },
+    "RigDelta": {
+      "description": "A delta (parallel-arm) mechanism: the platform is commanded in space and the arms follow it. The rig's pose\nresolver solves each arm joint from the platform joints, so the editor gizmo, the view and the sim all draw the\narms where the platform needs them, and a behavior commands only the platform. The solved joints are declared\n`cosmetic`, so the gizmo, the idle `pose` row and Capture Pose index only the platform joints.\n\nThe layout: every arm hangs from a shoulder pivot and swings in a vertical plane through the rig's Y axis; an\narm's rod pair is a parallelogram, so each pair acts as one rod of length `rod` from the elbow to a point of the\nplatform `anchor` metres out from its centre toward that arm. The platform never tilts. Joint values are the arm's\nangle below horizontal-outward, in radians: build the arm joint so a positive value swings the arm down.",
+      "type": "object",
+      "properties": {
+        "platform": {
+          "description": "The platform's three prismatic joints, in any order. They must hang from untilted links, so each joint axis is a\nrig-frame direction.",
+          "type": "array",
+          "prefixItems": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "string"
+            },
+            {
+              "type": "string"
+            }
+          ],
+          "minItems": 3,
+          "maxItems": 3
+        },
+        "center": {
+          "description": "the platform's centre, rig metres, with all three platform joints at 0",
+          "$ref": "#/$defs/Vec3Tuple"
+        },
+        "arms": {
+          "description": "one arm per entry: its (cosmetic, revolute) joint, the shoulder pivot in rig metres, and the heading of the\narm's outward direction in the XZ plane, radians from +X toward +Z",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "joint": {
+                "type": "string"
+              },
+              "shoulder": {
+                "$ref": "#/$defs/Vec3Tuple"
+              },
+              "azimuth": {
+                "type": "number"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "joint",
+              "shoulder",
+              "azimuth"
+            ]
+          }
+        },
+        "upper": {
+          "description": "upper arm length, shoulder to elbow (m)",
+          "type": "number"
+        },
+        "rod": {
+          "description": "rod length, elbow to the platform anchor (m)",
+          "type": "number"
+        },
+        "anchor": {
+          "description": "how far out from the platform's centre, toward its arm, the rod ends sit (m)",
+          "type": "number"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "platform",
+        "center",
+        "arms",
+        "upper",
+        "rod",
+        "anchor"
       ]
     },
     "RigMount": {

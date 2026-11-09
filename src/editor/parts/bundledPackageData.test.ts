@@ -243,7 +243,7 @@ describe('committed part-package loader (the first-party catalog source)', () =>
   // the placed part draws an interactive pose gizmo the operator can't use. This pins that split across the catalog
   // so a new/edited part can't silently regain (or lose) the affordance. See sdkPart.buildRigGizmo.
   it('only the hand-taught manipulators opt into the in-scene pose gizmo (geometry.posable)', () => {
-    const posableIds = new Set(['oip.six-axis-robot', 'oip.gantry', 'oip.agv'])
+    const posableIds = new Set(['oip.six-axis-robot', 'oip.delta-robot', 'oip.gantry', 'oip.agv'])
     for (const pkg of bundledPackagesFromData()) {
       if (pkg.geometry.kind !== 'rig') continue
       const on = pkg.geometry.posable === true

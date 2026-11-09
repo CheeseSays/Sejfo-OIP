@@ -434,6 +434,27 @@ until Inspector → **Capture Pose** records it (robot, gantry, AGV lift). Leave
 PLC drives the joints (safety gate, diverter, blade stop, turntable); they articulate the same, without a pose
 gizmo. Link-offset gizmos are separate and always available in the Part Editor.
 
+#### A delta (parallel-arm) robot: `geometry.delta`
+
+The platform of a delta robot is commanded in space and its arms follow, so the rig carries the arm solution: declare
+`delta` on the rig geometry and the pose resolver (`core/rig/rigPose.ts`, so the editor gizmo, the view and the sim
+alike) fills in the arm joints from the platform's three prismatic joints. The behavior commands only those slides.
+
+```js
+delta: {
+  platform: ['x', 'y', 'z'],   // three prismatic joints, on links that are not turned
+  center: [0, 1.2, 0],         // the platform's centre with all three at 0, rig metres
+  arms: [{ joint: 'a1', shoulder: [0.22, 1.9, 0], azimuth: 0 } /* , ... */], // revolute, cosmetic: true
+  upper: 0.4, rod: 0.95, anchor: 0.06, // upper arm, rod, and how far out the rod ends sit on the platform
+}
+```
+
+An arm joint's value is the angle the upper arm swings down from horizontal-outward, so build the joint (axis and shoulder
+frame) for a positive value to swing it down. Declare the arm joints `cosmetic` so the gizmo, the idle `pose` row and Capture
+Pose see only the slides. The rod pair of an arm is a parallelogram, so it acts as one rod: draw each rod as an `aim` link from
+the elbow to its end on the platform, as the example does. The [Delta Robot](../examples/parts/delta-robot/README.md) is the
+worked example, with a proxy model of primitives to be replaced by a real one.
+
 Shape kinds:
 
 | Shape | What it is |

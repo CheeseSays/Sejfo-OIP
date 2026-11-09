@@ -226,6 +226,7 @@ export function buildRigGizmo(
 
   // CCD toward a world point: turn each joint, tip to base, so `tip` swings toward `target` about the joint's axis
   const ccdPosition = (joints: readonly RigJoint[], tip: Object3D, target: Vector3): void => {
+    const scale = root.getWorldScale(new Vector3()).x || 1 // a slide's travel is in rig metres, the error in world metres
     for (let iter = 0; iter < IK_ITERATIONS; iter++) {
       refreshChain()
       if (tip.getWorldPosition(new Vector3()).distanceTo(target) < IK_TOLERANCE) return
@@ -234,6 +235,14 @@ export function buildRigGizmo(
         const g = linkGroups.get(j.link)!
         const pivot = g.getWorldPosition(new Vector3())
         const axis = worldAxis(g, j.axis)
+        if (j.type === 'prismatic') {
+          // a slide moves the tip by its travel along the axis: take the share of the remaining error that lies on it
+          const slide = target.clone().sub(tip.getWorldPosition(new Vector3())).dot(axis) / scale
+          pose[j.name] = clamp((pose[j.name] ?? 0) + slide, j.min, j.max)
+          applyJoints(pose)
+          refreshChain()
+          continue
+        }
         // both arms projected onto the joint's plane (a mutated `tip` re-subtracted here once made the
         // error scale with the part's distance from the world origin)
         const toTip = tip.getWorldPosition(new Vector3()).sub(pivot)

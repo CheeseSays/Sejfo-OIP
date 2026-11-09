@@ -211,10 +211,12 @@ export function captureRigPose(ec: AuthoringDeps, partId: string): number[] | nu
   const part = ec.store.getState().scene.parts.find((p) => p.id === partId)
   if (!part || part.type !== 'part') return null
   const pkg = getPackage((part as SdkPart).packageId)
-  if (!pkg || pkg.geometry.kind !== 'rig' || pkg.geometry.joints.length === 0) return null
+  const posable = pkg?.geometry.kind === 'rig' ? pkg.geometry.joints.filter((j) => !j.cosmetic) : []
+  if (!pkg || posable.length === 0) return null
   const pose = ec.view.rigJointPose(partId) ?? {}
-  const round = (v: number): number => Math.round(v * 100) / 100
-  return pkg.geometry.joints.map((j) => round(j.type === 'revolute' ? ((pose[j.name] ?? 0) * 180) / Math.PI : (pose[j.name] ?? 0)))
+  // degrees to 0.01, a slide to the millimetre: a hundredth of a metre is too coarse for a taught position
+  const round = (v: number, step: number): number => Math.round(v * step) / step
+  return posable.map((j) => (j.type === 'revolute' ? round(((pose[j.name] ?? 0) * 180) / Math.PI, 100) : round(pose[j.name] ?? 0, 1000)))
 }
 
 export function previewRigPose(ec: AuthoringDeps, partId: string, row: readonly number[]): void {
@@ -223,7 +225,7 @@ export function previewRigPose(ec: AuthoringDeps, partId: string, row: readonly 
   const pkg = getPackage((part as SdkPart).packageId)
   if (!pkg || pkg.geometry.kind !== 'rig') return
   const pose: Record<string, number> = {}
-  pkg.geometry.joints.forEach((j, i) => {
+  pkg.geometry.joints.filter((j) => !j.cosmetic).forEach((j, i) => {
     const v = row[i]
     if (typeof v === 'number') pose[j.name] = j.type === 'revolute' ? (v * Math.PI) / 180 : v
   })

@@ -5,7 +5,7 @@
 // hierarchy and these world poses agree.
 
 import { clamp, forwardXZ } from '../math'
-import type { PartPackageGeometry, RigJoint, RigLegShape, RigLink, RigShape, SizeParamRef, Vec3Tuple } from '../parts/partPackage'
+import type { PartPackageGeometry, RigDelta, RigJoint, RigLegShape, RigLink, RigShape, SizeParamRef, Vec3Tuple } from '../parts/partPackage'
 import type { ParamSchema, ParamValue } from '../parts/partApi'
 import { resolvePartParams } from '../parts/partScript'
 
@@ -222,6 +222,63 @@ export function jointLimits(joint: RigJoint, params?: RigParams): [number, numbe
 export function legFrameDepth(shape: Pick<RigLegShape, 'frameDepth' | 'frameDepthParam'>, params: RigParams): number {
   const r = shape.frameDepthParam ? resolvedRef(shape.frameDepthParam, params) : null
   return r ?? shape.frameDepth
+}
+
+/**
+ * The arm angles (radians, positive swinging the arm down) a delta mechanism needs for its platform centre at
+ * `point` (rig metres), by arm in `delta.arms` order. Each arm solves in its own vertical plane: the rod pair acts as
+ * one rod of length `rod` from the elbow to the platform's anchor point, so the elbow sits where a circle of radius
+ * `upper` about the shoulder meets a sphere of radius `rod` about that anchor. Of the two crossings the elbow-out one is
+ * taken. A point beyond what the arm reaches gets the arm stretched toward it (the nearest crossing), never NaN.
+ */
+export function deltaArmAngles(delta: RigDelta, point: Vec3Tuple): number[] {
+  const a = delta.upper
+  const L = delta.rod
+  return delta.arms.map((arm) => {
+    const c = Math.cos(arm.azimuth)
+    const s = Math.sin(arm.azimuth)
+    const dx = point[0] - arm.shoulder[0]
+    const dz = point[2] - arm.shoulder[2]
+    const x = dx * c + dz * s + delta.anchor // outward of the shoulder, to the rod end
+    const y = point[1] - arm.shoulder[1] // above the shoulder (down is negative)
+    const z = -dx * s + dz * c // sideways out of the arm's plane
+    const r = Math.hypot(x, y)
+    if (r < 1e-9) return 0
+    const k = clamp((a * a + x * x + y * y + z * z - L * L) / (2 * a * r), -1, 1)
+    const beta = Math.atan2(y, x)
+    const spread = Math.acos(k)
+    const t1 = -beta + spread
+    const t2 = -beta - spread
+    return Math.cos(t1) >= Math.cos(t2) ? wrapPi(t1) : wrapPi(t2)
+  })
+}
+
+const wrapPi = (t: number): number => t - 2 * Math.PI * Math.round(t / (2 * Math.PI))
+
+/**
+ * `values` with a delta rig's arm joints filled in from its platform joints (the platform joints clamped to their
+ * limits first, as every joint is). The caller's record is left alone; a rig with no delta gets it back as it is.
+ */
+function withDeltaArms(geo: RigGeometry, values: Record<string, number>, params: RigParams): Record<string, number> {
+  const delta = geo.delta
+  if (!delta) return values
+  const point: Vec3 = [delta.center[0], delta.center[1], delta.center[2]]
+  for (const name of delta.platform) {
+    const joint = geo.joints.find((j) => j.name === name)
+    if (!joint) continue
+    const [lo, hi] = jointLimits(joint, params)
+    const v = clamp(values[name] ?? 0, lo, hi)
+    const len = Math.hypot(joint.axis[0], joint.axis[1], joint.axis[2]) || 1
+    point[0] += (joint.axis[0] / len) * v
+    point[1] += (joint.axis[1] / len) * v
+    point[2] += (joint.axis[2] / len) * v
+  }
+  const out: Record<string, number> = { ...values }
+  const angles = deltaArmAngles(delta, point)
+  delta.arms.forEach((arm, i) => {
+    out[arm.joint] = angles[i]!
+  })
+  return out
 }
 
 export function rigLocalPose(link: RigLink, joint: RigJoint | undefined, value: number, params?: RigParams): LinkPose {
@@ -619,7 +676,7 @@ export function rigLinkLocalPoseInto(out: Float64Array, geo: RigGeometry, i: num
 /** {@link rigLinkLocalPoseInto} with the link's sub-pose handed in directly */
 function linkLocalPoseInto(out: Float64Array, geo: RigGeometry, i: number, values: Record<string, number>, subPose: SubPose | InstancePose | undefined, params: RigParams, inclineRad: number): Float64Array {
   const t = rigTables(geo)
-  writeLocalPose(t, i, values, subPose, params)
+  writeLocalPose(t, i, withDeltaArms(geo, values, params), subPose, params)
   out.set(LOCAL.subarray(0, POSE_STRIDE))
   if (inclineRad !== 0 && t.parentIdx[i]! < 0 && !t.legs?.[i]) {
     const zq = qFromAxisAngle([0, 0, 1], inclineRad)
@@ -732,8 +789,9 @@ export function idleJointValues(geo: RigGeometry, poseParam: unknown): Record<st
  * {@link rigWorldPoses} into a caller-owned buffer from {@link rigPoseBuffer} - the allocation-free form
  * for the per-step sim path. Returns `out`.
  */
-export function rigWorldPosesInto(out: Float64Array, geo: RigGeometry, values: Record<string, number>, subPoses?: Record<string, SubPose>, scale = 1, params: RigParams = {}, inclineRad = 0): Float64Array {
+export function rigWorldPosesInto(out: Float64Array, geo: RigGeometry, commanded: Record<string, number>, subPoses?: Record<string, SubPose>, scale = 1, params: RigParams = {}, inclineRad = 0): Float64Array {
   const t = rigTables(geo)
+  const values = withDeltaArms(geo, commanded, params)
   const need = t.links.length * POSE_STRIDE
   if (out.length < need) throw new Error(`rig pose buffer too small: ${out.length} < ${need} (rebuild it with rigPoseBuffer)`)
   if (t.hasAim) {

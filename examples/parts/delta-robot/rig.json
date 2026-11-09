@@ -1,0 +1,1076 @@
+{
+  "id": "oip.delta-robot",
+  "name": "Delta Robot",
+  "category": "Equipment",
+  "geometry": {
+    "kind": "rig",
+    "links": [
+      {
+        "name": "leg1",
+        "shape": {
+          "kind": "box",
+          "size": [
+            0.06,
+            2.02,
+            0.06
+          ]
+        },
+        "offset": [
+          0.31,
+          1.01,
+          0.53693575
+        ],
+        "color": [
+          0.05,
+          0.055,
+          0.06
+        ],
+        "collision": "none"
+      },
+      {
+        "name": "spoke1",
+        "shape": {
+          "kind": "box",
+          "size": [
+            0.62,
+            0.06,
+            0.08
+          ]
+        },
+        "offset": [
+          0.155,
+          1.99,
+          0.26846788
+        ],
+        "color": [
+          0.05,
+          0.055,
+          0.06
+        ],
+        "collision": "none",
+        "rotation": [
+          0,
+          -1.04719755,
+          0
+        ]
+      },
+      {
+        "name": "leg2",
+        "shape": {
+          "kind": "box",
+          "size": [
+            0.06,
+            2.02,
+            0.06
+          ]
+        },
+        "offset": [
+          -0.62,
+          1.01,
+          0
+        ],
+        "color": [
+          0.05,
+          0.055,
+          0.06
+        ],
+        "collision": "none"
+      },
+      {
+        "name": "spoke2",
+        "shape": {
+          "kind": "box",
+          "size": [
+            0.62,
+            0.06,
+            0.08
+          ]
+        },
+        "offset": [
+          -0.31,
+          1.99,
+          0
+        ],
+        "color": [
+          0.05,
+          0.055,
+          0.06
+        ],
+        "collision": "none",
+        "rotation": [
+          0,
+          -3.14159265,
+          0
+        ]
+      },
+      {
+        "name": "leg3",
+        "shape": {
+          "kind": "box",
+          "size": [
+            0.06,
+            2.02,
+            0.06
+          ]
+        },
+        "offset": [
+          0.31,
+          1.01,
+          -0.53693575
+        ],
+        "color": [
+          0.05,
+          0.055,
+          0.06
+        ],
+        "collision": "none"
+      },
+      {
+        "name": "spoke3",
+        "shape": {
+          "kind": "box",
+          "size": [
+            0.62,
+            0.06,
+            0.08
+          ]
+        },
+        "offset": [
+          0.155,
+          1.99,
+          -0.26846788
+        ],
+        "color": [
+          0.05,
+          0.055,
+          0.06
+        ],
+        "collision": "none",
+        "rotation": [
+          0,
+          -5.23598775,
+          0
+        ]
+      },
+      {
+        "name": "hub",
+        "shape": {
+          "kind": "cylinder",
+          "radius": 0.26,
+          "height": 0.14
+        },
+        "offset": [
+          0,
+          1.97,
+          0
+        ],
+        "color": [
+          0.05,
+          0.055,
+          0.06
+        ],
+        "collision": "none"
+      },
+      {
+        "name": "shoulder1",
+        "shape": {
+          "kind": "frame"
+        },
+        "offset": [
+          0.22,
+          1.9,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ]
+      },
+      {
+        "name": "drive1",
+        "parent": "shoulder1",
+        "shape": {
+          "kind": "cylinder",
+          "radius": 0.07,
+          "height": 0.2
+        },
+        "offset": [
+          0,
+          0,
+          0
+        ],
+        "color": [
+          0.639,
+          0.116,
+          0.0066
+        ],
+        "collision": "none",
+        "rotation": [
+          1.5707963267948966,
+          0,
+          0
+        ]
+      },
+      {
+        "name": "arm1",
+        "parent": "shoulder1",
+        "shape": {
+          "kind": "frame"
+        },
+        "offset": [
+          0,
+          0,
+          0
+        ]
+      },
+      {
+        "name": "armTube1",
+        "parent": "arm1",
+        "shape": {
+          "kind": "box",
+          "size": [
+            0.44,
+            0.05,
+            0.06
+          ]
+        },
+        "offset": [
+          0.2,
+          0,
+          0
+        ],
+        "color": [
+          0.5,
+          0.52,
+          0.55
+        ],
+        "collision": "none"
+      },
+      {
+        "name": "elbow1",
+        "parent": "arm1",
+        "shape": {
+          "kind": "frame"
+        },
+        "offset": [
+          0.4,
+          0,
+          0
+        ]
+      },
+      {
+        "name": "elbowBar1",
+        "parent": "elbow1",
+        "shape": {
+          "kind": "box",
+          "size": [
+            0.03,
+            0.03,
+            0.11
+          ]
+        },
+        "offset": [
+          0,
+          0,
+          0
+        ],
+        "color": [
+          0.5,
+          0.52,
+          0.55
+        ],
+        "collision": "none"
+      },
+      {
+        "name": "rod1a",
+        "parent": "elbow1",
+        "shape": {
+          "kind": "frame"
+        },
+        "offset": [
+          0,
+          0,
+          0.04
+        ],
+        "aim": {
+          "target": "end1a",
+          "up": [
+            0,
+            0,
+            1
+          ]
+        }
+      },
+      {
+        "name": "rodTube1a",
+        "parent": "rod1a",
+        "shape": {
+          "kind": "box",
+          "size": [
+            0.014,
+            0.014,
+            0.95
+          ]
+        },
+        "offset": [
+          0,
+          0,
+          0.475
+        ],
+        "color": [
+          0.18,
+          0.18,
+          0.19
+        ],
+        "collision": "none"
+      },
+      {
+        "name": "rod1b",
+        "parent": "elbow1",
+        "shape": {
+          "kind": "frame"
+        },
+        "offset": [
+          0,
+          0,
+          -0.04
+        ],
+        "aim": {
+          "target": "end1b",
+          "up": [
+            0,
+            0,
+            1
+          ]
+        }
+      },
+      {
+        "name": "rodTube1b",
+        "parent": "rod1b",
+        "shape": {
+          "kind": "box",
+          "size": [
+            0.014,
+            0.014,
+            0.95
+          ]
+        },
+        "offset": [
+          0,
+          0,
+          0.475
+        ],
+        "color": [
+          0.18,
+          0.18,
+          0.19
+        ],
+        "collision": "none"
+      },
+      {
+        "name": "shoulder2",
+        "shape": {
+          "kind": "frame"
+        },
+        "offset": [
+          -0.11,
+          1.9,
+          0.19052559
+        ],
+        "rotation": [
+          0,
+          -2.0943951,
+          0
+        ]
+      },
+      {
+        "name": "drive2",
+        "parent": "shoulder2",
+        "shape": {
+          "kind": "cylinder",
+          "radius": 0.07,
+          "height": 0.2
+        },
+        "offset": [
+          0,
+          0,
+          0
+        ],
+        "color": [
+          0.639,
+          0.116,
+          0.0066
+        ],
+        "collision": "none",
+        "rotation": [
+          1.5707963267948966,
+          0,
+          0
+        ]
+      },
+      {
+        "name": "arm2",
+        "parent": "shoulder2",
+        "shape": {
+          "kind": "frame"
+        },
+        "offset": [
+          0,
+          0,
+          0
+        ]
+      },
+      {
+        "name": "armTube2",
+        "parent": "arm2",
+        "shape": {
+          "kind": "box",
+          "size": [
+            0.44,
+            0.05,
+            0.06
+          ]
+        },
+        "offset": [
+          0.2,
+          0,
+          0
+        ],
+        "color": [
+          0.5,
+          0.52,
+          0.55
+        ],
+        "collision": "none"
+      },
+      {
+        "name": "elbow2",
+        "parent": "arm2",
+        "shape": {
+          "kind": "frame"
+        },
+        "offset": [
+          0.4,
+          0,
+          0
+        ]
+      },
+      {
+        "name": "elbowBar2",
+        "parent": "elbow2",
+        "shape": {
+          "kind": "box",
+          "size": [
+            0.03,
+            0.03,
+            0.11
+          ]
+        },
+        "offset": [
+          0,
+          0,
+          0
+        ],
+        "color": [
+          0.5,
+          0.52,
+          0.55
+        ],
+        "collision": "none"
+      },
+      {
+        "name": "rod2a",
+        "parent": "elbow2",
+        "shape": {
+          "kind": "frame"
+        },
+        "offset": [
+          0,
+          0,
+          0.04
+        ],
+        "aim": {
+          "target": "end2a",
+          "up": [
+            0,
+            0,
+            1
+          ]
+        }
+      },
+      {
+        "name": "rodTube2a",
+        "parent": "rod2a",
+        "shape": {
+          "kind": "box",
+          "size": [
+            0.014,
+            0.014,
+            0.95
+          ]
+        },
+        "offset": [
+          0,
+          0,
+          0.475
+        ],
+        "color": [
+          0.18,
+          0.18,
+          0.19
+        ],
+        "collision": "none"
+      },
+      {
+        "name": "rod2b",
+        "parent": "elbow2",
+        "shape": {
+          "kind": "frame"
+        },
+        "offset": [
+          0,
+          0,
+          -0.04
+        ],
+        "aim": {
+          "target": "end2b",
+          "up": [
+            0,
+            0,
+            1
+          ]
+        }
+      },
+      {
+        "name": "rodTube2b",
+        "parent": "rod2b",
+        "shape": {
+          "kind": "box",
+          "size": [
+            0.014,
+            0.014,
+            0.95
+          ]
+        },
+        "offset": [
+          0,
+          0,
+          0.475
+        ],
+        "color": [
+          0.18,
+          0.18,
+          0.19
+        ],
+        "collision": "none"
+      },
+      {
+        "name": "shoulder3",
+        "shape": {
+          "kind": "frame"
+        },
+        "offset": [
+          -0.11,
+          1.9,
+          -0.19052559
+        ],
+        "rotation": [
+          0,
+          -4.1887902,
+          0
+        ]
+      },
+      {
+        "name": "drive3",
+        "parent": "shoulder3",
+        "shape": {
+          "kind": "cylinder",
+          "radius": 0.07,
+          "height": 0.2
+        },
+        "offset": [
+          0,
+          0,
+          0
+        ],
+        "color": [
+          0.639,
+          0.116,
+          0.0066
+        ],
+        "collision": "none",
+        "rotation": [
+          1.5707963267948966,
+          0,
+          0
+        ]
+      },
+      {
+        "name": "arm3",
+        "parent": "shoulder3",
+        "shape": {
+          "kind": "frame"
+        },
+        "offset": [
+          0,
+          0,
+          0
+        ]
+      },
+      {
+        "name": "armTube3",
+        "parent": "arm3",
+        "shape": {
+          "kind": "box",
+          "size": [
+            0.44,
+            0.05,
+            0.06
+          ]
+        },
+        "offset": [
+          0.2,
+          0,
+          0
+        ],
+        "color": [
+          0.5,
+          0.52,
+          0.55
+        ],
+        "collision": "none"
+      },
+      {
+        "name": "elbow3",
+        "parent": "arm3",
+        "shape": {
+          "kind": "frame"
+        },
+        "offset": [
+          0.4,
+          0,
+          0
+        ]
+      },
+      {
+        "name": "elbowBar3",
+        "parent": "elbow3",
+        "shape": {
+          "kind": "box",
+          "size": [
+            0.03,
+            0.03,
+            0.11
+          ]
+        },
+        "offset": [
+          0,
+          0,
+          0
+        ],
+        "color": [
+          0.5,
+          0.52,
+          0.55
+        ],
+        "collision": "none"
+      },
+      {
+        "name": "rod3a",
+        "parent": "elbow3",
+        "shape": {
+          "kind": "frame"
+        },
+        "offset": [
+          0,
+          0,
+          0.04
+        ],
+        "aim": {
+          "target": "end3a",
+          "up": [
+            0,
+            0,
+            1
+          ]
+        }
+      },
+      {
+        "name": "rodTube3a",
+        "parent": "rod3a",
+        "shape": {
+          "kind": "box",
+          "size": [
+            0.014,
+            0.014,
+            0.95
+          ]
+        },
+        "offset": [
+          0,
+          0,
+          0.475
+        ],
+        "color": [
+          0.18,
+          0.18,
+          0.19
+        ],
+        "collision": "none"
+      },
+      {
+        "name": "rod3b",
+        "parent": "elbow3",
+        "shape": {
+          "kind": "frame"
+        },
+        "offset": [
+          0,
+          0,
+          -0.04
+        ],
+        "aim": {
+          "target": "end3b",
+          "up": [
+            0,
+            0,
+            1
+          ]
+        }
+      },
+      {
+        "name": "rodTube3b",
+        "parent": "rod3b",
+        "shape": {
+          "kind": "box",
+          "size": [
+            0.014,
+            0.014,
+            0.95
+          ]
+        },
+        "offset": [
+          0,
+          0,
+          0.475
+        ],
+        "color": [
+          0.18,
+          0.18,
+          0.19
+        ],
+        "collision": "none"
+      },
+      {
+        "name": "slideX",
+        "shape": {
+          "kind": "frame"
+        },
+        "offset": [
+          0,
+          1.2,
+          0
+        ]
+      },
+      {
+        "name": "slideY",
+        "parent": "slideX",
+        "shape": {
+          "kind": "frame"
+        },
+        "offset": [
+          0,
+          0,
+          0
+        ]
+      },
+      {
+        "name": "platform",
+        "parent": "slideY",
+        "shape": {
+          "kind": "frame"
+        },
+        "offset": [
+          0,
+          0,
+          0
+        ]
+      },
+      {
+        "name": "platformDisc",
+        "parent": "platform",
+        "shape": {
+          "kind": "cylinder",
+          "radius": 0.085,
+          "height": 0.032
+        },
+        "offset": [
+          0,
+          0,
+          0
+        ],
+        "color": [
+          0.639,
+          0.116,
+          0.0066
+        ],
+        "collision": "none"
+      },
+      {
+        "name": "end1a",
+        "parent": "platform",
+        "shape": {
+          "kind": "frame"
+        },
+        "offset": [
+          0.06,
+          0,
+          0.04
+        ]
+      },
+      {
+        "name": "end1b",
+        "parent": "platform",
+        "shape": {
+          "kind": "frame"
+        },
+        "offset": [
+          0.06,
+          0,
+          -0.04
+        ]
+      },
+      {
+        "name": "end2a",
+        "parent": "platform",
+        "shape": {
+          "kind": "frame"
+        },
+        "offset": [
+          -0.06464102,
+          0,
+          0.03196152
+        ]
+      },
+      {
+        "name": "end2b",
+        "parent": "platform",
+        "shape": {
+          "kind": "frame"
+        },
+        "offset": [
+          0.00464102,
+          0,
+          0.07196152
+        ]
+      },
+      {
+        "name": "end3a",
+        "parent": "platform",
+        "shape": {
+          "kind": "frame"
+        },
+        "offset": [
+          0.00464102,
+          0,
+          -0.07196152
+        ]
+      },
+      {
+        "name": "end3b",
+        "parent": "platform",
+        "shape": {
+          "kind": "frame"
+        },
+        "offset": [
+          -0.06464102,
+          0,
+          -0.03196152
+        ]
+      },
+      {
+        "name": "eoat",
+        "parent": "platform",
+        "shape": {
+          "kind": "frame"
+        },
+        "offset": [
+          0,
+          -0.016,
+          0
+        ]
+      },
+      {
+        "name": "gripper",
+        "parent": "platform",
+        "shape": {
+          "kind": "frame"
+        },
+        "offset": [
+          0,
+          -0.1727,
+          0
+        ],
+        "grip": {
+          "zone": {
+            "size": [
+              0.02,
+              0.02,
+              0.02
+            ]
+          }
+        }
+      }
+    ],
+    "joints": [
+      {
+        "name": "x",
+        "link": "slideX",
+        "type": "prismatic",
+        "axis": [
+          1,
+          0,
+          0
+        ],
+        "min": -0.3,
+        "max": 0.3
+      },
+      {
+        "name": "y",
+        "link": "slideY",
+        "type": "prismatic",
+        "axis": [
+          0,
+          0,
+          1
+        ],
+        "min": -0.3,
+        "max": 0.3
+      },
+      {
+        "name": "z",
+        "link": "platform",
+        "type": "prismatic",
+        "axis": [
+          0,
+          -1,
+          0
+        ],
+        "min": 0,
+        "max": 0.45
+      },
+      {
+        "name": "a1",
+        "link": "arm1",
+        "type": "revolute",
+        "axis": [
+          0,
+          0,
+          -1
+        ],
+        "min": -1.04719755,
+        "max": 1.74532925,
+        "cosmetic": true
+      },
+      {
+        "name": "a2",
+        "link": "arm2",
+        "type": "revolute",
+        "axis": [
+          0,
+          0,
+          -1
+        ],
+        "min": -1.04719755,
+        "max": 1.74532925,
+        "cosmetic": true
+      },
+      {
+        "name": "a3",
+        "link": "arm3",
+        "type": "revolute",
+        "axis": [
+          0,
+          0,
+          -1
+        ],
+        "min": -1.04719755,
+        "max": 1.74532925,
+        "cosmetic": true
+      }
+    ],
+    "delta": {
+      "platform": [
+        "x",
+        "y",
+        "z"
+      ],
+      "center": [
+        0,
+        1.2,
+        0
+      ],
+      "arms": [
+        {
+          "joint": "a1",
+          "shoulder": [
+            0.22,
+            1.9,
+            0
+          ],
+          "azimuth": 0
+        },
+        {
+          "joint": "a2",
+          "shoulder": [
+            -0.11,
+            1.9,
+            0.19052559
+          ],
+          "azimuth": 2.0943951
+        },
+        {
+          "joint": "a3",
+          "shoulder": [
+            -0.11,
+            1.9,
+            -0.19052559
+          ],
+          "azimuth": 4.1887902
+        }
+      ],
+      "upper": 0.4,
+      "rod": 0.95,
+      "anchor": 0.06
+    },
+    "bounds": {
+      "length": 1.4,
+      "width": 1.4,
+      "top": 2.05
+    },
+    "posable": true
+  },
+  "materials": [
+    {
+      "id": "lampBezel",
+      "color": [
+        0.02,
+        0.02,
+        0.022
+      ],
+      "metalness": 0,
+      "roughness": 0.5
+    },
+    {
+      "id": "lampLens",
+      "color": [
+        0.03,
+        0.06,
+        0.03
+      ],
+      "metalness": 0,
+      "roughness": 0.25
+    }
+  ]
+}

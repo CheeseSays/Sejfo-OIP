@@ -2,7 +2,8 @@
 
 A tool is a part of its own that hangs on a link of the part it is parented to, and moves with that link. The Six-Axis
 Robot's end-of-arm tool is one: the robot has a flange (the `eoat` link), and a Vacuum Tool seated there goes wherever
-the flange goes. Swap the tool, resize it or leave the flange bare without touching the robot.
+the flange goes. The Delta Robot has the same link under its platform, so the same tools seat on it. Swap the tool, resize it
+or leave the flange bare without touching the robot.
 
 ## Declaring a tool
 

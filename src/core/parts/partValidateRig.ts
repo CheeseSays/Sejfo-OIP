@@ -311,7 +311,46 @@ function validateMount(mount: unknown, add: (field: string, message: string) => 
   validateSizeParams(zone.offsetParams, 'geometry.mount.grip.zone.offsetParams', add)
 }
 
-export function validateRig(g: { links?: unknown; joints?: unknown; posable?: unknown; mount?: unknown }, problems: PackageProblem[], assetIds: Set<string>, materialIds: Set<string>): void {
+/** Validate a rig's `delta` (see RigDelta) against the joints it names. */
+function validateDelta(delta: unknown, joints: readonly { name?: unknown; type?: unknown; cosmetic?: unknown }[], add: (field: string, message: string) => void): void {
+  const d = delta as { platform?: unknown; center?: unknown; arms?: unknown; upper?: unknown; rod?: unknown; anchor?: unknown } | null
+  if (typeof d !== 'object' || d === null || Array.isArray(d)) {
+    add('geometry.delta', 'delta must be an object: { platform, center, arms, upper, rod, anchor }')
+    return
+  }
+  const byName = new Map(joints.map((j) => [j?.name, j]))
+  const named = new Set<unknown>()
+  if (!Array.isArray(d.platform) || d.platform.length !== 3) add('geometry.delta.platform', 'delta.platform must name the three prismatic joints of the platform')
+  else {
+    d.platform.forEach((n, i) => {
+      const j = byName.get(n)
+      if (!j || j.type !== 'prismatic') add(`geometry.delta.platform[${i}]`, 'must name a prismatic joint')
+      else if (j.cosmetic === true) add(`geometry.delta.platform[${i}]`, 'a platform joint is commanded, so it cannot be cosmetic')
+      if (named.has(n)) add(`geometry.delta.platform[${i}]`, 'a joint can only be named once')
+      named.add(n)
+    })
+  }
+  if (!isVec3(d.center)) add('geometry.delta.center', 'delta.center must be 3 finite numbers (rig metres)')
+  for (const key of ['upper', 'rod'] as const) if (!isFiniteNum(d[key]) || d[key] <= 0) add(`geometry.delta.${key}`, `delta.${key} must be a positive length`)
+  if (!isFiniteNum(d.anchor)) add('geometry.delta.anchor', 'delta.anchor must be a finite length')
+  if (!Array.isArray(d.arms) || d.arms.length === 0) {
+    add('geometry.delta.arms', 'delta.arms must list at least one arm')
+    return
+  }
+  d.arms.forEach((raw, i) => {
+    const arm = raw as { joint?: unknown; shoulder?: unknown; azimuth?: unknown } | null
+    const at = `geometry.delta.arms[${i}]`
+    const j = byName.get(arm?.joint)
+    if (!j || j.type !== 'revolute') add(`${at}.joint`, 'must name a revolute joint')
+    else if (j.cosmetic !== true) add(`${at}.joint`, 'an arm joint is solved from the platform, so it must be cosmetic')
+    if (named.has(arm?.joint)) add(`${at}.joint`, 'a joint can only be named once')
+    named.add(arm?.joint)
+    if (!isVec3(arm?.shoulder)) add(`${at}.shoulder`, 'shoulder must be 3 finite numbers (rig metres)')
+    if (!isFiniteNum(arm?.azimuth)) add(`${at}.azimuth`, 'azimuth must be a finite angle in radians')
+  })
+}
+
+export function validateRig(g: { links?: unknown; joints?: unknown; posable?: unknown; mount?: unknown; delta?: unknown }, problems: PackageProblem[], assetIds: Set<string>, materialIds: Set<string>): void {
   const add = (field: string, message: string): void => {
     problems.push({ field, message })
   }
@@ -530,4 +569,5 @@ export function validateRig(g: { links?: unknown; joints?: unknown; posable?: un
       if (j?.cosmetic === true) add(`${at}.servo`, 'a cosmetic joint cannot be a servo: a servo is commanded, cosmetic dressing is not')
     }
   })
+  if (g.delta !== undefined) validateDelta(g.delta, joints as { name?: unknown; type?: unknown; cosmetic?: unknown }[], add)
 }

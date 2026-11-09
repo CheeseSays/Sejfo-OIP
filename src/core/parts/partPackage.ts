@@ -856,11 +856,41 @@ export interface RigMount {
   grip?: { link: string; zone: { size: Vec3Tuple; offset?: Vec3Tuple; sizeParams?: SizeParamRef[]; offsetParams?: SizeParamRef[] } }
 }
 
+/**
+ * A delta (parallel-arm) mechanism: the platform is commanded in space and the arms follow it. The rig's pose
+ * resolver solves each arm joint from the platform joints, so the editor gizmo, the view and the sim all draw the
+ * arms where the platform needs them, and a behavior commands only the platform. The solved joints are declared
+ * `cosmetic`, so the gizmo, the idle `pose` row and Capture Pose index only the platform joints.
+ *
+ * The layout: every arm hangs from a shoulder pivot and swings in a vertical plane through the rig's Y axis; an
+ * arm's rod pair is a parallelogram, so each pair acts as one rod of length `rod` from the elbow to a point of the
+ * platform `anchor` metres out from its centre toward that arm. The platform never tilts. Joint values are the arm's
+ * angle below horizontal-outward, in radians: build the arm joint so a positive value swings the arm down.
+ */
+export interface RigDelta {
+  /** The platform's three prismatic joints, in any order. They must hang from untilted links, so each joint axis is a
+   *  rig-frame direction. */
+  platform: [string, string, string]
+  /** the platform's centre, rig metres, with all three platform joints at 0 */
+  center: Vec3Tuple
+  /** one arm per entry: its (cosmetic, revolute) joint, the shoulder pivot in rig metres, and the heading of the
+   *  arm's outward direction in the XZ plane, radians from +X toward +Z */
+  arms: { joint: string; shoulder: Vec3Tuple; azimuth: number }[]
+  /** upper arm length, shoulder to elbow (m) */
+  upper: number
+  /** rod length, elbow to the platform anchor (m) */
+  rod: number
+  /** how far out from the platform's centre, toward its arm, the rod ends sit (m) */
+  anchor: number
+}
+
 /** A multi-body rig: a tree of links + kinematic joints (robots, gates, AGVs, imported devices). */
 export interface RigGeometry {
   kind: 'rig'
   links: RigLink[]
   joints: RigJoint[]
+  /** Makes the rig a delta mechanism ({@link RigDelta}): its arm joints are solved from the platform joints. */
+  delta?: RigDelta
   /** Makes the rig a part that rides a link of its parent ({@link RigMount}). Omitted = it stands where it is placed. */
   mount?: RigMount
   /** Opts the rig into the in-scene teach-by-pose gizmo (joint rings + IK end-effector handle, shown whenever the

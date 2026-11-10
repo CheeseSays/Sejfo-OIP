@@ -136,6 +136,7 @@ const VACUUM = 2
 const WAIT = 3
 const WAIT_FOR = 4
 const SET_OUT = 5
+const TRACK = 6
 const IO_COUNT = 4
 const ON_OFF = [{ value: 1, label: 'On' }, { value: 0, label: 'Off' }]
 const ioOptions = (word, prefix) => Array.from({ length: IO_COUNT }, (_, i) => ({ value: i, label: word + ' ' + (i + 1), param: prefix + (i + 1) + 'Tag' }))
@@ -145,6 +146,7 @@ const JOB_OPS = [
   { code: WAIT, label: 'Wait', desc: 'Stand still for a time, to let a grip seal or a load settle. The clock stops while the robot is not enabled.', args: [{ kind: 'number', unit: 's', min: 0, step: 0.1, default: 0.5 }] },
   { code: WAIT_FOR, label: 'Wait for', desc: 'Hold here until one of the robot inputs reads on (or off). This is how a job waits on the cell: a pallet in place, a zone clear.', args: [{ kind: 'choice', options: ioOptions('Input', 'in') }, { kind: 'choice', options: ON_OFF }] },
   { code: SET_OUT, label: 'Set', desc: 'Switch one of the robot outputs, to tell the PLC something the job has reached: clear of the table, load released.', args: [{ kind: 'choice', options: ioOptions('Output', 'out') }, { kind: 'choice', options: ON_OFF }] },
+  { code: TRACK, label: 'Track', desc: 'Follow a moving product. On: from here on the platform rides along with the tracking position (a sensor or encoder tag), so the waypoints that follow are reached relative to the product instead of the table. Off: stop following and carry on from where the platform is. Tracking stays on across steps and jobs until a Track Off step.', args: [{ kind: 'choice', options: ON_OFF }] },
 ]
 const splitNames = (s) => (typeof s === 'string' && s !== '' ? s.split('\n') : [])
 // how many jobs there are: every one a step belongs to, and every one that has a name
@@ -154,6 +156,13 @@ let cur = DEFAULT_POSES[0].slice() // where the platform is (m)
 let moving = false
 let gripClosed = false
 const outputs = [false, false, false, false]
+// Tracking: the platform rides a frame that slides along a direction in the work plane with an external value (a
+// sensor's distance, an encoder). `trackRef` is the value when tracking began, `trackOff` the frame's travel since
+// (m). The planned moves stay in that frame, and the offset is added when the slides are written.
+let jobTrack = false // a Track step has switched it on
+let tracking = false
+let trackRef = 0
+let trackOff = 0
 // One move: its start place, the signed distance on each axis, the length of the line (m), progress along it and the
 // path speed (m/s). One scalar drives all three axes (a straight line, never a per-axis jitter), so they start and
 // arrive together.
@@ -234,6 +243,8 @@ function runJob(ctx, POSES) {
       if ((tag ? ctx.readTag(tag) : false) !== (b === 1)) return
     } else if (op === SET_OUT) {
       if (a >= 0 && a < IO_COUNT) outputs[a] = b === 1
+    } else if (op === TRACK) {
+      jobTrack = a === 1
     }
     pc++
     started = false
@@ -288,6 +299,10 @@ definePart({
     doneTag: { type: 'tag', dir: 'out', stType: 'BOOL', default: '', label: 'Done tag (true while idle)', group: 'Comms', desc: 'Handshake back to the program: true whenever the robot is ready for the next command. A job that ends on a Blend move reports done as it rounds that corner, so the next job can carry straight on. Wait for it before pulsing execute again, or the edge lands mid-job and is dropped.' },
     enableTag: { type: 'tag', dir: 'in', stType: 'BOOL', onlyWhenDriven: true, default: '', label: 'Enable tag', group: 'Comms', desc: 'The robot moves only while this is true. Drop it and the platform brakes to a stop where it is and the job holds, timers and all; raise it and the job carries on. Wire it to the cell being safe to work in. Until a program drives it, or with it empty, the robot is always enabled, so a merely-typed tag does not hold it.' },
     gripperTag: { type: 'tag', dir: 'in', stType: 'BOOL', default: '', label: 'Vacuum tag', group: 'Comms', desc: 'For a robot with no jobs: grip or release the load, read continuously, so hold it true for the whole carry. A robot with jobs switches its own vacuum with Vacuum steps and ignores this.' },
+    trackPosTag: { type: 'tag', dir: 'in', stType: 'REAL', default: '', label: 'Tracking position tag', group: 'Comms/Tracking', desc: 'An external value that drives the platform while tracking is on: a distance sensor reading a product, or a conveyor encoder. The platform moves along the tracking direction by the change in this value since tracking began, times the scale.' },
+    trackEnableTag: { type: 'tag', dir: 'in', stType: 'BOOL', default: '', label: 'Track tag (true follows)', group: 'Comms/Tracking', desc: 'Follow the tracking position while this is true, for a robot driven by single moves. A job can switch tracking itself with Track steps; either one keeps it on.' },
+    trackAngle: { type: 'number', unit: '°', default: 0, min: -180, max: 180, step: 1, label: 'Tracking direction', group: 'Comms/Tracking', desc: 'The direction the tracked product travels, in degrees across the work plane: 0 is along +X, 90 along +Y (the robot\'s own axes).' },
+    trackScale: { type: 'number', default: 1, min: -1000, max: 1000, step: 0.001, label: 'Tracking scale (m per unit)', group: 'Comms/Tracking', desc: 'Metres of platform travel for each unit the tracking tag changes: 1 for a tag in metres, 0.001 for millimetres. Negative reverses it, for a sensor that reads smaller as the product moves on.' },
     in1Tag: { type: 'tag', dir: 'in', stType: 'BOOL', default: '', label: 'Input 1 tag', group: 'Comms/Robot signals', desc: 'A signal a job can wait on (a Wait for step). Robots have banks of these; wire the ones your jobs use.' },
     in2Tag: { type: 'tag', dir: 'in', stType: 'BOOL', default: '', label: 'Input 2 tag', group: 'Comms/Robot signals', desc: 'A signal a job can wait on (a Wait for step).' },
     in3Tag: { type: 'tag', dir: 'in', stType: 'BOOL', default: '', label: 'Input 3 tag', group: 'Comms/Robot signals', desc: 'A signal a job can wait on (a Wait for step).' },
@@ -325,6 +340,9 @@ definePart({
     const idle = Array.isArray(p) && p.length > 0 && p[0].length === 3 ? p[0] : DEFAULT_POSES[0]
     cur = idle.slice()
     seg = segment(idle)
+    jobTrack = false
+    tracking = false
+    trackOff = 0
   },
   step(ctx) {
     const P = ctx.params
@@ -355,6 +373,28 @@ definePart({
     if (jobs === 0) gripClosed = ctx.readTag(P.gripperTag)
     if (job >= 0 && enabled) runJob(ctx, POSES)
 
+    // Tracking starts and ends here, before the moves advance. It starts with no jump: the frame is where it is. It
+    // ends by carrying the planned moves along by the travel so far, so the platform stays where it is and the next
+    // move leaves from there.
+    const ang = P.trackAngle * DEG
+    const dir = [Math.cos(ang), Math.sin(ang), 0]
+    const want = jobTrack || (P.trackEnableTag !== '' && ctx.readTag(P.trackEnableTag))
+    const trackVal = P.trackPosTag ? ctx.readNumber(P.trackPosTag) : 0
+    if (want && !tracking) {
+      tracking = true
+      trackRef = trackVal
+      trackOff = 0
+    } else if (!want && tracking) {
+      for (const s of [seg, ...tails]) for (let i = 0; i < 3; i++) s.from[i] += dir[i] * trackOff
+      for (let i = 0; i < 3; i++) cur[i] += dir[i] * trackOff
+      tracking = false
+      trackOff = 0
+    }
+    if (tracking) {
+      if (enabled || P.trackScale === 0) trackOff = (trackVal - trackRef) * P.trackScale
+      else trackRef = trackVal - trackOff / P.trackScale // a held robot keeps its place on the frame
+    }
+
     // Coordinated trapezoidal motion, and corners blended by OVERLAP, as on the Six-Axis Robot: every move brakes to a
     // stop at its own place. At a via point the part reports done early (or a job moves on early), so the next move
     // starts while this one is still running; the old move carries on into its stop as a tail, the new one ramps up
@@ -384,9 +424,11 @@ definePart({
     }
 
     // the platform's slides; the arm joints are not commanded: the rig solves them from these
-    ctx.joints.x = cur[0]
-    ctx.joints.y = cur[1]
-    ctx.joints.z = cur[2]
+    // the tracked frame's travel is added last, and kept inside the work area like any place
+    const place = cur.map((v, i) => Math.min(Math.max(v + (tracking ? dir[i] * trackOff : 0), LIMIT_LO[i]), LIMIT_HI[i]))
+    ctx.joints.x = place[0]
+    ctx.joints.y = place[1]
+    ctx.joints.z = place[2]
     ctx.grips.gripper = gripClosed
     ctx.lamps.vacuumLamp = gripClosed // the cups compress off this same signal
     if (P.doneTag) ctx.writeTag(P.doneTag, !moving)

@@ -16,6 +16,7 @@ const VACUUM = 2
 const WAIT = 3
 const WAIT_FOR = 4
 const SET_OUT = 5
+const TRACK = 6
 
 const WAYPOINTS = [
   [0, 0, 0], // 0 home
@@ -234,5 +235,40 @@ describe('delta robot jobs', () => {
     const r = robot({ waypoints: [[0, 0, 0], [5, -5, 5]], jobs: [[0, MOVE, 1, 0]] })
     r.run(1)
     expect(near(r.untilDone().at(-1)!, [0.3, -0.3, 0.45])).toBe(true)
+  })
+
+  it('follows the tracking tag between a Track On and a Track Off step, and stays put when it ends', () => {
+    const r = robot({
+      trackPosTag: 'Belt', trackAngle: 90, trackScale: 2,
+      jobs: [[0, MOVE, 1, 0], [0, TRACK, 1, 0], [0, WAIT, 1, 0], [0, TRACK, 0, 0]],
+    })
+    r.tags['Belt'] = 5
+    r.run(1)
+    let q = r.tick()
+    while (r.tags['Done'] !== true && !(r.reported['jobs'] === 2)) q = r.tick() // up to the Wait: tracking is on
+    expect(near(q, [-0.2, 0, 0.1])).toBe(true) // no jump when it switched on
+    r.tags['Belt'] = 5.05 // the product moved 0.05 along +Y, scaled 2x
+    q = r.tick()
+    expect(near(q, [-0.2, 0.1, 0.1])).toBe(true)
+    const end = r.untilDone().at(-1)!
+    expect(near(end, [-0.2, 0.1, 0.1])).toBe(true) // Track Off keeps the place
+    r.tags['Belt'] = 9
+    expect(near(r.tick(), [-0.2, 0.1, 0.1])).toBe(true) // and no longer follows
+  })
+
+  it('holds its place on the tracked frame while it is not enabled', () => {
+    const r = robot({ enableTag: 'Safe', trackPosTag: 'Belt', trackEnableTag: 'Track' })
+    r.tags['Safe'] = true
+    r.tags['Belt'] = 1
+    r.tags['Track'] = true
+    r.tick()
+    r.tags['Belt'] = 1.1
+    expect(near(r.tick(), [0.1, 0, 0])).toBe(true)
+    r.tags['Safe'] = false
+    r.tags['Belt'] = 1.3
+    expect(near(r.tick(), [0.1, 0, 0])).toBe(true)
+    r.tags['Safe'] = true
+    r.tags['Belt'] = 1.35
+    expect(near(r.tick(), [0.15, 0, 0])).toBe(true)
   })
 })

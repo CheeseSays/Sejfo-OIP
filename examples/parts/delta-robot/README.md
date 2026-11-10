@@ -24,6 +24,18 @@ Because the gizmo, the idle `pose` row and Capture Pose list only non-cosmetic j
 end-effector drag moves the platform in space. The solver clamps the platform joints to their limits first, and the work area (±0.3 m across, 0.45 m of lowering) keeps every arm inside its own limits
 ([deltaRigParity.test.ts](../../../src/render/parts/deltaRigParity.test.ts) sweeps it).
 
+## Tracking a moving product
+
+The platform can ride a frame that slides with an external value, so it picks a product as it travels on a conveyor. The
+value is the **Tracking position tag** (a REAL: a distance sensor's reading, or a conveyor's encoder). While tracking is
+on, the platform is offset along the **Tracking direction** (degrees across the work plane, 0 along +X) by the tag's
+change since tracking began, times the **Tracking scale** (metres per unit, negative to reverse).
+
+Tracking switches on from a `Track` job step or the **Track tag** (true follows; for robots without jobs). It starts
+with no jump, and the moves that follow are planned in the moving frame, so a Move down, a Vacuum step and a Move up
+stay over the product. `Track Off` keeps the platform where it is and the next move leaves from there. The tracked place
+is clamped to the work area, and a robot that is not enabled keeps its place on the frame.
+
 ## Tools
 
 The `eoat` frame under the platform is where a tool part seats, as on the Six-Axis Robot's flange, and the bare `gripper`

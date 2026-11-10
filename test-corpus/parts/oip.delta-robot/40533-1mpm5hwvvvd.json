@@ -1,0 +1,1459 @@
+{
+  "format": 6,
+  "id": "oip.delta-robot",
+  "name": "Delta Robot",
+  "params": {
+    "speed": {
+      "type": "number",
+      "default": 2,
+      "min": 0.05,
+      "max": 10,
+      "step": 0.05,
+      "label": "Speed (m/s)",
+      "group": "Motion",
+      "desc": "Top speed of the platform along its straight path. All three axes are driven from one path parameter, so they start and arrive together."
+    },
+    "accel": {
+      "type": "number",
+      "default": 20,
+      "min": 0.5,
+      "max": 100,
+      "step": 0.5,
+      "label": "Acceleration (m/s²)",
+      "group": "Motion",
+      "desc": "How hard the platform ramps to and from its speed. Lower it for a heavier or more delicate payload; a short move may never reach top speed at all."
+    },
+    "commandTag": {
+      "type": "tag",
+      "dir": "in",
+      "stType": "INT",
+      "default": "",
+      "label": "Command tag (job number)",
+      "group": "Comms",
+      "desc": "Which job to run: 1 is the first job, 2 the second and so on. Set it BEFORE pulsing execute. A robot with no jobs takes a waypoint row here instead (0 is home). A number with no job or row behind it is ignored, and the platform stays put rather than guessing."
+    },
+    "executeTag": {
+      "type": "tag",
+      "dir": "in",
+      "stType": "BOOL",
+      "default": "",
+      "label": "Execute tag (rising edge runs it)",
+      "group": "Comms",
+      "desc": "Pulse this false-to-true to start the job. It is edge-triggered, so holding it true does NOT repeat - drop it and raise it again for each job."
+    },
+    "doneTag": {
+      "type": "tag",
+      "dir": "out",
+      "stType": "BOOL",
+      "default": "",
+      "label": "Done tag (true while idle)",
+      "group": "Comms",
+      "desc": "Handshake back to the program: true whenever the robot is ready for the next command. A job that ends on a Blend move reports done as it rounds that corner, so the next job can carry straight on. Wait for it before pulsing execute again, or the edge lands mid-job and is dropped."
+    },
+    "enableTag": {
+      "type": "tag",
+      "dir": "in",
+      "stType": "BOOL",
+      "onlyWhenDriven": true,
+      "default": "",
+      "label": "Enable tag",
+      "group": "Comms",
+      "desc": "The robot moves only while this is true. Drop it and the platform brakes to a stop where it is and the job holds, timers and all; raise it and the job carries on. Wire it to the cell being safe to work in. Until a program drives it, or with it empty, the robot is always enabled, so a merely-typed tag does not hold it."
+    },
+    "gripperTag": {
+      "type": "tag",
+      "dir": "in",
+      "stType": "BOOL",
+      "default": "",
+      "label": "Vacuum tag",
+      "group": "Comms",
+      "desc": "For a robot with no jobs: grip or release the load, read continuously, so hold it true for the whole carry. A robot with jobs switches its own vacuum with Vacuum steps and ignores this."
+    },
+    "trackPosTag": {
+      "type": "tag",
+      "dir": "in",
+      "stType": "REAL",
+      "default": "",
+      "label": "Tracking position tag",
+      "group": "Comms/Tracking",
+      "desc": "An external value that drives the platform while tracking is on: a distance sensor reading a product, or a conveyor encoder. The platform moves along the tracking direction by the change in this value since tracking began, times the scale."
+    },
+    "trackEnableTag": {
+      "type": "tag",
+      "dir": "in",
+      "stType": "BOOL",
+      "default": "",
+      "label": "Track tag (true follows)",
+      "group": "Comms/Tracking",
+      "desc": "Follow the tracking position while this is true, for a robot driven by single moves. A job can switch tracking itself with Track steps; either one keeps it on."
+    },
+    "trackAngle": {
+      "type": "number",
+      "unit": "°",
+      "default": 0,
+      "min": -180,
+      "max": 180,
+      "step": 1,
+      "label": "Tracking direction",
+      "group": "Comms/Tracking",
+      "desc": "The direction the tracked product travels, in degrees across the work plane: 0 is along +X, 90 along +Y (the robot's own axes)."
+    },
+    "trackScale": {
+      "type": "number",
+      "default": 1,
+      "min": -1000,
+      "max": 1000,
+      "step": 0.001,
+      "label": "Tracking scale (m per unit)",
+      "group": "Comms/Tracking",
+      "desc": "Metres of platform travel for each unit the tracking tag changes: 1 for a tag in metres, 0.001 for millimetres. Negative reverses it, for a sensor that reads smaller as the product moves on."
+    },
+    "in1Tag": {
+      "type": "tag",
+      "dir": "in",
+      "stType": "BOOL",
+      "default": "",
+      "label": "Input 1 tag",
+      "group": "Comms/Robot signals",
+      "desc": "A signal a job can wait on (a Wait for step). Robots have banks of these; wire the ones your jobs use."
+    },
+    "in2Tag": {
+      "type": "tag",
+      "dir": "in",
+      "stType": "BOOL",
+      "default": "",
+      "label": "Input 2 tag",
+      "group": "Comms/Robot signals",
+      "desc": "A signal a job can wait on (a Wait for step)."
+    },
+    "in3Tag": {
+      "type": "tag",
+      "dir": "in",
+      "stType": "BOOL",
+      "default": "",
+      "label": "Input 3 tag",
+      "group": "Comms/Robot signals",
+      "desc": "A signal a job can wait on (a Wait for step)."
+    },
+    "in4Tag": {
+      "type": "tag",
+      "dir": "in",
+      "stType": "BOOL",
+      "default": "",
+      "label": "Input 4 tag",
+      "group": "Comms/Robot signals",
+      "desc": "A signal a job can wait on (a Wait for step)."
+    },
+    "out1Tag": {
+      "type": "tag",
+      "dir": "out",
+      "stType": "BOOL",
+      "default": "",
+      "label": "Output 1 tag",
+      "group": "Comms/Robot signals",
+      "desc": "A signal a job switches (a Set step), to tell the program where it has got to. It holds its last value between jobs."
+    },
+    "out2Tag": {
+      "type": "tag",
+      "dir": "out",
+      "stType": "BOOL",
+      "default": "",
+      "label": "Output 2 tag",
+      "group": "Comms/Robot signals",
+      "desc": "A signal a job switches (a Set step)."
+    },
+    "out3Tag": {
+      "type": "tag",
+      "dir": "out",
+      "stType": "BOOL",
+      "default": "",
+      "label": "Output 3 tag",
+      "group": "Comms/Robot signals",
+      "desc": "A signal a job switches (a Set step)."
+    },
+    "out4Tag": {
+      "type": "tag",
+      "dir": "out",
+      "stType": "BOOL",
+      "default": "",
+      "label": "Output 4 tag",
+      "group": "Comms/Robot signals",
+      "desc": "A signal a job switches (a Set step)."
+    },
+    "waypoints": {
+      "type": "numberList",
+      "columns": [
+        "X m",
+        "Y m",
+        "Z m (down)"
+      ],
+      "arity": 3,
+      "default": [
+        [
+          0,
+          0,
+          0
+        ],
+        [
+          -0.2,
+          0,
+          0.3
+        ],
+        [
+          0.2,
+          0,
+          0.3
+        ]
+      ],
+      "rowNames": "waypointNames",
+      "label": "Waypoints",
+      "group": "Motion",
+      "desc": "The places this robot knows, one row of x, y and z in metres from home: x and y across the work area, z the lowering below home (larger is lower). A place outside the work area parks at its edge. Name them, and jobs move to them by name. Pose the platform with the viewport gizmo and use Capture Pose to add one rather than typing."
+    },
+    "waypointNames": {
+      "type": "string",
+      "default": "Home\nPick\nPlace",
+      "hidden": true,
+      "label": "Waypoint names"
+    },
+    "blendWaypoints": {
+      "type": "numberList",
+      "rowsOf": "waypoints",
+      "arity": 1,
+      "default": [],
+      "label": "Pass-through waypoints (robots without jobs)",
+      "group": "Motion",
+      "desc": "For a robot with no jobs: which waypoints are VIA points. The platform reports done before it reaches one, so the next move can start while it is still running and the corner is rounded instead of braked to a stop. Jobs say this on each Move step instead."
+    },
+    "blendDist": {
+      "type": "number",
+      "unit": "m",
+      "default": 0.05,
+      "min": 0,
+      "max": 0.3,
+      "step": 0.005,
+      "label": "Corner blend",
+      "group": "Motion",
+      "desc": "How far before a via point the platform starts cutting the corner. Larger rounds the path more and strays further from the taught place; the robot caps it at a third of the move."
+    },
+    "jobs": {
+      "type": "numberList",
+      "arity": 4,
+      "default": [],
+      "program": {
+        "names": "jobNames",
+        "ops": [
+          {
+            "code": 1,
+            "label": "Move",
+            "desc": "Move the platform to a waypoint in a straight line. Stop arrives exactly and stands still; Blend rounds the corner and carries on into the next move, for places that are only on the way somewhere.",
+            "args": [
+              {
+                "kind": "row",
+                "of": "waypoints",
+                "label": "To"
+              },
+              {
+                "kind": "choice",
+                "label": "Corner",
+                "options": [
+                  {
+                    "value": 0,
+                    "label": "Stop"
+                  },
+                  {
+                    "value": 1,
+                    "label": "Blend"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "code": 2,
+            "label": "Vacuum",
+            "desc": "Switch the tool vacuum. The load is held from the step it goes on to the step it goes off.",
+            "args": [
+              {
+                "kind": "choice",
+                "options": [
+                  {
+                    "value": 1,
+                    "label": "On"
+                  },
+                  {
+                    "value": 0,
+                    "label": "Off"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "code": 3,
+            "label": "Wait",
+            "desc": "Stand still for a time, to let a grip seal or a load settle. The clock stops while the robot is not enabled.",
+            "args": [
+              {
+                "kind": "number",
+                "unit": "s",
+                "min": 0,
+                "step": 0.1,
+                "default": 0.5
+              }
+            ]
+          },
+          {
+            "code": 4,
+            "label": "Wait for",
+            "desc": "Hold here until one of the robot inputs reads on (or off). This is how a job waits on the cell: a pallet in place, a zone clear.",
+            "args": [
+              {
+                "kind": "choice",
+                "options": [
+                  {
+                    "value": 0,
+                    "label": "Input 1",
+                    "param": "in1Tag"
+                  },
+                  {
+                    "value": 1,
+                    "label": "Input 2",
+                    "param": "in2Tag"
+                  },
+                  {
+                    "value": 2,
+                    "label": "Input 3",
+                    "param": "in3Tag"
+                  },
+                  {
+                    "value": 3,
+                    "label": "Input 4",
+                    "param": "in4Tag"
+                  }
+                ]
+              },
+              {
+                "kind": "choice",
+                "options": [
+                  {
+                    "value": 1,
+                    "label": "On"
+                  },
+                  {
+                    "value": 0,
+                    "label": "Off"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "code": 5,
+            "label": "Set",
+            "desc": "Switch one of the robot outputs, to tell the PLC something the job has reached: clear of the table, load released.",
+            "args": [
+              {
+                "kind": "choice",
+                "options": [
+                  {
+                    "value": 0,
+                    "label": "Output 1",
+                    "param": "out1Tag"
+                  },
+                  {
+                    "value": 1,
+                    "label": "Output 2",
+                    "param": "out2Tag"
+                  },
+                  {
+                    "value": 2,
+                    "label": "Output 3",
+                    "param": "out3Tag"
+                  },
+                  {
+                    "value": 3,
+                    "label": "Output 4",
+                    "param": "out4Tag"
+                  }
+                ]
+              },
+              {
+                "kind": "choice",
+                "options": [
+                  {
+                    "value": 1,
+                    "label": "On"
+                  },
+                  {
+                    "value": 0,
+                    "label": "Off"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "code": 6,
+            "label": "Track",
+            "desc": "Follow a moving product. On: from here on the platform rides along with the tracking position (a sensor or encoder tag), so the waypoints that follow are reached relative to the product instead of the table. Off: stop following and carry on from where the platform is. Tracking stays on across steps and jobs until a Track Off step.",
+            "args": [
+              {
+                "kind": "choice",
+                "options": [
+                  {
+                    "value": 1,
+                    "label": "On"
+                  },
+                  {
+                    "value": 0,
+                    "label": "Off"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "label": "Jobs",
+      "desc": "The robot's own programs. The PLC runs one by number (the command tag) and the robot does the whole thing: moves, vacuum, waits, and the signals it sends back. While the scene runs, the step being run is highlighted."
+    },
+    "jobNames": {
+      "type": "string",
+      "default": "",
+      "hidden": true,
+      "label": "Job names"
+    },
+    "pose": {
+      "type": "numberList",
+      "rows": 1,
+      "columns": [
+        "X m",
+        "Y m",
+        "Z m (down)"
+      ],
+      "arity": 3,
+      "default": [
+        [
+          0,
+          0,
+          0
+        ]
+      ],
+      "label": "Idle pose",
+      "group": "Start state",
+      "desc": "The place a freshly placed robot rests at, and where one waiting for its first Execute sits. It is the robot you see in a stopped scene, so set it to something that reads as parked rather than mid-cycle."
+    }
+  },
+  "behavior": "// Delta Robot: a three-arm parallel pick-and-place robot, driven the way a real robot cell's PLC drives one, with the\n// same job logic as the Six-Axis Robot. The robot owns its JOBS: short programs of steps (move to a waypoint, vacuum\n// on or off, wait, wait for an input, set an output) that the author teaches in the Inspector. The PLC picks a job by\n// number on the command tag, raises Execute, and waits for Done; the robot runs the whole job itself, and signals back\n// on its outputs. A robot with NO jobs falls back to single moves: the command is a waypoint row, Execute moves there,\n// the vacuum tag drives the gripper. With no tags named the robot holds its authored idle pose and does nothing.\n//\n// A waypoint is a PLACE, not a set of joint angles: x and y across the work area and z the lowering, in metres from\n// the home point (the platform's centre with the robot at rest). A move is a straight line between two places, run\n// as one trapezoidal profile (speed in m/s, acceleration in m/s^2), and a via point blends the corner by overlapping\n// two moves, as the Six-Axis Robot does in joint space.\n//\n// The rig carries the kinematics. The platform rides three prismatic joints (x, y, z) and never tilts; the three arm\n// joints are solved from the platform's place by the rig itself (`geometry.delta`, core/rig/rigPose.ts), so the arms\n// follow the platform in a run, in the editor's pose gizmo and in the idle pose, with nothing here to keep in step.\n// The behavior commands only x, y and z. The proxy model is built from primitives; a real model replaces its\n// meshes and keeps the links, joints and `delta` numbers (README.md).\n//\n// The tool is not part of the robot: a Vacuum Tool (or any tool part) seats on the 'eoat' frame under the platform\n// and rides it, and gives the 'gripper' link its pickup volume. The robot draws only a status lamp on the platform.\n//\n// This is the part's source. `npm run build-parts` writes behavior.ts (this script as the app ships it, with the\n// _shared/ modules it imports joined in and `manifest` / `rig()` left out) and rig.json (the manifest, with the\n// rig compiled from rig()).\n\nconst DEG = Math.PI / 180\n\n// The work area: a box the arms reach with room to spare (the solver tests sweep it). Travel in metres.\nconst TRAVEL_X = 0.55\nconst TRAVEL_Y = 0.55\nconst TRAVEL_Z = 0.45 // lowering from home\n\n// Overridden from the Inspector by the 'waypoints' param (its numberList grid, or captured by the editor's rig\n// gizmo), which arrives already parsed + validated as number[][].\nconst DEFAULT_POSES = [\n  [0, 0, 0], // 0 home\n  [-0.2, 0, 0.3], // 1 pick\n  [0.2, 0, 0.3], // 2 place\n]\nconst POSE_COLUMNS = ['X m', 'Y m', 'Z m (down)']\nconst LIMIT_LO = [-TRAVEL_X, -TRAVEL_Y, 0]\nconst LIMIT_HI = [TRAVEL_X, TRAVEL_Y, TRAVEL_Z]\n\nconst link = (name, parent, shape, offset, extra) => ({ name, ...(parent ? { parent } : {}), shape, offset, ...extra })\nconst box = (name, parent, size, offset, color, extra) => link(name, parent, { kind: 'box', size }, offset, { color, collision: 'none', ...extra })\n\n// The job step vocabulary. A step is the row [job, op, a, b]; the Inspector writes them from this declaration.\nconst MOVE = 1\nconst VACUUM = 2\nconst WAIT = 3\nconst WAIT_FOR = 4\nconst SET_OUT = 5\nconst TRACK = 6\nconst IO_COUNT = 4\nconst ON_OFF = [{ value: 1, label: 'On' }, { value: 0, label: 'Off' }]\nconst ioOptions = (word, prefix) => Array.from({ length: IO_COUNT }, (_, i) => ({ value: i, label: word + ' ' + (i + 1), param: prefix + (i + 1) + 'Tag' }))\nconst JOB_OPS = [\n  { code: MOVE, label: 'Move', desc: 'Move the platform to a waypoint in a straight line. Stop arrives exactly and stands still; Blend rounds the corner and carries on into the next move, for places that are only on the way somewhere.', args: [{ kind: 'row', of: 'waypoints', label: 'To' }, { kind: 'choice', label: 'Corner', options: [{ value: 0, label: 'Stop' }, { value: 1, label: 'Blend' }] }] },\n  { code: VACUUM, label: 'Vacuum', desc: 'Switch the tool vacuum. The load is held from the step it goes on to the step it goes off.', args: [{ kind: 'choice', options: ON_OFF }] },\n  { code: WAIT, label: 'Wait', desc: 'Stand still for a time, to let a grip seal or a load settle. The clock stops while the robot is not enabled.', args: [{ kind: 'number', unit: 's', min: 0, step: 0.1, default: 0.5 }] },\n  { code: WAIT_FOR, label: 'Wait for', desc: 'Hold here until one of the robot inputs reads on (or off). This is how a job waits on the cell: a pallet in place, a zone clear.', args: [{ kind: 'choice', options: ioOptions('Input', 'in') }, { kind: 'choice', options: ON_OFF }] },\n  { code: SET_OUT, label: 'Set', desc: 'Switch one of the robot outputs, to tell the PLC something the job has reached: clear of the table, load released.', args: [{ kind: 'choice', options: ioOptions('Output', 'out') }, { kind: 'choice', options: ON_OFF }] },\n  { code: TRACK, label: 'Track', desc: 'Follow a moving product. On: from here on the platform rides along with the tracking position (a sensor or encoder tag), so the waypoints that follow are reached relative to the product instead of the table. Off: stop following and carry on from where the platform is. Tracking stays on across steps and jobs until a Track Off step.', args: [{ kind: 'choice', options: ON_OFF }] },\n]\nconst splitNames = (s) => (typeof s === 'string' && s !== '' ? s.split('\\n') : [])\n// how many jobs there are: every one a step belongs to, and every one that has a name\nconst jobCount = (rows, names) => rows.reduce((n, r) => Math.max(n, r[0] + 1), splitNames(names).length)\n\nlet cur = DEFAULT_POSES[0].slice() // where the platform is (m)\nlet moving = false\nlet gripClosed = false\nconst outputs = [false, false, false, false]\n// Tracking: the platform rides a frame that slides along a direction in the work plane with an external value (a\n// sensor's distance, an encoder). `trackRef` is the value when tracking began, `trackOff` the frame's travel since\n// (m). The planned moves stay in that frame, and the offset is added when the slides are written.\nlet jobTrack = false // a Track step has switched it on\nlet tracking = false\nlet trackRef = 0\nlet trackOff = 0\n// One move: its start place, the signed distance on each axis, the length of the line (m), progress along it and the\n// path speed (m/s). One scalar drives all three axes (a straight line, never a per-axis jitter), so they start and\n// arrive together.\nconst segment = (start) => ({ from: start.slice(), span: [0, 0, 0], len: 0, prog: 0, vel: 0 })\nlet seg = segment(DEFAULT_POSES[0])\n// Moves still finishing UNDER the active one: a via-point move that handed off early runs on to its own stop while the\n// next move ramps up from that place, and the platform is put at the sum of the two (see step).\nlet tails = []\n// Trapezoidal profile of one move: accel-limited, capped at vMax, and always able to brake to a stop at its end.\n// vStop is that braking limit counted in whole ticks: the continuous sqrt(2*a*remain) ignores the distance the tick\n// itself covers, so the platform reached the place still moving and stopped dead on the last tick.\nconst advance = (s, vMax, accel, dt, approach) => {\n  const h = (accel * dt) / 2\n  const vStop = Math.sqrt(h * h + 2 * accel * Math.max(s.len - s.prog, 0)) - h\n  s.vel = approach(s.vel, Math.min(vMax, vStop), accel * dt)\n  s.prog += s.vel * dt\n  if (s.prog >= s.len) { s.prog = s.len; s.vel = 0 }\n}\nconst fraction = (s) => (s.len > 1e-9 ? s.prog / s.len : 1)\n// Start a move to `tgt`, planned from where the previous move ENDS, not from where the platform is: if that move is\n// still running it becomes a tail, and covers the difference. A place outside the work area parks at its edge on that\n// axis (the host clamps the drawn slide anyway, so planning past it would time out a travel that cannot be made).\nconst startMove = (tgt) => {\n  if (seg.prog < seg.len) tails.push(seg)\n  const start = seg.from.map((f, i) => f + seg.span[i])\n  seg = segment(start)\n  let sq = 0\n  for (let i = 0; i < 3; i++) {\n    const goal = Math.min(Math.max(tgt[i], LIMIT_LO[i]), LIMIT_HI[i])\n    seg.span[i] = goal - start[i]\n    sq += seg.span[i] * seg.span[i]\n  }\n  seg.len = Math.sqrt(sq)\n}\n// A move is over at a via point once it is within the blend window of it, and at a stop once everything is still.\n// The window is capped at a THIRD of the move: on a via-point move shorter than the window, 'remain <= blend' is\n// true on its first tick, and the part would report done the moment MIN_MOVE_SEC is up.\nconst moveOver = (via, blend) => {\n  const remain = seg.len - seg.prog\n  return via ? remain <= Math.min(blend, seg.len / 3) : remain <= 0 && tails.length === 0\n}\n\n// Single-move mode (no jobs): the waypoint being moved to.\nlet target = 0\n// Job mode: the job running (-1 = none), its steps (rows of the jobs table, with their row index), which step is\n// next, whether that step has started, and the seconds a Wait has left.\nlet job = -1\nlet steps = []\nlet pc = 0\nlet started = false\nlet waitLeft = 0\n// A commanded move or job reports busy for at least this long, so even a degenerate one shows the PLC a real busy\n// window and the Execute/Done handshake can't miss it at any scan rate.\nconst MIN_MOVE_SEC = 0.1\nlet busySec = 0 // seconds since the active command was accepted\n\n// Run the active job's steps, as far as this tick allows. Instant steps (vacuum, set) chain on in the same tick; a\n// move, a wait or a wait-for holds the job until it is done. An enabled check is the caller's.\nfunction runJob(ctx, POSES) {\n  for (let guard = 0; guard < 64 && pc < steps.length; guard++) {\n    const [, op, a, b] = steps[pc].values\n    if (op === MOVE) {\n      if (!started) {\n        const pose = POSES[a]\n        // a step whose waypoint is gone ends the job there: the platform stays put rather than guessing a place\n        if (!Number.isInteger(a) || !pose) { pc = steps.length; return }\n        startMove(pose)\n        started = true\n      }\n      if (!moveOver(b === 1, ctx.params.blendDist)) return\n    } else if (op === VACUUM) {\n      gripClosed = a === 1\n    } else if (op === WAIT) {\n      if (!started) { waitLeft = a; started = true }\n      if (waitLeft > 1e-9) return\n    } else if (op === WAIT_FOR) {\n      const tag = ctx.params['in' + (a + 1) + 'Tag']\n      if ((tag ? ctx.readTag(tag) : false) !== (b === 1)) return\n    } else if (op === SET_OUT) {\n      if (a >= 0 && a < IO_COUNT) outputs[a] = b === 1\n    } else if (op === TRACK) {\n      jobTrack = a === 1\n    }\n    pc++\n    started = false\n  }\n}\n\ndefinePart({\n  joints: ['x', 'y', 'z'],\n  grippers: ['gripper'],\n  lamps: ['vacuumLamp'],\n  params: {\n    speed: { type: 'number', default: 2, min: 0.05, max: 10, step: 0.05, label: 'Speed (m/s)', group: 'Motion', desc: 'Top speed of the platform along its straight path. All three axes are driven from one path parameter, so they start and arrive together.' },\n    accel: { type: 'number', default: 20, min: 0.5, max: 100, step: 0.5, label: 'Acceleration (m/s²)', group: 'Motion', desc: 'How hard the platform ramps to and from its speed. Lower it for a heavier or more delicate payload; a short move may never reach top speed at all.' },\n    commandTag: { type: 'tag', dir: 'in', stType: 'INT', default: '', label: 'Command tag (job number)', group: 'Comms', desc: 'Which job to run: 1 is the first job, 2 the second and so on. Set it BEFORE pulsing execute. A robot with no jobs takes a waypoint row here instead (0 is home). A number with no job or row behind it is ignored, and the platform stays put rather than guessing.' },\n    executeTag: { type: 'tag', dir: 'in', stType: 'BOOL', default: '', label: 'Execute tag (rising edge runs it)', group: 'Comms', desc: 'Pulse this false-to-true to start the job. It is edge-triggered, so holding it true does NOT repeat - drop it and raise it again for each job.' },\n    doneTag: { type: 'tag', dir: 'out', stType: 'BOOL', default: '', label: 'Done tag (true while idle)', group: 'Comms', desc: 'Handshake back to the program: true whenever the robot is ready for the next command. A job that ends on a Blend move reports done as it rounds that corner, so the next job can carry straight on. Wait for it before pulsing execute again, or the edge lands mid-job and is dropped.' },\n    enableTag: { type: 'tag', dir: 'in', stType: 'BOOL', onlyWhenDriven: true, default: '', label: 'Enable tag', group: 'Comms', desc: 'The robot moves only while this is true. Drop it and the platform brakes to a stop where it is and the job holds, timers and all; raise it and the job carries on. Wire it to the cell being safe to work in. Until a program drives it, or with it empty, the robot is always enabled, so a merely-typed tag does not hold it.' },\n    gripperTag: { type: 'tag', dir: 'in', stType: 'BOOL', default: '', label: 'Vacuum tag', group: 'Comms', desc: 'For a robot with no jobs: grip or release the load, read continuously, so hold it true for the whole carry. A robot with jobs switches its own vacuum with Vacuum steps and ignores this.' },\n    trackPosTag: { type: 'tag', dir: 'in', stType: 'REAL', default: '', label: 'Tracking position tag', group: 'Comms/Tracking', desc: 'An external value that drives the platform while tracking is on: a distance sensor reading a product, or a conveyor encoder. The platform moves along the tracking direction by the change in this value since tracking began, times the scale.' },\n    trackEnableTag: { type: 'tag', dir: 'in', stType: 'BOOL', default: '', label: 'Track tag (true follows)', group: 'Comms/Tracking', desc: 'Follow the tracking position while this is true, for a robot driven by single moves. A job can switch tracking itself with Track steps; either one keeps it on.' },\n    trackAngle: { type: 'number', unit: '°', default: 0, min: -180, max: 180, step: 1, label: 'Tracking direction', group: 'Comms/Tracking', desc: 'The direction the tracked product travels, in degrees across the work plane: 0 is along +X, 90 along +Y (the robot\\'s own axes).' },\n    trackScale: { type: 'number', default: 1, min: -1000, max: 1000, step: 0.001, label: 'Tracking scale (m per unit)', group: 'Comms/Tracking', desc: 'Metres of platform travel for each unit the tracking tag changes: 1 for a tag in metres, 0.001 for millimetres. Negative reverses it, for a sensor that reads smaller as the product moves on.' },\n    in1Tag: { type: 'tag', dir: 'in', stType: 'BOOL', default: '', label: 'Input 1 tag', group: 'Comms/Robot signals', desc: 'A signal a job can wait on (a Wait for step). Robots have banks of these; wire the ones your jobs use.' },\n    in2Tag: { type: 'tag', dir: 'in', stType: 'BOOL', default: '', label: 'Input 2 tag', group: 'Comms/Robot signals', desc: 'A signal a job can wait on (a Wait for step).' },\n    in3Tag: { type: 'tag', dir: 'in', stType: 'BOOL', default: '', label: 'Input 3 tag', group: 'Comms/Robot signals', desc: 'A signal a job can wait on (a Wait for step).' },\n    in4Tag: { type: 'tag', dir: 'in', stType: 'BOOL', default: '', label: 'Input 4 tag', group: 'Comms/Robot signals', desc: 'A signal a job can wait on (a Wait for step).' },\n    out1Tag: { type: 'tag', dir: 'out', stType: 'BOOL', default: '', label: 'Output 1 tag', group: 'Comms/Robot signals', desc: 'A signal a job switches (a Set step), to tell the program where it has got to. It holds its last value between jobs.' },\n    out2Tag: { type: 'tag', dir: 'out', stType: 'BOOL', default: '', label: 'Output 2 tag', group: 'Comms/Robot signals', desc: 'A signal a job switches (a Set step).' },\n    out3Tag: { type: 'tag', dir: 'out', stType: 'BOOL', default: '', label: 'Output 3 tag', group: 'Comms/Robot signals', desc: 'A signal a job switches (a Set step).' },\n    out4Tag: { type: 'tag', dir: 'out', stType: 'BOOL', default: '', label: 'Output 4 tag', group: 'Comms/Robot signals', desc: 'A signal a job switches (a Set step).' },\n    waypoints: { type: 'numberList', columns: POSE_COLUMNS, arity: 3, default: DEFAULT_POSES, rowNames: 'waypointNames', label: 'Waypoints', group: 'Motion', desc: 'The places this robot knows, one row of x, y and z in metres from home: x and y across the work area, z the lowering below home (larger is lower). A place outside the work area parks at its edge. Name them, and jobs move to them by name. Pose the platform with the viewport gizmo and use Capture Pose to add one rather than typing.' },\n    waypointNames: { type: 'string', default: 'Home\\nPick\\nPlace', hidden: true, label: 'Waypoint names' },\n    blendWaypoints: { type: 'numberList', rowsOf: 'waypoints', arity: 1, default: [], label: 'Pass-through waypoints (robots without jobs)', group: 'Motion', desc: 'For a robot with no jobs: which waypoints are VIA points. The platform reports done before it reaches one, so the next move can start while it is still running and the corner is rounded instead of braked to a stop. Jobs say this on each Move step instead.' },\n    blendDist: { type: 'number', unit: 'm', default: 0.05, min: 0, max: 0.3, step: 0.005, label: 'Corner blend', group: 'Motion', desc: 'How far before a via point the platform starts cutting the corner. Larger rounds the path more and strays further from the taught place; the robot caps it at a third of the move.' },\n    jobs: { type: 'numberList', arity: 4, default: [], program: { names: 'jobNames', ops: JOB_OPS }, label: 'Jobs', desc: 'The robot\\'s own programs. The PLC runs one by number (the command tag) and the robot does the whole thing: moves, vacuum, waits, and the signals it sends back. While the scene runs, the step being run is highlighted.' },\n    jobNames: { type: 'string', default: '', hidden: true, label: 'Job names' },\n    pose: { type: 'numberList', rows: 1, columns: POSE_COLUMNS, arity: 3, default: [DEFAULT_POSES[0]], label: 'Idle pose', group: 'Start state', desc: 'The place a freshly placed robot rests at, and where one waiting for its first Execute sits. It is the robot you see in a stopped scene, so set it to something that reads as parked rather than mid-cycle.' },\n  },\n  // The vacuum status lamp on the platform's -X side face, in the gap between two arms: a round black bezel round a lens,\n  // dark green until the robot switches its vacuum on (vacuumLamp). The same lamp reaches a seated tool, whose cups close\n  // on it. The platform disc is 0.085 m in radius.\n  geometry(g) {\n    return [\n      { desc: g.bevelBox([0.008, 0.02, 0.034], [-0.0865, 0, 0], 0.001), material: 'lampBezel', link: 'platform' },\n      {\n        desc: g.box([0.003, 0.012, 0.024], [-0.09, 0, 0]),\n        material: 'lampLens',\n        link: 'platform',\n        lamps: [{ name: 'vacuumLamp', emissive: [0.15, 0.85, 0.2], offColor: [0.03, 0.06, 0.03] }],\n      },\n    ]\n  },\n  init(ctx) {\n    // Seed the platform at its authored idle pose (the 'pose' param) so a freshly placed robot, and one waiting for its\n    // first Execute, rests where the author trained it. Falls back to home if it is ill-shaped.\n    const p = ctx.params.pose\n    const idle = Array.isArray(p) && p.length > 0 && p[0].length === 3 ? p[0] : DEFAULT_POSES[0]\n    cur = idle.slice()\n    seg = segment(idle)\n    jobTrack = false\n    tracking = false\n    trackOff = 0\n  },\n  step(ctx) {\n    const P = ctx.params\n    const POSES = P.waypoints.length ? P.waypoints : DEFAULT_POSES\n    const jobs = jobCount(P.jobs, P.jobNames)\n    const enabled = !ctx.tagDriven(P.enableTag) || ctx.readTag(P.enableTag)\n    const dt = ctx.dt\n\n    // ctx.rising diffs the begin-of-tick snapshot, so an edge held over the async tag bus can't be lost.\n    if (ctx.rising(P.executeTag) && !moving) {\n      const cmd = Math.round(ctx.readNumber(P.commandTag))\n      // a command with nothing behind it ignores the edge: stay put, done stays true\n      if (jobs > 0 && cmd >= 1 && cmd <= jobs) {\n        job = cmd - 1\n        steps = []\n        P.jobs.forEach((values, row) => { if (values[0] === job) steps.push({ row, values }) })\n        pc = 0\n        started = false\n        moving = true\n        busySec = 0\n      } else if (jobs === 0 && cmd >= 0 && cmd < POSES.length) {\n        target = cmd\n        startMove(POSES[target])\n        moving = true\n        busySec = 0\n      }\n    }\n    if (jobs === 0) gripClosed = ctx.readTag(P.gripperTag)\n    if (job >= 0 && enabled) runJob(ctx, POSES)\n\n    // Tracking starts and ends here, before the moves advance. It starts with no jump: the frame is where it is. It\n    // ends by carrying the planned moves along by the travel so far, so the platform stays where it is and the next\n    // move leaves from there.\n    const ang = P.trackAngle * DEG\n    const dir = [Math.cos(ang), Math.sin(ang), 0]\n    const want = jobTrack || (P.trackEnableTag !== '' && ctx.readTag(P.trackEnableTag))\n    const trackVal = P.trackPosTag ? ctx.readNumber(P.trackPosTag) : 0\n    if (want && !tracking) {\n      tracking = true\n      trackRef = trackVal\n      trackOff = 0\n    } else if (!want && tracking) {\n      for (const s of [seg, ...tails]) for (let i = 0; i < 3; i++) s.from[i] += dir[i] * trackOff\n      for (let i = 0; i < 3; i++) cur[i] += dir[i] * trackOff\n      tracking = false\n      trackOff = 0\n    }\n    if (tracking) {\n      if (enabled || P.trackScale === 0) trackOff = (trackVal - trackRef) * P.trackScale\n      else trackRef = trackVal - trackOff / P.trackScale // a held robot keeps its place on the frame\n    }\n\n    // Coordinated trapezoidal motion, and corners blended by OVERLAP, as on the Six-Axis Robot: every move brakes to a\n    // stop at its own place. At a via point the part reports done early (or a job moves on early), so the next move\n    // starts while this one is still running; the old move carries on into its stop as a tail, the new one ramps up\n    // from the via place, and the platform sits at the sum of the two. The tails' speeds come off the new move's cap,\n    // so the platform never exceeds 'speed' through a blend. Not enabled, every move brakes to a stop where it is.\n    const vMax = enabled ? P.speed : 0\n    let tailVel = 0\n    for (const t of tails) { advance(t, vMax, P.accel, dt, ctx.approach); tailVel += t.vel }\n    advance(seg, Math.max(vMax - tailVel, 0), P.accel, dt, ctx.approach)\n    const u = fraction(seg)\n    for (let i = 0; i < 3; i++) cur[i] = seg.from[i] + seg.span[i] * u\n    for (const t of tails) {\n      const tu = fraction(t)\n      for (let i = 0; i < 3; i++) cur[i] += t.span[i] * (tu - 1)\n    }\n    tails = tails.filter((t) => t.prog < t.len)\n\n    if (moving) busySec += dt\n    if (enabled && job >= 0) waitLeft -= dt\n\n    // Done once the job has run its last step (a job ending on a pass-through move hands off as it rounds it), or the\n    // single move is over. The MIN_MOVE_SEC floor keeps one that would finish inside a PLC scan visible.\n    const over = job >= 0 ? pc >= steps.length : moveOver(P.blendWaypoints.some((r) => r[0] === target), P.blendDist)\n    if (moving && over && busySec >= MIN_MOVE_SEC) {\n      moving = false\n      job = -1\n    }\n\n    // the platform's slides; the arm joints are not commanded: the rig solves them from these\n    // the tracked frame's travel is added last, and kept inside the work area like any place\n    const place = cur.map((v, i) => Math.min(Math.max(v + (tracking ? dir[i] * trackOff : 0), LIMIT_LO[i]), LIMIT_HI[i]))\n    ctx.joints.x = place[0]\n    ctx.joints.y = place[1]\n    ctx.joints.z = place[2]\n    ctx.grips.gripper = gripClosed\n    ctx.lamps.vacuumLamp = gripClosed // the cups compress off this same signal\n    if (P.doneTag) ctx.writeTag(P.doneTag, !moving)\n    for (let i = 0; i < IO_COUNT; i++) {\n      const tag = P['out' + (i + 1) + 'Tag']\n      if (tag) ctx.writeTag(tag, outputs[i])\n    }\n    // the job row being run, for the Inspector to highlight (-1 = none)\n    ctx.report('jobs', job >= 0 && pc < steps.length ? steps[pc].row : -1)\n  },\n})\n",
+  "geometry": {
+    "kind": "rig",
+    "links": [
+      {
+        "name": "spoke1",
+        "shape": {
+          "kind": "box",
+          "size": [
+            0.62,
+            0.06,
+            0.08
+          ]
+        },
+        "offset": [
+          0.155,
+          1.99,
+          0.26846788
+        ],
+        "color": [
+          0.05,
+          0.055,
+          0.06
+        ],
+        "collision": "none",
+        "rotation": [
+          0,
+          -1.04719755,
+          0
+        ]
+      },
+      {
+        "name": "spoke2",
+        "shape": {
+          "kind": "box",
+          "size": [
+            0.62,
+            0.06,
+            0.08
+          ]
+        },
+        "offset": [
+          -0.31,
+          1.99,
+          0
+        ],
+        "color": [
+          0.05,
+          0.055,
+          0.06
+        ],
+        "collision": "none",
+        "rotation": [
+          0,
+          -3.14159265,
+          0
+        ]
+      },
+      {
+        "name": "spoke3",
+        "shape": {
+          "kind": "box",
+          "size": [
+            0.62,
+            0.06,
+            0.08
+          ]
+        },
+        "offset": [
+          0.155,
+          1.99,
+          -0.26846788
+        ],
+        "color": [
+          0.05,
+          0.055,
+          0.06
+        ],
+        "collision": "none",
+        "rotation": [
+          0,
+          -5.23598775,
+          0
+        ]
+      },
+      {
+        "name": "hub",
+        "shape": {
+          "kind": "cylinder",
+          "radius": 0.26,
+          "height": 0.14
+        },
+        "offset": [
+          0,
+          1.97,
+          0
+        ],
+        "color": [
+          0.05,
+          0.055,
+          0.06
+        ],
+        "collision": "none"
+      },
+      {
+        "name": "shoulder1",
+        "shape": {
+          "kind": "frame"
+        },
+        "offset": [
+          0.22,
+          1.9,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ]
+      },
+      {
+        "name": "drive1",
+        "parent": "shoulder1",
+        "shape": {
+          "kind": "cylinder",
+          "radius": 0.07,
+          "height": 0.2
+        },
+        "offset": [
+          0,
+          0,
+          0
+        ],
+        "color": [
+          0.639,
+          0.116,
+          0.0066
+        ],
+        "collision": "none",
+        "rotation": [
+          1.5707963267948966,
+          0,
+          0
+        ]
+      },
+      {
+        "name": "arm1",
+        "parent": "shoulder1",
+        "shape": {
+          "kind": "frame"
+        },
+        "offset": [
+          0,
+          0,
+          0
+        ]
+      },
+      {
+        "name": "armTube1",
+        "parent": "arm1",
+        "shape": {
+          "kind": "box",
+          "size": [
+            0.44,
+            0.05,
+            0.06
+          ]
+        },
+        "offset": [
+          0.2,
+          0,
+          0
+        ],
+        "color": [
+          0.5,
+          0.52,
+          0.55
+        ],
+        "collision": "none"
+      },
+      {
+        "name": "elbow1",
+        "parent": "arm1",
+        "shape": {
+          "kind": "frame"
+        },
+        "offset": [
+          0.4,
+          0,
+          0
+        ]
+      },
+      {
+        "name": "elbowBar1",
+        "parent": "elbow1",
+        "shape": {
+          "kind": "box",
+          "size": [
+            0.03,
+            0.03,
+            0.11
+          ]
+        },
+        "offset": [
+          0,
+          0,
+          0
+        ],
+        "color": [
+          0.5,
+          0.52,
+          0.55
+        ],
+        "collision": "none"
+      },
+      {
+        "name": "rod1a",
+        "parent": "elbow1",
+        "shape": {
+          "kind": "frame"
+        },
+        "offset": [
+          0,
+          0,
+          0.04
+        ],
+        "aim": {
+          "target": "end1a",
+          "up": [
+            0,
+            0,
+            1
+          ]
+        }
+      },
+      {
+        "name": "rodTube1a",
+        "parent": "rod1a",
+        "shape": {
+          "kind": "box",
+          "size": [
+            0.014,
+            0.014,
+            0.95
+          ]
+        },
+        "offset": [
+          0,
+          0,
+          0.475
+        ],
+        "color": [
+          0.18,
+          0.18,
+          0.19
+        ],
+        "collision": "none"
+      },
+      {
+        "name": "rod1b",
+        "parent": "elbow1",
+        "shape": {
+          "kind": "frame"
+        },
+        "offset": [
+          0,
+          0,
+          -0.04
+        ],
+        "aim": {
+          "target": "end1b",
+          "up": [
+            0,
+            0,
+            1
+          ]
+        }
+      },
+      {
+        "name": "rodTube1b",
+        "parent": "rod1b",
+        "shape": {
+          "kind": "box",
+          "size": [
+            0.014,
+            0.014,
+            0.95
+          ]
+        },
+        "offset": [
+          0,
+          0,
+          0.475
+        ],
+        "color": [
+          0.18,
+          0.18,
+          0.19
+        ],
+        "collision": "none"
+      },
+      {
+        "name": "shoulder2",
+        "shape": {
+          "kind": "frame"
+        },
+        "offset": [
+          -0.11,
+          1.9,
+          0.19052559
+        ],
+        "rotation": [
+          0,
+          -2.0943951,
+          0
+        ]
+      },
+      {
+        "name": "drive2",
+        "parent": "shoulder2",
+        "shape": {
+          "kind": "cylinder",
+          "radius": 0.07,
+          "height": 0.2
+        },
+        "offset": [
+          0,
+          0,
+          0
+        ],
+        "color": [
+          0.639,
+          0.116,
+          0.0066
+        ],
+        "collision": "none",
+        "rotation": [
+          1.5707963267948966,
+          0,
+          0
+        ]
+      },
+      {
+        "name": "arm2",
+        "parent": "shoulder2",
+        "shape": {
+          "kind": "frame"
+        },
+        "offset": [
+          0,
+          0,
+          0
+        ]
+      },
+      {
+        "name": "armTube2",
+        "parent": "arm2",
+        "shape": {
+          "kind": "box",
+          "size": [
+            0.44,
+            0.05,
+            0.06
+          ]
+        },
+        "offset": [
+          0.2,
+          0,
+          0
+        ],
+        "color": [
+          0.5,
+          0.52,
+          0.55
+        ],
+        "collision": "none"
+      },
+      {
+        "name": "elbow2",
+        "parent": "arm2",
+        "shape": {
+          "kind": "frame"
+        },
+        "offset": [
+          0.4,
+          0,
+          0
+        ]
+      },
+      {
+        "name": "elbowBar2",
+        "parent": "elbow2",
+        "shape": {
+          "kind": "box",
+          "size": [
+            0.03,
+            0.03,
+            0.11
+          ]
+        },
+        "offset": [
+          0,
+          0,
+          0
+        ],
+        "color": [
+          0.5,
+          0.52,
+          0.55
+        ],
+        "collision": "none"
+      },
+      {
+        "name": "rod2a",
+        "parent": "elbow2",
+        "shape": {
+          "kind": "frame"
+        },
+        "offset": [
+          0,
+          0,
+          0.04
+        ],
+        "aim": {
+          "target": "end2a",
+          "up": [
+            0,
+            0,
+            1
+          ]
+        }
+      },
+      {
+        "name": "rodTube2a",
+        "parent": "rod2a",
+        "shape": {
+          "kind": "box",
+          "size": [
+            0.014,
+            0.014,
+            0.95
+          ]
+        },
+        "offset": [
+          0,
+          0,
+          0.475
+        ],
+        "color": [
+          0.18,
+          0.18,
+          0.19
+        ],
+        "collision": "none"
+      },
+      {
+        "name": "rod2b",
+        "parent": "elbow2",
+        "shape": {
+          "kind": "frame"
+        },
+        "offset": [
+          0,
+          0,
+          -0.04
+        ],
+        "aim": {
+          "target": "end2b",
+          "up": [
+            0,
+            0,
+            1
+          ]
+        }
+      },
+      {
+        "name": "rodTube2b",
+        "parent": "rod2b",
+        "shape": {
+          "kind": "box",
+          "size": [
+            0.014,
+            0.014,
+            0.95
+          ]
+        },
+        "offset": [
+          0,
+          0,
+          0.475
+        ],
+        "color": [
+          0.18,
+          0.18,
+          0.19
+        ],
+        "collision": "none"
+      },
+      {
+        "name": "shoulder3",
+        "shape": {
+          "kind": "frame"
+        },
+        "offset": [
+          -0.11,
+          1.9,
+          -0.19052559
+        ],
+        "rotation": [
+          0,
+          -4.1887902,
+          0
+        ]
+      },
+      {
+        "name": "drive3",
+        "parent": "shoulder3",
+        "shape": {
+          "kind": "cylinder",
+          "radius": 0.07,
+          "height": 0.2
+        },
+        "offset": [
+          0,
+          0,
+          0
+        ],
+        "color": [
+          0.639,
+          0.116,
+          0.0066
+        ],
+        "collision": "none",
+        "rotation": [
+          1.5707963267948966,
+          0,
+          0
+        ]
+      },
+      {
+        "name": "arm3",
+        "parent": "shoulder3",
+        "shape": {
+          "kind": "frame"
+        },
+        "offset": [
+          0,
+          0,
+          0
+        ]
+      },
+      {
+        "name": "armTube3",
+        "parent": "arm3",
+        "shape": {
+          "kind": "box",
+          "size": [
+            0.44,
+            0.05,
+            0.06
+          ]
+        },
+        "offset": [
+          0.2,
+          0,
+          0
+        ],
+        "color": [
+          0.5,
+          0.52,
+          0.55
+        ],
+        "collision": "none"
+      },
+      {
+        "name": "elbow3",
+        "parent": "arm3",
+        "shape": {
+          "kind": "frame"
+        },
+        "offset": [
+          0.4,
+          0,
+          0
+        ]
+      },
+      {
+        "name": "elbowBar3",
+        "parent": "elbow3",
+        "shape": {
+          "kind": "box",
+          "size": [
+            0.03,
+            0.03,
+            0.11
+          ]
+        },
+        "offset": [
+          0,
+          0,
+          0
+        ],
+        "color": [
+          0.5,
+          0.52,
+          0.55
+        ],
+        "collision": "none"
+      },
+      {
+        "name": "rod3a",
+        "parent": "elbow3",
+        "shape": {
+          "kind": "frame"
+        },
+        "offset": [
+          0,
+          0,
+          0.04
+        ],
+        "aim": {
+          "target": "end3a",
+          "up": [
+            0,
+            0,
+            1
+          ]
+        }
+      },
+      {
+        "name": "rodTube3a",
+        "parent": "rod3a",
+        "shape": {
+          "kind": "box",
+          "size": [
+            0.014,
+            0.014,
+            0.95
+          ]
+        },
+        "offset": [
+          0,
+          0,
+          0.475
+        ],
+        "color": [
+          0.18,
+          0.18,
+          0.19
+        ],
+        "collision": "none"
+      },
+      {
+        "name": "rod3b",
+        "parent": "elbow3",
+        "shape": {
+          "kind": "frame"
+        },
+        "offset": [
+          0,
+          0,
+          -0.04
+        ],
+        "aim": {
+          "target": "end3b",
+          "up": [
+            0,
+            0,
+            1
+          ]
+        }
+      },
+      {
+        "name": "rodTube3b",
+        "parent": "rod3b",
+        "shape": {
+          "kind": "box",
+          "size": [
+            0.014,
+            0.014,
+            0.95
+          ]
+        },
+        "offset": [
+          0,
+          0,
+          0.475
+        ],
+        "color": [
+          0.18,
+          0.18,
+          0.19
+        ],
+        "collision": "none"
+      },
+      {
+        "name": "slideX",
+        "shape": {
+          "kind": "frame"
+        },
+        "offset": [
+          0,
+          1.2,
+          0
+        ]
+      },
+      {
+        "name": "slideY",
+        "parent": "slideX",
+        "shape": {
+          "kind": "frame"
+        },
+        "offset": [
+          0,
+          0,
+          0
+        ]
+      },
+      {
+        "name": "platform",
+        "parent": "slideY",
+        "shape": {
+          "kind": "frame"
+        },
+        "offset": [
+          0,
+          0,
+          0
+        ]
+      },
+      {
+        "name": "platformDisc",
+        "parent": "platform",
+        "shape": {
+          "kind": "cylinder",
+          "radius": 0.085,
+          "height": 0.032
+        },
+        "offset": [
+          0,
+          0,
+          0
+        ],
+        "color": [
+          0.639,
+          0.116,
+          0.0066
+        ],
+        "collision": "none"
+      },
+      {
+        "name": "end1a",
+        "parent": "platform",
+        "shape": {
+          "kind": "frame"
+        },
+        "offset": [
+          0.06,
+          0,
+          0.04
+        ]
+      },
+      {
+        "name": "end1b",
+        "parent": "platform",
+        "shape": {
+          "kind": "frame"
+        },
+        "offset": [
+          0.06,
+          0,
+          -0.04
+        ]
+      },
+      {
+        "name": "end2a",
+        "parent": "platform",
+        "shape": {
+          "kind": "frame"
+        },
+        "offset": [
+          -0.06464102,
+          0,
+          0.03196152
+        ]
+      },
+      {
+        "name": "end2b",
+        "parent": "platform",
+        "shape": {
+          "kind": "frame"
+        },
+        "offset": [
+          0.00464102,
+          0,
+          0.07196152
+        ]
+      },
+      {
+        "name": "end3a",
+        "parent": "platform",
+        "shape": {
+          "kind": "frame"
+        },
+        "offset": [
+          0.00464102,
+          0,
+          -0.07196152
+        ]
+      },
+      {
+        "name": "end3b",
+        "parent": "platform",
+        "shape": {
+          "kind": "frame"
+        },
+        "offset": [
+          -0.06464102,
+          0,
+          -0.03196152
+        ]
+      },
+      {
+        "name": "eoat",
+        "parent": "platform",
+        "shape": {
+          "kind": "frame"
+        },
+        "offset": [
+          0,
+          -0.016,
+          0
+        ]
+      },
+      {
+        "name": "gripper",
+        "parent": "platform",
+        "shape": {
+          "kind": "frame"
+        },
+        "offset": [
+          0,
+          -0.1727,
+          0
+        ],
+        "grip": {
+          "zone": {
+            "size": [
+              0.02,
+              0.02,
+              0.02
+            ]
+          }
+        }
+      }
+    ],
+    "joints": [
+      {
+        "name": "x",
+        "link": "slideX",
+        "type": "prismatic",
+        "axis": [
+          1,
+          0,
+          0
+        ],
+        "min": -0.55,
+        "max": 0.55
+      },
+      {
+        "name": "y",
+        "link": "slideY",
+        "type": "prismatic",
+        "axis": [
+          0,
+          0,
+          1
+        ],
+        "min": -0.55,
+        "max": 0.55
+      },
+      {
+        "name": "z",
+        "link": "platform",
+        "type": "prismatic",
+        "axis": [
+          0,
+          -1,
+          0
+        ],
+        "min": 0,
+        "max": 0.45
+      },
+      {
+        "name": "a1",
+        "link": "arm1",
+        "type": "revolute",
+        "axis": [
+          0,
+          0,
+          -1
+        ],
+        "min": -1.04719755,
+        "max": 1.74532925,
+        "cosmetic": true
+      },
+      {
+        "name": "a2",
+        "link": "arm2",
+        "type": "revolute",
+        "axis": [
+          0,
+          0,
+          -1
+        ],
+        "min": -1.04719755,
+        "max": 1.74532925,
+        "cosmetic": true
+      },
+      {
+        "name": "a3",
+        "link": "arm3",
+        "type": "revolute",
+        "axis": [
+          0,
+          0,
+          -1
+        ],
+        "min": -1.04719755,
+        "max": 1.74532925,
+        "cosmetic": true
+      }
+    ],
+    "delta": {
+      "platform": [
+        "x",
+        "y",
+        "z"
+      ],
+      "center": [
+        0,
+        1.2,
+        0
+      ],
+      "arms": [
+        {
+          "joint": "a1",
+          "shoulder": [
+            0.22,
+            1.9,
+            0
+          ],
+          "azimuth": 0
+        },
+        {
+          "joint": "a2",
+          "shoulder": [
+            -0.11,
+            1.9,
+            0.19052559
+          ],
+          "azimuth": 2.0943951
+        },
+        {
+          "joint": "a3",
+          "shoulder": [
+            -0.11,
+            1.9,
+            -0.19052559
+          ],
+          "azimuth": 4.1887902
+        }
+      ],
+      "upper": 0.4,
+      "rod": 0.95,
+      "anchor": 0.06
+    },
+    "bounds": {
+      "length": 1.4,
+      "width": 1.4,
+      "top": 2.05
+    },
+    "posable": true
+  },
+  "category": "Equipment",
+  "materials": [
+    {
+      "id": "lampBezel",
+      "color": [
+        0.02,
+        0.02,
+        0.022
+      ],
+      "metalness": 0,
+      "roughness": 0.5
+    },
+    {
+      "id": "lampLens",
+      "color": [
+        0.03,
+        0.06,
+        0.03
+      ],
+      "metalness": 0,
+      "roughness": 0.25
+    }
+  ],
+  "sdk": {
+    "level": 17,
+    "of": "v2:31029:28ywl17hpt1"
+  }
+}

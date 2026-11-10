@@ -39,8 +39,8 @@ const CENTER_DROP = 0.7
 const CENTER = [0, SHOULDER_Y - CENTER_DROP, 0]
 const ARMS = [0, 1, 2].map((i) => ({ n: i + 1, azimuth: r8((i * 2 * Math.PI) / 3) }))
 // The work area: a box the arms reach with room to spare (the solver tests sweep it). Travel in metres.
-const TRAVEL_X = 0.3
-const TRAVEL_Y = 0.3
+const TRAVEL_X = 0.55
+const TRAVEL_Y = 0.55
 const TRAVEL_Z = 0.45 // lowering from home
 const ARM_MIN = -60 * DEG // arm joint limits, radians below horizontal
 const ARM_MAX = 100 * DEG

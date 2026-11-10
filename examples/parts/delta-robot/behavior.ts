@@ -24,8 +24,8 @@
 // rig compiled from rig()).
 
 // The work area: a box the arms reach with room to spare (the solver tests sweep it). Travel in metres.
-const TRAVEL_X = 0.3
-const TRAVEL_Y = 0.3
+const TRAVEL_X = 0.55
+const TRAVEL_Y = 0.55
 const TRAVEL_Z = 0.45 // lowering from home
 
 // Overridden from the Inspector by the 'waypoints' param (its numberList grid, or captured by the editor's rig
